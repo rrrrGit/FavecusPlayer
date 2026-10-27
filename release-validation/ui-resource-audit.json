@@ -1,0 +1,30 @@
+{
+  "version": "0.6.6",
+  "status": "pass",
+  "pages": [
+    {
+      "file": "src/ui/browse.html",
+      "ids": 13,
+      "references": 3
+    },
+    {
+      "file": "src/ui/index.html",
+      "ids": 84,
+      "references": 22
+    },
+    {
+      "file": "src/ui/local.html",
+      "ids": 2,
+      "references": 2
+    },
+    {
+      "file": "src/ui/mini.html",
+      "ids": 13,
+      "references": 9
+    }
+  ],
+  "guideFeatureVersionPhrases": "absent",
+  "publicSourceFilesChecked": 162,
+  "knownCredentialPatterns": "absent",
+  "windowsVisualReview": "not tested"
+}

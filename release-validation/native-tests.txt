@@ -1,0 +1,2 @@
+Native taskbar surface/alpha/visibility/occlusion/width/DPI/cleanup/reconnect/protocol checks passed (mock Win32; no Windows rendering test).
+Native launcher destination, repair location, shortcut detection, unsigned exit status and diagnostic code/log checks passed (mock Win32).

@@ -1,0 +1,74 @@
+{
+  "name": "favecus-player",
+  "version": "0.6.6",
+  "description": "Personal Bilibili and local media playlists with Discord Rich Presence",
+  "productName": "Favecus Player",
+  "author": "Favecus Player",
+  "license": "MIT",
+  "private": true,
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "check": "node scripts/check.cjs",
+    "build:mac": "electron-builder --mac dmg --publish never",
+    "build:linux": "electron-builder --linux AppImage --publish never",
+    "build:win:legacy": "electron-builder --win nsis --x64 --publish never",
+    "build:portable:legacy": "electron-builder --win zip --x64 --publish never",
+    "build:win": "python3 scripts/build-windows.py",
+    "verify:win": "python3 scripts/verify-windows.py"
+  },
+  "devDependencies": {
+    "electron": "44.2.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "local.favecusplayer.desktop",
+    "productName": "Favecus Player",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      "LICENSE",
+      "build/icon.png",
+      "build/icon.ico",
+      "build/music.png"
+    ],
+    "extraResources": [
+      {
+        "from": "docs",
+        "to": "docs"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false,
+      "artifactName": "Favecus-Player-${version}-${arch}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "category": "public.app-category.video",
+      "target": [
+        "dmg"
+      ]
+    },
+    "linux": {
+      "category": "AudioVideo",
+      "target": [
+        "AppImage"
+      ]
+    }
+  }
+}

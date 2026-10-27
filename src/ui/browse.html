@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Favecus Player · Bilibili検索</title><link rel="stylesheet" href="browse.css"><script src="browse.js" defer></script></head>
+<body><header>
+  <div class="browse-titlebar"><img src="icon.png" alt=""><span id="browse-title">Bilibiliから検索して追加</span>
+    <button id="browse-add" class="add-button" disabled>この動画をプレイリストに追加</button>
+    <button id="browse-minimize" class="window-button" aria-label="最小化" title="最小化">−</button>
+    <button id="browse-maximize" class="window-button" aria-label="最大化" title="最大化">□</button>
+    <button id="browse-close" class="window-button close-button" aria-label="閉じる" title="閉じる">×</button></div>
+  <form id="browse-search" class="browse-navigation"><button id="browse-back" type="button" aria-label="前のページ" disabled>←</button><button id="browse-forward" type="button" aria-label="次のページ" disabled>→</button><button id="browse-home" type="button">ホーム</button><button id="browse-reload" type="button">再読み込み</button>
+    <input id="browse-keyword" type="search" placeholder="Bilibiliで動画を検索" aria-label="Bilibiliで動画を検索" maxlength="200" required><button type="submit">検索</button><button id="browse-sound" type="button" aria-pressed="false">試聴音声 オフ</button></form>
+  <p id="browse-message" role="status">投稿動画を開くと、右上から追加できます。検索画面の音声は初期オフです。</p>
+</header></body></html>

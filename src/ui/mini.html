@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Favecus Player · ミニプレイヤー</title><link rel="stylesheet" href="mini.css"><script src="mini.js" defer></script></head>
+<body><main class="mini-bar">
+<img class="mini-icon" src="icon.png" alt="Favecus Player"><div class="track"><strong id="mini-title">Favecus Player</strong><span id="mini-artist">読み込んでいます…</span></div>
+<button id="mini-previous" type="button" aria-label="前の曲" title="前の曲" disabled><svg aria-hidden="true"><use href="icons.svg#previous"/></svg></button>
+<button id="mini-toggle" class="main-control" type="button" aria-label="再生" title="再生" disabled><svg aria-hidden="true"><use href="icons.svg#play"/></svg></button>
+<button id="mini-next" type="button" aria-label="次の曲" title="次の曲" disabled><svg aria-hidden="true"><use href="icons.svg#next"/></svg></button>
+<button id="mini-stop" type="button" aria-label="停止" title="停止" disabled><svg aria-hidden="true"><use href="icons.svg#stop"/></svg></button>
+<div id="mini-volume-area" class="volume-area"><button id="mini-volume-button" type="button" aria-label="音量・クリックでミュート" title="音量（クリックでミュート）" aria-controls="mini-volume-panel" aria-expanded="false"><svg aria-hidden="true"><use href="icons.svg#volume"/></svg></button>
+<div id="mini-volume-panel" class="volume-panel"><label for="mini-volume">音量</label><input id="mini-volume" type="range" min="0" max="100" step="1"><output id="mini-volume-value" for="mini-volume">100%</output></div></div>
+<button id="mini-restore" type="button" aria-label="元の画面に戻る" title="元の画面に戻る"><svg aria-hidden="true"><use href="icons.svg#restore"/></svg></button>
+</main><div id="mini-error" role="status" aria-live="polite"></div></body></html>

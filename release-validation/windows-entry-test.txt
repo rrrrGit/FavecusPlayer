@@ -1,0 +1,22 @@
+[
+  {
+    "file": "FavecusPlayer.exe",
+    "exit": 0,
+    "output": "Native entry and 48 API bindings reached the first COM initialization call (mock Win32)."
+  },
+  {
+    "file": "FavecusPlayerTaskbar.exe",
+    "exit": 0,
+    "output": "Native entry and 48 API bindings reached the first COM initialization call (mock Win32)."
+  },
+  {
+    "file": "Patch.exe",
+    "exit": 0,
+    "output": "Native entry and 48 API bindings reached the first COM initialization call (mock Win32)."
+  },
+  {
+    "file": "Setup.exe",
+    "exit": 0,
+    "output": "Native entry and 48 API bindings reached the first COM initialization call (mock Win32)."
+  }
+]

@@ -1,0 +1,50 @@
+<!doctype html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self'"><title>Favecus Player · DISCORD</title><style>body{font-family:"Yu Gothic UI",system-ui,sans-serif;line-height:1.9;margin:45px auto;max-width:960px;padding:0 30px;color:#202332;background:#f8f9fc}h1,h2,h3{line-height:1.5;color:#363157}h2{margin-top:2em}table{border-collapse:collapse;width:100%;font-size:.95em}th,td{border:1px solid #c9cada;text-align:left;padding:9px 12px}th{background:#efedf9}pre{background:#eaeaf2;padding:15px;white-space:pre-wrap;overflow-wrap:anywhere}code{font-family:Consolas,monospace;font-size:.92em}a{color:#5946a9}li{margin:6px 0}blockquote{margin:20px 0;padding:5px 20px;border-left:3px solid #7969bf;background:#efedf9}img{width:160px;max-width:100%;border-radius:24px}</style></head><body><h1>Discordアクティビティの使い方</h1>
+<p>Discordデスクトップ版を起動すると、Favecus Playerで再生している曲をアクティビティに表示できます。Discord本体のアクティビティ共有も有効にしてください。</p>
+<h2>初回の設定</h2>
+<ol>
+<li><a href="https://discord.com/developers/applications">Discord Developer Portal</a>で自分のApplicationを作成するか、使用するものを開きます。</li>
+<li><strong>General Information → Application ID</strong> をコピーします。</li>
+<li>Favecus Playerの <strong>設定 → Discordアクティビティ</strong> を開き、Application IDへ貼り付けます。</li>
+<li><strong>Discordに再生中の内容を表示する</strong> をオンにします。</li>
+<li>次の手順で共通アイコンを登録し、<strong>保存して戻る</strong> を押します。</li>
+</ol>
+<p>Bot TokenやClient Secretの入力は不要です。Web版のDiscordだけでは接続できません。</p>
+<h2>共通アイコンを登録する</h2>
+<p><img src="favecus_player_music.png" alt="共通アイコン"></p>
+<ol>
+<li>Favecus Playerの設定で <strong>登録するPNGを表示</strong> を押します。使う画像は <strong>favecus_player_music.png</strong> です。</li>
+<li>Developer Portalで、同じApplication IDのアプリを開きます。</li>
+<li><strong>Rich Presence → Art Assets</strong> でPNGを追加します。</li>
+<li>画像名・Asset Keyを <strong>favecus_player_music</strong> にします。拡張子は付けません。</li>
+<li>Favecus Playerの <strong>Rich Presenceの画像名</strong> も <strong>favecus_player_music</strong> にします。独自の名前を使う場合は、両方を一致させます。</li>
+<li>保存後、曲を再生して接続状態を確認します。</li>
+</ol>
+<p>General InformationのApp Iconと、アクティビティの画像登録は別です。画像が出ない場合はApplication IDとAsset Keyの一致を確認してください。画像登録の反映には時間がかかる場合があります。再生状態の送信は間隔をまとめるため、設定反映まで最大約15秒待つ場合があります。</p>
+<h2>楽曲画像の大きさとリンク</h2>
+<p><strong>楽曲のサムネイルを表示</strong> をオンにすると、Bilibiliの公開画像を表示します。<strong>楽曲アイコンのサイズ</strong> で次を選べます。</p>
+<table>
+<thead>
+<tr>
+<th>設定</th>
+<th>大きい画像</th>
+<th>補助画像</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>小：補助画像</td>
+<td>共通アプリアイコン</td>
+<td>楽曲サムネイル</td>
+</tr>
+<tr>
+<td>大：メイン画像</td>
+<td>楽曲サムネイル</td>
+<td>共通アプリアイコン</td>
+</tr>
+</tbody></table>
+<p>アプリに登録したアイコンそのものは変更しません。補助画像の位置と実際の大きさはDiscordが決めます。四隅への自由配置、ピクセル単位のサイズ、カード背景全体への配置には対応していません。</p>
+<p><strong>楽曲アイコンを押すと動画を開く</strong> をオンにすると、楽曲画像だけへ選択中のパートの動画リンクを設定します。曲名と共通アプリアイコンには動画リンクを設定しません。オフにすると楽曲画像からのリンクも外します。画像非表示の場合はリンクを付けません。</p>
+<p>Discordがアプリ名から開くアプリ情報や、外部リンクを開くときの確認画面はDiscord側の動作です。Favecus Playerから確認画面の有無を指定することはできません。ローカルファイルのパスやログイン情報はアクティビティへ送りません。</p>
+<h2>一時停止中の表示</h2>
+<p><strong>一時停止中はアクティビティを非表示</strong> をオンにすると、一時停止中の活動表示を消します。</p>
+<p>オフにすると、例えば <strong>一時停止 · 02:56 / 05:11 · Bilibili</strong> と表示します。左が停止位置、右が総再生時間です。一時停止中はこの数値を進めず、再生再開時に時間バーへ戻します。表示の省略や配置はDiscordクライアントにより異なります。</p>
+</body></html>
