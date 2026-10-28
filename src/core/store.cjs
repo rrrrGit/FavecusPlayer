@@ -396,34 +396,15 @@ class Store {
       if (fs.existsSync(path.join(this.media, name))) await fs.promises.copyFile(path.join(this.media, name), path.join(folder, 'media', name));
       else missing++;
     }
-    await fs.promises.writeFile(path.join(folder, 'favecus-player-library.json'), ExportJSON({ version: 3, playlists, rootPlaylistIds: this.data.rootPlaylistIds }));
+    await fs.promises.writeFile(path.join(folder, 'favecus-player-library.json'), ExportJSON({ version: 3, identityVersion: this.data.identityVersion, videoAliases: this.data.videoAliases, playlists, rootPlaylistIds: this.data.rootPlaylistIds }));
     return { folder, missing };
   }
   async Import(file) {
-    if ((await fs.promises.stat(file)).size > MAX_JSON) throw new Error('ファイルが大きすぎます。');
-    const input = ReadJSON(await fs.promises.readFile(file));
-    const lists = ValidateLibrary(input, true);
-    const cleanTitle = TitleCleaner(this.data.settings.titleCleanupWords);
-    for (const list of lists) for (const entry of list.entries) entry.title = cleanTitle(entry.title);
-    const skipped = input.playlists.reduce((n, p) => n + p.entries.filter(e => e?.type === 'youtube').length, 0);
-    if (this.data.playlists.length + lists.length > 100 || this.data.playlists.reduce((n, p) => n + p.entries.length, 0) + lists.reduce((n, p) => n + p.entries.length, 0) > MAX_ENTRIES) throw new Error('登録数の上限を超えています。');
-    const mapping = new Map(); let missing = 0;
-    for (const p of lists) for (const e of p.entries) if (e.type === 'local') {
-      if (mapping.has(e.fileName)) { e.fileName = mapping.get(e.fileName); continue; }
-      const source = path.join(path.dirname(file), 'media', e.fileName);
-      const newName = `${randomUUID()}${path.extname(e.fileName)}`;
-      mapping.set(e.fileName, newName);
-      // JSONで指定できるのは、同梱mediaフォルダー直下の通常ファイルだけ。
-      const stat = await fs.promises.lstat(source).catch(() => null);
-      const mediaStat = await fs.promises.lstat(path.dirname(source)).catch(() => null);
-      if (stat?.isFile() && !stat.isSymbolicLink() && mediaStat?.isDirectory() && !mediaStat.isSymbolicLink()) await fs.promises.copyFile(source, path.join(this.media, newName));
-      else missing++;
-      e.fileName = newName;
-    }
-    const mappingIds = new Map(input.playlists.map((p, i) => [p.id, lists[i].id]));
-    this.data.rootPlaylistIds.push(...(input.version === 3 ? input.rootPlaylistIds.map(id => mappingIds.get(id)) : lists.map(p => p.id)));
-    this.data.playlists.push(...lists); this.data.activePlaylistId = lists[0].id; this.Save();
-    return { state: this.Snapshot(), missing, skipped };
+    const { LibraryArchive } = require('./library-archive.cjs');
+    const archive = new LibraryArchive(this);
+    const plan = await archive.Prepare(file);
+    try { return await archive.Commit(plan.id, plan.playlists.map(p => p.id)); }
+    finally { await archive.Cancel(plan.id); }
   }
 }
 

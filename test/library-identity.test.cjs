@@ -130,7 +130,7 @@ test('unsupported schema and conflicting IDs stop without falling back to an old
   }
 });
 
-test('identity planning is pure and legacy import IDs are safely discarded pending the new import protocol', t => {
+test('identity planning is pure and fresh-ID validation remains available separately from shared import planning', t => {
   const h = Setup(t), original = structuredClone(h.store.data);
   assert.equal(PlanMediaIds(h.store.data.playlists, () => assert.fail('existing IDs must be reused')).size, 2);
   assert.deepEqual(h.store.data, original);
