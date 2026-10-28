@@ -33,10 +33,11 @@ function SelectStreams(info, kind, height = 720) {
   throw new Error('対応するH.264動画・AAC音声を取得できません。ログイン状態と動画の公開範囲を確認してください。');
 }
 class BilibiliDownloadSource {
-  constructor(fetch) { this.fetch = fetch; }
+  constructor(fetch, identify = () => {}) { this.fetch = fetch; this.identify = identify; }
   async Cover(entry, signal) {
     const video = ParseBilibili(entry.url), query = video.videoId.startsWith('BV') ? { bvid: video.videoId } : { aid: video.videoId.slice(2) };
     const data = this.Data(await this.Request('/x/web-interface/view', query, signal));
+    if (VideoIdentity(entry, data).verified) this.identify(entry, data);
     const raw = data.pages?.find(p => p.page === video.part)?.first_frame || data.pic;
     return raw ? ImageURL(raw) : null;
   }
@@ -61,7 +62,8 @@ class BilibiliDownloadSource {
     if ([-400, -404].includes(response.code)) { const nav = await this.Request('/x/web-interface/nav', {}, signal); if (!nav.data?.wbi_img) this.Data(nav); response = await this.Request('/x/player/wbi/playurl', SignQuery(query, nav.data?.wbi_img || {}), signal); }
     const info = this.Data(response);
     let thumbnailURL = null; try { thumbnailURL = ImageURL(page.first_frame || details.pic); } catch {}
-    const aliases = VideoIdentity(video, details).aliases;
+    const identity = VideoIdentity(video, details), aliases = identity.aliases;
+    if (identity.verified) this.identify(entry, details);
     return { ...SelectStreams(info, kind, height), kind, url: video.url, aliases, thumbnailURL, duration: Number(page.duration || details.duration || info.timelength / 1000) || 0 };
   }
 }

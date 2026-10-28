@@ -20,10 +20,10 @@ async function LinkOrCopy(from, to) {
   catch (error) { if (!['EXDEV', 'EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EACCES', 'EMLINK', 'ENOSYS'].includes(error.code)) throw error; await fs.promises.copyFile(from, to, fs.constants.COPYFILE_EXCL); }
 }
 class OfflineLibrary {
-  constructor({ directory, previousDirectories = [], settingsFile, fetch, ffmpeg, changed = () => {}, diagnostic = () => {}, libraryData = () => null, resolve, cover, thumbnail = RemoteImage, assemble = Assemble, transfer = DownloadStream }) {
+  constructor({ directory, previousDirectories = [], settingsFile, fetch, ffmpeg, changed = () => {}, diagnostic = () => {}, libraryData = () => null, identify = () => {}, resolve, cover, thumbnail = RemoteImage, assemble = Assemble, transfer = DownloadStream }) {
     Object.assign(this, { settingsFile, fetch, ffmpeg, changed, diagnostic, libraryData, assemble, transfer, thumbnail }); this.active = new Map();
-    this.cover = cover || ((...args) => new BilibiliDownloadSource(fetch).Cover(...args));
-    this.resolve = resolve || ((...args) => new BilibiliDownloadSource(fetch).Resolve(...args)); this.job = null; this.controller = null; this.done = Promise.resolve();
+    this.cover = cover || ((...args) => new BilibiliDownloadSource(fetch, identify).Cover(...args));
+    this.resolve = resolve || ((...args) => new BilibiliDownloadSource(fetch, identify).Resolve(...args)); this.job = null; this.controller = null; this.done = Promise.resolve();
     let settings = {}; try { settings = ReadJSON(settingsFile, {}); } catch { this.warning = '保存先の設定を読み込めません。標準の保存先を使用します。'; }
     this.directory = path.resolve(typeof settings.directory === 'string' && path.isAbsolute(settings.directory) ? settings.directory : directory);
     this.preferSaved = settings.preferSaved !== false;

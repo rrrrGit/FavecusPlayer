@@ -15,7 +15,7 @@ function Setup(t) {
   return { directory, store, root, child };
 }
 function Legacy(h, version = 3) {
-  const old = structuredClone(h.store.data); delete old.identityVersion;
+  const old = structuredClone(h.store.data); delete old.identityVersion; delete old.videoAliases;
   for (const p of old.playlists) for (const e of p.entries) delete e.mediaId;
   old.version = version;
   if (version < 3) { delete old.rootPlaylistIds; for (const p of old.playlists) delete p.childIds; }
@@ -25,8 +25,8 @@ function Legacy(h, version = 3) {
 
 test('legacy hierarchy migrates once, keeps row IDs and raw bytes, and persists shared media IDs', t => {
   const h = Setup(t), { old, bytes } = Legacy(h), next = new Store(h.directory);
-  assert.equal(next.data.version, 3); assert.equal(next.data.identityVersion, 1);
-  const withoutIds = structuredClone(next.data); delete withoutIds.identityVersion;
+  assert.equal(next.data.version, 3); assert.equal(next.data.identityVersion, 2);
+  const withoutIds = structuredClone(next.data); delete withoutIds.identityVersion; delete withoutIds.videoAliases;
   for (const p of withoutIds.playlists) for (const e of p.entries) delete e.mediaId;
   assert.deepEqual(withoutIds, old);
   const entries = next.data.playlists.flatMap(p => p.entries);
@@ -41,7 +41,7 @@ test('legacy hierarchy migrates once, keeps row IDs and raw bytes, and persists 
 test('version 1 and 2 libraries acquire IDs while retaining the old migration backup', t => {
   for (const version of [1, 2]) {
     const h = Setup(t), { bytes } = Legacy(h, version), next = new Store(h.directory);
-    assert.equal(next.data.identityVersion, 1);
+    assert.equal(next.data.identityVersion, 2);
     assert.ok(next.data.playlists.every(p => p.entries.every(e => MEDIA_ID.test(e.mediaId))));
     const backup = fs.readdirSync(h.directory).find(n => n.startsWith('library.pre-0.5.0-'));
     assert.deepEqual(fs.readFileSync(path.join(h.directory, backup)), bytes);
@@ -100,7 +100,7 @@ test('failed migration backup or final rename leaves original bytes available fo
     try { assert.throws(() => new Store(h.directory)); } finally { mock.mock.restore(); }
     assert.deepEqual(fs.readFileSync(h.store.file), bytes);
     assert.ok(!fs.readdirSync(h.directory).some(n => n.endsWith('.tmp')));
-    const next = new Store(h.directory); assert.equal(next.data.identityVersion, 1);
+    const next = new Store(h.directory); assert.equal(next.data.identityVersion, 2);
   }
 });
 
@@ -118,8 +118,8 @@ test('failed add rolls back IDs and memory, then a retry and restart share the s
 test('unsupported schema and conflicting IDs stop without falling back to an older backup', t => {
   for (const mode of ['future', 'future-library', 'missing', 'different-media', 'same-media']) {
     const h = Setup(t), value = structuredClone(h.store.data);
-    if (mode === 'future') value.identityVersion = 2;
-    if (mode === 'future-library') { value.version = 4; value.identityVersion = 2; }
+    if (mode === 'future') value.identityVersion = 3;
+    if (mode === 'future-library') { value.version = 4; value.identityVersion = 3; }
     if (mode === 'missing') delete value.playlists[0].entries[0].mediaId;
     if (mode === 'different-media') value.playlists[1].entries[0].url = 'av456';
     if (mode === 'same-media') value.playlists[1].entries[0].mediaId = randomUUID();

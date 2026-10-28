@@ -331,10 +331,15 @@ function PlayableEntry(playlistId, entryId) {
   if (entry.type === 'local' && !fs.existsSync(path.join(store.media, entry.fileName))) throw new Error('動画ファイルが見つかりません。「ファイル追加」で再登録してください。');
   return entry;
 }
+function RememberVideo(entry, details) {
+  try { if (store.RememberVideo(entry, details)) Emit('state', store.Snapshot()); }
+  catch (error) { Notify(`動画の対応情報を保存できません: ${error.message}`); }
+}
 function WarmMetadata(entry) {
   if (entry?.type !== 'bilibili' || playbackMetadata.has(entry.videoId)) return Promise.resolve(playbackMetadata.get(entry?.videoId));
   if (!metadataPending.has(entry.videoId) && metadataPending.size >= 2) return Promise.resolve(null);
   if (!metadataPending.has(entry.videoId)) metadataPending.set(entry.videoId, biliAccount.Details(entry.videoId).then(details => {
+    RememberVideo(entry, details);
     if (playbackMetadata.size >= 200) playbackMetadata.delete(playbackMetadata.keys().next().value);
     playbackMetadata.set(entry.videoId, details); if (current?.entry.videoId === entry.videoId) UpdatePresence(); return details;
   }).catch(() => null).finally(() => metadataPending.delete(entry.videoId)));
@@ -488,11 +493,12 @@ async function Start() {
     try { biliSession.preconnect({ url, numSockets: 1 }); } catch {}
   }
   biliAccount = new BilibiliAccount((...args) => biliSession.fetch(...args));
-  offline = new OfflineLibrary({ directory: path.join(process.env.FAVECUS_INSTALL_ROOT || (app.isPackaged ? path.dirname(app.getPath('exe')) : app.getAppPath()), 'downloads'), previousDirectories: process.env.FAVECUS_INSTALL_ROOT ? PreviousInstallRoots(process.env.FAVECUS_INSTALL_ROOT).map(p => path.join(p, 'downloads')) : [], settingsFile: path.join(app.getPath('userData'), 'download-settings.json'), fetch: DownloadFetch(biliSession), ffmpeg, libraryData: () => store.data, diagnostic: DownloadDiagnosticLog, changed: value => Emit('downloads', value) });
+  offline = new OfflineLibrary({ directory: path.join(process.env.FAVECUS_INSTALL_ROOT || (app.isPackaged ? path.dirname(app.getPath('exe')) : app.getAppPath()), 'downloads'), previousDirectories: process.env.FAVECUS_INSTALL_ROOT ? PreviousInstallRoots(process.env.FAVECUS_INSTALL_ROOT).map(p => path.join(p, 'downloads')) : [], settingsFile: path.join(app.getPath('userData'), 'download-settings.json'), fetch: DownloadFetch(biliSession), ffmpeg, libraryData: () => store.data, identify: RememberVideo, diagnostic: DownloadDiagnosticLog, changed: value => Emit('downloads', value) });
   await offline.Organize(); archive = new LibraryArchive(store, offline);
   playCounts = new PlayCounts(path.join(app.getPath('userData'), 'play-counts.json'), Notify);
   additionReview = new AdditionReview(store, { resolveTitle: async entry => {
     const data = await biliAccount.Details(entry.videoId);
+    RememberVideo(entry, data);
     const page = data?.pages?.find(p => p.page === entry.part) || data?.pages?.[entry.part - 1];
     return data?.pages?.length > 1 ? page?.part || data?.title : data?.title;
   } });

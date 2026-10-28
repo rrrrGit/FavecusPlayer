@@ -10,8 +10,8 @@ const { ParseBilibili, ParseVideo, ShareTitle, MEDIA_EXTENSIONS } = require('./u
 const { ReadJSON, ExportJSON } = require('./library-json.cjs');
 const { ValidateTitleWords, TitleCleaner } = require('./title-cleanup.cjs');
 const { Repository, DriveURL } = require('./releases.cjs');
-const { MediaKey } = require('./media-identity.cjs');
-const { IDENTITY_SCHEMA_VERSION, MEDIA_ID, IdentityError, ValidateIdentityVersion, PlanMediaIds } = require('./library-identity.cjs');
+const { VideoIdentity } = require('./media-identity.cjs');
+const { IDENTITY_SCHEMA_VERSION, MEDIA_ID, IdentityError, ValidateIdentityVersion, PlanMediaIds, VideoAliases, LibraryMediaKey } = require('./library-identity.cjs');
 const MAX_ENTRIES = 10000;
 const MAX_JSON = 32 * 1024 * 1024;
 const ID = /^[a-f0-9-]{36}$/;
@@ -49,6 +49,7 @@ function ValidateSettings(input) {
 function ValidateLibrary(input, freshIds = false) {
   if (!input || ![1, 2, 3].includes(input.version) || !Array.isArray(input.playlists) || input.playlists.length > 100 || input.playlists.length < 1) throw new Error('対応していない再生リストファイルです。');
   ValidateIdentityVersion(input);
+  const keyOf = LibraryMediaKey(input.identityVersion === 2 ? input.videoAliases : []);
   let total = 0;
   const seen = new Set();
   const identifier = value => {
@@ -65,7 +66,7 @@ function ValidateLibrary(input, freshIds = false) {
     return { id, childIds: [], icon: ValidateIcon(p.icon), name: CleanText(p.name, 60) || '無題のリスト', createdAt: timestamp(p.createdAt), lastAddedAt: timestamp(p.lastAddedAt), includeInAll: p.includeInAll !== false, entries: p.entries.filter(e => !(input.version === 1 && e?.type === 'youtube')).map(e => {
       if (!e || !['bilibili', 'local'].includes(e.type)) throw new Error('不明な種類の動画が含まれています。');
       const base = { id: identifier(e.id), title: CleanText(e.title), addedAt: CleanText(e.addedAt, 40), ...(Number.isFinite(e.duration) && e.duration > 0 ? { duration: Math.min(e.duration, 604800) } : {}) };
-      if (!freshIds && input.identityVersion === IDENTITY_SCHEMA_VERSION) {
+      if (!freshIds && [1, IDENTITY_SCHEMA_VERSION].includes(input.identityVersion)) {
         if (typeof e.mediaId !== 'string' || !MEDIA_ID.test(e.mediaId)) throw IdentityError('メディア識別番号がありません。保存データは変更していません。');
         base.mediaId = e.mediaId;
       }
@@ -78,7 +79,7 @@ function ValidateLibrary(input, freshIds = false) {
     Tree.ValidateGraph(input.playlists, input.rootPlaylistIds);
     input.playlists.forEach((p, i) => { lists[i].childIds = p.childIds.map(id => remap.get(id)); });
   }
-  if (!freshIds && input.identityVersion === IDENTITY_SCHEMA_VERSION) PlanMediaIds(lists, () => { throw IdentityError('メディア識別番号がありません。'); });
+  if (!freshIds && [1, IDENTITY_SCHEMA_VERSION].includes(input.identityVersion)) PlanMediaIds(lists, () => { throw IdentityError('メディア識別番号がありません。'); }, keyOf);
   return lists;
 }
 
@@ -115,12 +116,12 @@ class Store {
           catch (error) { error.migrationBackupFailed = true; throw error; }
           if (value.playlists.some(p => p.entries.some(e => e?.type === 'youtube'))) this.warning += ' YouTubeの項目を一覧から外しました。変更前のリストはアプリのデータフォルダーに library.pre-0.5.0 として保存しています。';
         }
-        if (value.version === 3 && !Object.hasOwn(value, 'identityVersion')) {
+        if (value.version === 3 && (!Object.hasOwn(value, 'identityVersion') || value.identityVersion === 1)) {
           const backup = path.join(this.directory, `library.pre-0.6.7-${Date.now()}-${randomUUID().slice(0, 8)}.json`);
           try { fs.copyFileSync(candidate, backup, fs.constants.COPYFILE_EXCL); }
           catch (error) { error.migrationBackupFailed = true; throw error; }
         }
-        return { version: 3, ...(Object.hasOwn(value, 'identityVersion') ? { identityVersion: value.identityVersion } : {}), playlists, rootPlaylistIds: value.version === 3 ? value.rootPlaylistIds : playlists.map(p => p.id), activePlaylistId, settings };
+        return { version: 3, ...(Object.hasOwn(value, 'identityVersion') ? { identityVersion: value.identityVersion } : {}), ...(value.identityVersion === 2 ? { videoAliases: VideoAliases(value.videoAliases) } : {}), playlists, rootPlaylistIds: value.version === 3 ? value.rootPlaylistIds : playlists.map(p => p.id), activePlaylistId, settings };
       } catch (error) {
         if (error.identityDataInvalid) throw error;
         if (error.migrationBackupFailed) throw new Error('更新前のバックアップを保存できません。空き容量とデータフォルダーの書き込み権限を確認してください。保存データは変更していません。');
@@ -132,8 +133,9 @@ class Store {
   }
   Save() {
     ValidateIdentityVersion(this.data);
-    const assignments = PlanMediaIds(this.data.playlists, randomUUID);
-    const next = { ...this.data, identityVersion: IDENTITY_SCHEMA_VERSION, playlists: this.data.playlists.map(p => ({ ...p, entries: p.entries.map(e => ({ ...e, mediaId: assignments.get(e) })) })) };
+    const videoAliases = VideoAliases(this.data.videoAliases);
+    const assignments = PlanMediaIds(this.data.playlists, randomUUID, LibraryMediaKey(videoAliases));
+    const next = { ...this.data, identityVersion: IDENTITY_SCHEMA_VERSION, videoAliases, playlists: this.data.playlists.map(p => ({ ...p, entries: p.entries.map(e => ({ ...e, mediaId: assignments.get(e) })) })) };
     const temp = `${this.file}.${randomUUID()}.tmp`;
     try {
       fs.writeFileSync(temp, JSON.stringify(next, null, 2), { mode: 0o600, flag: 'wx' });
@@ -142,6 +144,7 @@ class Store {
       fs.renameSync(temp, this.file);
     } finally { try { fs.rmSync(temp, { force: true }); } catch {} }
     this.data.identityVersion = IDENTITY_SCHEMA_VERSION;
+    this.data.videoAliases = videoAliases;
     for (const [entry, mediaId] of assignments) entry.mediaId = mediaId;
   }
   Snapshot() {
@@ -160,6 +163,25 @@ class Store {
     return result;
   }
   CleanTitle(value) { return TitleCleaner(this.data.settings.titleCleanupWords)(value); }
+  IdentityKey() { return LibraryMediaKey(this.data.videoAliases); }
+  RememberVideo(entry, details) {
+    const media = VideoIdentity(entry, details);
+    if (!media.verified) return false;
+    const record = { aid: media.aliases.map(url => ParseBilibili(url).videoId).find(id => id.startsWith('av')).slice(2), bvid: media.videoId };
+    if ((this.data.videoAliases || []).some(r => r.aid === record.aid && r.bvid === record.bvid)) return false;
+    const aliases = VideoAliases([...(this.data.videoAliases || []), record]);
+    if (aliases.length === (this.data.videoAliases || []).length) return false;
+    PlanMediaIds(this.data.playlists, randomUUID, this.IdentityKey());
+    const before = this.data, next = structuredClone(before), keyOf = LibraryMediaKey(aliases), winners = new Map();
+    for (const p of next.playlists) for (const e of p.entries) {
+      const key = keyOf(e);
+      if (!winners.has(key)) winners.set(key, e.mediaId);
+      e.mediaId = winners.get(key);
+    }
+    next.videoAliases = aliases;
+    try { this.data = next; this.Save(); } catch (error) { this.data = before; throw error; }
+    return true;
+  }
   Targets(destinationIds) {
     const ids = typeof destinationIds === 'string' ? [destinationIds] : destinationIds;
     if (!Array.isArray(ids) || !ids.length || ids.length > 100) throw new Error('追加先のプレイリストにチェックしてください。');
@@ -183,7 +205,7 @@ class Store {
   }
   AddItems(destinationIds, items) {
     const targets = this.Targets(destinationIds), cleanTitle = TitleCleaner(this.data.settings.titleCleanupWords);
-    const key = entry => MediaKey(entry);
+    const key = this.IdentityKey();
     const unique = new Map();
     for (const item of items) { const id = key(item); if (!unique.has(id)) unique.set(id, item); }
     const additions = targets.map(p => {
@@ -314,7 +336,7 @@ class Store {
       return this.Playlist(id);
     });
     if (targetId !== undefined && (targets.length !== 1 || !targets[0].entries.some(e => e.id === targetId) || typeof after !== 'boolean')) throw new Error('挿入先の楽曲が見つかりません。挿入位置を選び直してください。');
-    const same = e => e.type === entry.type && (e.type === 'local' ? e.fileName === entry.fileName : ParseBilibili(e.url).url === ParseBilibili(entry.url).url);
+    const keyOf = this.IdentityKey(), same = e => keyOf(e) === keyOf(entry);
     const operations = targets.map(p => ({ p, existing: p.entries.find(same) }));
     const added = operations.filter(o => !o.existing).length;
     const count = this.data.playlists.reduce((n, p) => n + p.entries.length, 0);
@@ -341,7 +363,7 @@ class Store {
     const targets = this.Targets(destinationIds), refs = [...new Map(entries.map(r => [`${r.playlistId}:${r.entryId}`, r])).values()];
     const sources = refs.map(r => ({ ...r, entry: structuredClone(this.Entry(r.playlistId, r.entryId)) }));
     if (sources.some(r => !targets.some(p => p.id !== r.playlistId))) throw new Error('元のプレイリスト以外にも移動先を選んでください。');
-    const before = structuredClone(this.data), mappings = []; let added = 0;
+    const before = structuredClone(this.data), mappings = [], keyOf = this.IdentityKey(); let added = 0;
     try {
       // Remove the complete selection first: a destination may also be a source.
       // This keeps reused destination rows and playback mappings valid.
@@ -353,7 +375,7 @@ class Store {
         const destinations = []; let retainedId = false;
         for (const p of targets) {
           if (p.id === ref.playlistId) continue;
-          let item = p.entries.find(e => e.type === ref.entry.type && (e.type === 'local' ? e.fileName === ref.entry.fileName : e.url === ref.entry.url));
+          let item = p.entries.find(e => keyOf(e) === keyOf(ref.entry));
           if (!item) { item = { ...ref.entry, id: retainedId ? randomUUID() : ref.entry.id }; retainedId = true; p.entries.push(item); p.lastAddedAt = new Date().toISOString(); added++; }
           destinations.push({ playlistId: p.id, entryId: item.id });
         }
