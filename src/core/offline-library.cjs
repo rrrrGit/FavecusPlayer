@@ -4,6 +4,7 @@ const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const { setTimeout: delay } = require('node:timers/promises');
 const { ParseBilibili } = require('./urls.cjs');
+const { DownloadIdentity } = require('./media-identity.cjs');
 const { BilibiliDownloadSource } = require('./bilibili-download.cjs');
 const { DownloadStream, Assemble } = require('./download-transfer.cjs');
 const { RemoteImage, ImageData, ImageURL } = require('./thumbnail.cjs');
@@ -11,7 +12,7 @@ const { DownloadSelection, EstimateKey, EstimateDownloads, LiveEstimate, PlanByt
 const { SafeName, Folder, Track, Target } = require('./offline-layout.cjs');
 const { DownloadDiagnostic } = require('./download-errors.cjs');
 const Token = /^[a-f0-9]{64}\.(mp4|m4a)$/;
-const Key = (url, kind) => createHash('sha256').update(`${ParseBilibili(url).url}\n${kind}`).digest('hex');
+const Key = (url, kind) => createHash('sha256').update(DownloadIdentity(url, kind).key).digest('hex');
 function AtomicJSON(file, value) { const tmp = `${file}.${randomUUID()}.tmp`; try { fs.writeFileSync(tmp, JSON.stringify(value, null, 2), { flag: 'wx' }); fs.renameSync(tmp, file); } finally { fs.rmSync(tmp, { force: true }); } }
 function ReadJSON(file, fallback) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return fallback; throw e; } }
 async function LinkOrCopy(from, to) {

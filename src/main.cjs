@@ -20,6 +20,7 @@ const { PlayerRecovery } = require('./core/player-recovery.cjs');
 const { StartCrashDiagnostics } = require('./core/crash-diagnostics.cjs');
 const { MediaChannel } = require('./core/media-channel.cjs');
 const { PlayerURL, ParseBilibili, IsAllowedRemote, MEDIA_EXTENSIONS } = require('./core/urls.cjs');
+const { SameVideo } = require('./core/media-identity.cjs');
 const { DiscordPresence, BuildActivity } = require('./core/discord.cjs');
 const { NormalizeMedia } = require('./core/playback.cjs');
 const { MiniPlayer } = require('./core/mini-player.cjs');
@@ -248,8 +249,8 @@ function SecureSession(partition) {
 function MatchesCurrentURL(raw) {
   if (!current?.entry || current.entry.type !== 'bilibili') return false;
   try {
-    const video = ParseBilibili(raw), entry = current.entry, data = playbackMetadata.get(entry.videoId);
-    return video.part === (entry.part || 1) && [entry.videoId, data?.bvid, data?.aid ? `av${data.aid}` : null].includes(video.videoId);
+    const entry = current.entry;
+    return SameVideo(entry, raw, playbackMetadata.get(entry.videoId));
   } catch { return false; }
 }
 function MakeView(source, forceNew = false, officialPlayer = false) {

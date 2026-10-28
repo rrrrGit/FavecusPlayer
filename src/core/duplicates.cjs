@@ -1,8 +1,7 @@
 'use strict';
-const { ParseBilibili } = require('./urls.cjs');
+const { MediaKey } = require('./media-identity.cjs');
 const TAGS = /^(?:双语字幕|雙語字幕|中日双语字幕|中日雙語字幕|中文字幕|日文字幕|中日字幕)\s*/;
 const NOISE = new Set(['双语字幕', '雙語字幕', '中文字幕', '日文字幕', '中日字幕', '字幕', 'off', 'vocal', 'instrumental', 'lyrics', 'official', 'mv', 'pv', 'bgm', 'cover', '完整版', '高音质']);
-function MediaKey(entry) { return entry.type === 'local' ? `local:${entry.fileName}` : `bilibili:${ParseBilibili(entry.url).url}`; }
 function NameShape(value) {
   let title = String(value || '').normalize('NFKC').toLowerCase().trim();
   const full = title.replace(/[\p{P}\p{S}\s]+/gu, '');

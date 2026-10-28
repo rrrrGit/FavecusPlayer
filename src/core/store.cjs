@@ -10,6 +10,7 @@ const { ParseBilibili, ParseVideo, ShareTitle, MEDIA_EXTENSIONS } = require('./u
 const { ReadJSON, ExportJSON } = require('./library-json.cjs');
 const { ValidateTitleWords, TitleCleaner } = require('./title-cleanup.cjs');
 const { Repository, DriveURL } = require('./releases.cjs');
+const { MediaKey } = require('./media-identity.cjs');
 const MAX_ENTRIES = 10000;
 const MAX_JSON = 32 * 1024 * 1024;
 const ID = /^[a-f0-9-]{36}$/;
@@ -161,7 +162,7 @@ class Store {
   }
   AddItems(destinationIds, items) {
     const targets = this.Targets(destinationIds), cleanTitle = TitleCleaner(this.data.settings.titleCleanupWords);
-    const key = e => e.type === 'local' ? `local:${e.fileName}` : `bilibili:${ParseBilibili(e.url).url}`;
+    const key = entry => MediaKey(entry);
     const unique = new Map();
     for (const item of items) { const id = key(item); if (!unique.has(id)) unique.set(id, item); }
     const additions = targets.map(p => {
