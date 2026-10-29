@@ -332,7 +332,7 @@ function PlayableEntry(playlistId, entryId) {
   return entry;
 }
 function RememberVideo(entry, details) {
-  try { if (store.RememberVideo(entry, details)) Emit('state', store.Snapshot()); }
+  try { if (store.RememberVideo(entry, details)) { Emit('state', store.Snapshot()); if (offline) Emit('downloads', offline.Snapshot()); } }
   catch (error) { Notify(`動画の対応情報を保存できません: ${error.message}`); }
 }
 function WarmMetadata(entry) {

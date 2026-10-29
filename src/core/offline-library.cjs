@@ -4,12 +4,13 @@ const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const { setTimeout: delay } = require('node:timers/promises');
 const { ParseBilibili } = require('./urls.cjs');
-const { DownloadIdentity } = require('./media-identity.cjs');
+const { DownloadIdentity, VideoIdentity } = require('./media-identity.cjs');
+const { LibraryMediaKey } = require('./library-identity.cjs');
 const { BilibiliDownloadSource } = require('./bilibili-download.cjs');
 const { DownloadStream, Assemble } = require('./download-transfer.cjs');
 const { RemoteImage, ImageData, ImageURL } = require('./thumbnail.cjs');
 const { DownloadSelection, EstimateKey, EstimateDownloads, LiveEstimate, PlanBytes, AvailableBytes, JobTiming } = require('./download-estimate.cjs');
-const { SafeName, Folder, Track, Target } = require('./offline-layout.cjs');
+const { SafeName, Target, SharedFolder } = require('./offline-layout.cjs');
 const { DownloadDiagnostic } = require('./download-errors.cjs');
 const Token = /^[a-f0-9]{64}\.(mp4|m4a)$/;
 const Key = (url, kind) => createHash('sha256').update(DownloadIdentity(url, kind).key).digest('hex');
@@ -55,8 +56,14 @@ class OfflineLibrary {
   File(token) { const r = this.records.get(token); if (!r || !Token.test(token)) return null; try { const file = this.ResolvePath(r.file), stat = fs.statSync(file); return stat.isFile() && stat.size === r.bytes ? { ...r, path: file } : null; } catch { return null; } }
   Find(entry, preferred = 'video', exact = false) {
     if (entry?.type !== 'bilibili') return null;
-    const url = ParseBilibili(entry.url).url;
-    for (const kind of exact ? [preferred] : [preferred, preferred === 'video' ? 'audio' : 'video']) { const r = this.File(`${Key(url, kind)}.${kind === 'video' ? 'mp4' : 'm4a'}`); if (r) return r; for (const record of this.records.values()) if (record.kind === kind && record.aliases?.includes(url)) { const alias = this.File(record.token); if (alias) return alias; } } return null;
+    const url = ParseBilibili(entry.url).url, keyOf = LibraryMediaKey(this.libraryData()?.videoAliases), key = keyOf(entry);
+    for (const kind of exact ? [preferred] : [preferred, preferred === 'video' ? 'audio' : 'video']) {
+      const r = this.File(`${Key(url, kind)}.${kind === 'video' ? 'mp4' : 'm4a'}`); if (r) return r;
+      for (const record of this.records.values()) if (record.kind === kind && (record.aliases?.includes(url) || keyOf({ type: 'bilibili', url: record.url }) === key)) {
+        const alias = this.File(record.token); if (alias) return alias;
+      }
+    }
+    return null;
   }
   Cover(entryOrToken) {
     const record = typeof entryOrToken === 'string' ? this.File(entryOrToken) : this.Find(entryOrToken);
@@ -65,6 +72,13 @@ class OfflineLibrary {
     try { const file = this.ResolvePath(cover.file), stat = fs.statSync(file); return stat.isFile() && stat.size === cover.bytes ? ImageData(fs.readFileSync(file)) : null; } catch { return null; }
   }
   async SaveCover(record, rawURL, signal) {
+    signal.throwIfAborted();
+    if (record.layout === 4) for (const kind of ['video', 'audio']) {
+      const other = this.Find({ type: 'bilibili', url: record.url }, kind, true);
+      if (other?.layout === 4 && path.posix.dirname(other.file) === path.posix.dirname(record.file) && this.Cover(other.token)) {
+        return { ...record, thumbnailURL: other.thumbnailURL || rawURL, thumbnail: other.thumbnail };
+      }
+    }
     if (!rawURL) return record;
     const url = ImageURL(rawURL), data = await this.thumbnail(this.fetch, url, signal); signal.throwIfAborted();
     const bytes = Buffer.from(data.split(',')[1] || '', 'base64'), verified = ImageData(bytes), extension = verified.match(/^data:image\/(png|jpeg|webp);/)[1];
@@ -82,7 +96,15 @@ class OfflineLibrary {
   CoverWarning(entry, error) { this.job.thumbnailFailed++; const failure = this.Failure(entry, error, 'cover'); if (this.job.warnings.length < 200) this.job.warnings.push({ ...failure, message: `サムネイルを保存できませんでした。動画・音声は利用できます。${failure.message}` }); }
   CommitRecord(record) { const { path: _localPath, ...saved } = record; const next = new Map(this.records); next.set(record.token, saved); AtomicJSON(path.join(this.directory, 'index.json'), { version: 1, files: [...next.values()] }); this.records = next; }
   CommitRecords(records) { fs.mkdirSync(this.directory, { recursive: true }); AtomicJSON(path.join(this.directory, 'index.json'), { version: 1, files: [...records.values()] }); this.records = new Map(records); }
-  Snapshot() { return { directory: this.directory, preferSaved: this.preferSaved, warning: this.indexError || this.warning || '', job: JobTiming(this.job), available: [...this.records.values()].filter(r => this.File(r.token)).flatMap(r => [...new Set([r.url, ...(r.aliases || [])])].map(url => ({ url, kind: r.kind, height: r.height }))) }; }
+  Snapshot() {
+    const aliases = new Map();
+    for (const pair of this.libraryData()?.videoAliases || []) { aliases.set(`av${pair.aid}`, pair); aliases.set(pair.bvid, pair); }
+    const available = [...this.records.values()].filter(r => this.File(r.token)).flatMap(r => {
+      const video = VideoIdentity(r), urls = VideoIdentity(r, aliases.get(video.videoId)).aliases;
+      return [...new Set([r.url, ...(r.aliases || []), ...urls])].map(url => ({ url, kind: r.kind, height: r.height }));
+    });
+    return { directory: this.directory, preferSaved: this.preferSaved, warning: this.indexError || this.warning || '', job: JobTiming(this.job), available };
+  }
   Notify(catalog = false) {
     if (this.liveEstimate) this.job.estimate = this.liveEstimate.Snapshot();
     if (this.job) { this.job.active = [...this.active.values()].map(({ title, phase, bytes, totalBytes }) => ({ title, phase, bytes, totalBytes })); this.job.title = this.job.active[0]?.title || ''; this.job.phase = this.job.active[0]?.phase || ''; this.job.bytes = this.job.active.reduce((n, a) => n + a.bytes, 0); this.job.totalBytes = this.job.active.every(a => a.totalBytes) ? this.job.active.reduce((n, a) => n + a.totalBytes, 0) : 0; }
@@ -101,9 +123,10 @@ class OfflineLibrary {
       controller.signal.throwIfAborted(); this.estimate = { ...value, id: randomUUID() }; return structuredClone(this.estimate);
     } finally { if (this.estimateController === controller) this.estimateController = null; }
   }
-  TrackPath(entry, kind, height, playlistId, playlistName, data = this.layoutData || this.libraryData()) {
-    const old = this.Find(entry), existing = old?.layout >= 2 ? path.posix.dirname(old.file) : null;
-    return `${existing || `${Folder(data, playlistId, playlistName)}/${Track(entry)}`}/${kind === 'video' ? `video-${height || 720}p` : 'audio'}-${randomUUID().slice(0, 8)}.${kind === 'video' ? 'mp4' : 'm4a'}`;
+  TrackPath(entry, kind, height, playlistId, playlistName, data = this.libraryData() || this.layoutData) {
+    const shared = ['video', 'audio'].map(format => this.Find(entry, format, true)).find(r => r?.layout === 4);
+    const folder = shared ? path.posix.dirname(shared.file) : SharedFolder(entry, data);
+    return `${folder}/${kind === 'video' ? `video-${height || 720}p` : 'audio'}-${randomUUID()}.${kind === 'video' ? 'mp4' : 'm4a'}`;
   }
   async CleanupRecord(previous, current) {
     if (!previous) return;
@@ -136,6 +159,7 @@ class OfflineLibrary {
     if (!data?.playlists) return;
     for (const record of [...this.records.values()]) {
       signal?.throwIfAborted();
+      if (record.layout === 4) continue;
       const target = Target(data, record); if (!target || !this.File(record.token)) continue;
       const relative = `${target.folder}/${path.posix.basename(record.file)}`;
       if (relative === record.file) { if (record.layout !== 3 || record.playlistId !== target.playlist.id) this.CommitRecord({ ...record, layout: 3, playlistId: target.playlist.id }); continue; }
@@ -179,7 +203,7 @@ class OfflineLibrary {
       try {
         updated = await this.SaveCover(cached, cached.thumbnailURL || await this.cover(entry, signal), signal);
         signal.throwIfAborted(); this.CommitRecord(updated); await this.CleanupRecord(cached, updated);
-      } catch (error) { if (updated?.thumbnail && updated.thumbnail !== cached.thumbnail) await fs.promises.rm(this.ResolvePath(updated.thumbnail.file), { force: true }).catch(() => {}); if (signal.aborted) throw error; this.CoverWarning(entry, error); if (error.stopBatch || ['ENOSPC', 'EACCES', 'EPERM'].includes(error.code)) throw error; }
+      } catch (error) { if (updated?.thumbnail && updated.thumbnail !== cached.thumbnail) await this.CleanupRecord({ file: updated.thumbnail.file }, null); if (signal.aborted) throw error; this.CoverWarning(entry, error); if (error.stopBatch || ['ENOSPC', 'EACCES', 'EPERM'].includes(error.code)) throw error; }
     }
     this.liveEstimate?.Finished(entry); this.job.skipped++;
   }
@@ -192,26 +216,38 @@ class OfflineLibrary {
         const entry = entries[next++], task = { title: entry.title || entry.videoId, phase: '動画情報を取得中', stage: 'metadata', bytes: 0, totalBytes: 0 };
         this.active.set(entry.url, task); this.Notify();
         try {
-          const cached = this.Find(entry, this.job.kind, true);
-          if (eligible(cached)) await this.Reuse(entry, cached, signal, task);
-          else {
-            const plan = await this.resolve(entry, this.job.kind, signal, { height: this.job.height }); signal.throwIfAborted();
+          const cached = this.Find(entry, this.job.kind, true); let plan = null;
+          if (!eligible(cached)) {
+            plan = await this.resolve(entry, this.job.kind, signal, { height: this.job.height }); signal.throwIfAborted();
+            const part = ParseBilibili(entry.url).part;
+            const aliases = [...new Set([entry.url, plan.url, ...(plan.aliases || [])].map(url => {
+              const video = ParseBilibili(url);
+              if (video.part !== part) throw new Error('保存対象とパート番号が一致しません。');
+              return video.url;
+            }))];
+            if (aliases.length > 2) throw new Error('動画の別表記情報が正しくありません。');
+            plan = { ...plan, aliases };
             this.liveEstimate?.Observe(entry, plan); this.Notify();
-            // 同じ動画のBV/av表記を別ワーカーが取得しても、実ファイルは共有する。
-            const key = [...new Set([plan.url, ...(plan.aliases || [])])].sort().join('\n');
-            const previous = locks.get(key); let unlock;
-            const lock = new Promise(resolve => { unlock = resolve; }); locks.set(key, lock);
-            try {
-              if (previous) await previous; signal.throwIfAborted();
-              const reused = [entry, ...(plan.aliases || []).map(url => ({ type: 'bilibili', url }))].map(e => this.Find(e, this.job.kind, true)).find(eligible);
-              if (reused) await this.Reuse(entry, reused, signal, task);
-              else {
-                const free = await AvailableBytes(this.directory), bytes = PlanBytes(plan);
-                if (this.liveEstimate) this.liveEstimate.freeBytes = free;
-                if (free !== null && bytes !== null && free < bytes * 3.03 + (plan.thumbnailURL ? 3 * 1024 * 1024 : 0)) throw Object.assign(new Error('空き容量が不足しています。'), { code: 'ENOSPC' });
-                await this.SaveEntry(entry, plan, signal, task); this.job.completed++;
-              }
-            } finally { unlock(); if (locks.get(key) === lock) locks.delete(key); }
+          }
+          const urls = [...new Set([entry.url, cached?.url, ...(cached?.aliases || []), ...(plan?.aliases || [])].filter(Boolean).map(url => ParseBilibili(url).url))];
+          const keyOf = LibraryMediaKey(this.libraryData()?.videoAliases);
+          const keys = [...new Set(urls.flatMap(url => [url, keyOf({ type: 'bilibili', url })]).map(key => `${key}\n${this.job.kind}`))];
+          const previous = keys.map(key => locks.get(key)).filter(Boolean); let unlock;
+          const lock = new Promise(resolve => { unlock = resolve; });
+          for (const key of keys) locks.set(key, lock);
+          try {
+            await Promise.all(previous); signal.throwIfAborted();
+            const reused = urls.map(url => this.Find({ type: 'bilibili', url }, this.job.kind, true)).find(eligible);
+            if (reused) await this.Reuse(entry, reused, signal, task);
+            else {
+              if (!plan) throw new Error('保存済みデータが変更されました。保存を再実行してください。');
+              const free = await AvailableBytes(this.directory), bytes = PlanBytes(plan);
+              if (this.liveEstimate) this.liveEstimate.freeBytes = free;
+              if (free !== null && bytes !== null && free < bytes * 3.03 + (plan.thumbnailURL ? 3 * 1024 * 1024 : 0)) throw Object.assign(new Error('空き容量が不足しています。'), { code: 'ENOSPC' });
+              await this.SaveEntry(entry, plan, signal, task); this.job.completed++;
+            }
+          } finally {
+            unlock(); for (const key of keys) if (locks.get(key) === lock) locks.delete(key);
           }
           this.job.finished++;
         } catch (error) {
@@ -250,10 +286,11 @@ class OfflineLibrary {
       signal.throwIfAborted(); task.phase = '形式を整えて確認中'; task.stage = 'format'; this.Notify();
       const extension = plan.kind === 'video' ? 'mp4' : 'm4a', output = path.join(directory, `output.${extension}`), duration = await this.assemble(this.ffmpeg, plan, files, output, signal); signal.throwIfAborted();
       const ownerId = entry.playlistId || this.job.playlistId, ownerName = this.layoutData?.playlists.find(p => p.id === ownerId)?.name || this.job.playlistName;
-      const token = `${Key(entry.url, plan.kind)}.${extension}`, relative = this.TrackPath(entry, plan.kind, this.job.height, ownerId, ownerName); task.stage = 'write';
-      finalFile = this.ResolvePath(relative); await fs.promises.mkdir(path.dirname(finalFile), { recursive: true }); this.ResolvePath(relative);
-      await fs.promises.copyFile(output, finalFile, fs.constants.COPYFILE_EXCL); signal.throwIfAborted(); const bytes = (await fs.promises.stat(finalFile)).size; if (!bytes) throw new Error('保存されたファイルが空です。');
-      let record = { token, file: relative, layout: this.layoutData ? 3 : 2, playlistId: ownerId, url: ParseBilibili(entry.url).url, aliases: plan.aliases || [], thumbnailURL: plan.thumbnailURL || null, kind: plan.kind, bytes, duration, height: plan.height, requestedHeight: this.job.height, savedAt: new Date().toISOString() };
+      const previousMatch = this.Find(entry, plan.kind, true), recordURL = previousMatch?.url || ParseBilibili(entry.url).url;
+      const token = previousMatch?.token || `${Key(recordURL, plan.kind)}.${extension}`, relative = this.TrackPath(entry, plan.kind, this.job.height, ownerId, ownerName); task.stage = 'write';
+      const destination = this.ResolvePath(relative); await fs.promises.mkdir(path.dirname(destination), { recursive: true }); this.ResolvePath(relative);
+      await fs.promises.copyFile(output, destination, fs.constants.COPYFILE_EXCL); finalFile = destination; signal.throwIfAborted(); const bytes = (await fs.promises.stat(finalFile)).size; if (!bytes) throw new Error('保存されたファイルが空です。');
+      let record = { token, file: relative, layout: 4, playlistId: ownerId, url: recordURL, aliases: [...new Set([recordURL, ...(plan.aliases || [])])], thumbnailURL: plan.thumbnailURL || null, kind: plan.kind, bytes, duration, height: plan.height, requestedHeight: this.job.height, savedAt: new Date().toISOString() };
       if (plan.thumbnailURL) {
         task.phase = 'サムネイルを保存中'; task.stage = 'cover'; this.Notify();
         try { record = await this.SaveCover(record, plan.thumbnailURL, signal); coverFile = this.ResolvePath(record.thumbnail.file); }
@@ -261,7 +298,13 @@ class OfflineLibrary {
       }
       signal.throwIfAborted(); const previous = this.records.get(token); this.CommitRecord(record); committed = true; await this.CleanupRecord(previous, record);
       this.liveEstimate?.Completed(entry, record.bytes, !!record.thumbnail);
-    } finally { if (!committed) for (const file of [finalFile, coverFile].filter(Boolean)) await fs.promises.rm(file, { force: true }).catch(() => {}); await fs.promises.rm(directory, { recursive: true, force: true }).catch(() => {}); }
+    } finally {
+      if (!committed) {
+        if (finalFile) await fs.promises.rm(finalFile, { force: true }).catch(() => {});
+        if (coverFile) await this.CleanupRecord({ file: path.relative(this.directory, coverFile).split(path.sep).join('/') }, null);
+      }
+      await fs.promises.rm(directory, { recursive: true, force: true }).catch(() => {});
+    }
   }
 }
 module.exports = { OfflineLibrary, Key, SafeName };

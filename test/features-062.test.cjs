@@ -60,10 +60,10 @@ async function ArchiveFixture(t) {
   const file = path.join(root, 'backup.zip'); const exported = await new LibraryArchive(from, offline).Export(file); assert.equal(exported.downloaded, 3);
   const to = new Store(path.join(root, 'target')), target = Offline(path.join(root, 'target')); return { root, from, first, second, file, to, target, archive: new LibraryArchive(to, target) };
 }
-test('playlist ZIP restores only selected saved video, audio and cover with fresh playlist IDs and no downloads', async t => {
+test('playlist ZIP restores only selected saved video, audio and cover with unused playlist IDs preserved and no downloads', async t => {
   const h = await ArchiveFixture(t), plan = await h.archive.Prepare(h.file); assert.equal(plan.playlists.find(p => p.id === h.first).downloaded, 2);
   const result = await h.archive.Commit(plan.id, [h.first]); assert.equal(result.downloaded, 2); assert.equal(result.imported, 1); assert.equal(h.target.records.size, 2); assert.equal(h.target.Find(entry(456)), null);
-  assert.equal(h.target.Cover(entry(123)), PNG); assert.equal(fs.readFileSync(h.target.Find(entry(123)).path, 'utf8'), 'playable fixture'); assert.notEqual(result.state.activePlaylistId, h.first);
+  assert.equal(h.target.Cover(entry(123)), PNG); assert.equal(fs.readFileSync(h.target.Find(entry(123)).path, 'utf8'), 'playable fixture'); assert.equal(result.state.activePlaylistId, h.first);
   const restarted = Offline(path.join(h.root, 'target')); assert.equal(restarted.Find(entry(123), 'audio').kind, 'audio'); assert.equal(restarted.Cover(entry(123)), PNG);
   const again = await h.archive.Prepare(h.file); const repeated = await h.archive.Commit(again.id, [h.first]); assert.equal(repeated.downloaded, 0); assert.equal(h.target.records.size, 2);
 });

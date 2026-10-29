@@ -66,7 +66,7 @@ async function StageDownloads(library, zip, records, playlists, layout) {
       if (folders.has(key)) relative = `${folders.get(key)}/${path.posix.basename(relative)}`; else folders.set(key, path.posix.dirname(relative));
       const destination = library.ResolvePath(relative); await fs.promises.mkdir(path.dirname(destination), { recursive: true }); library.ResolvePath(relative);
       copied.push(destination); await zip.Content(record.media, destination, Number.MAX_SAFE_INTEGER);
-      const { media, cover, ...data } = record, saved = { ...data, file: relative, layout: layout ? 3 : 2, playlistId: target.id, savedAt: new Date().toISOString() };
+      const { media, cover, ...data } = record, saved = { ...data, file: relative, layout: 4, playlistId: target.id, savedAt: new Date().toISOString() };
       if (cover) {
         const bytes = await zip.Content(cover.file, null, 3 * 1024 * 1024); ImageData(bytes);
         const coverName = `${path.posix.dirname(relative)}/thumbnail-${randomUUID().slice(0, 8)}${path.extname(cover.file)}`, file = library.ResolvePath(coverName);
