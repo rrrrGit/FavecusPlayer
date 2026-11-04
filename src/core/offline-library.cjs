@@ -101,9 +101,10 @@ class OfflineLibrary {
     const cleanup = this.cleanup?.enabled && previous && (previous.file !== saved.file || previous.thumbnail?.file !== saved.thumbnail?.file) ? this.cleanup.Retire(this.cleanupRecords, previous) : this.cleanupRecords;
     next.set(saved.token, saved); this.CommitRecords(next, { cleanup });
   }
+  IndexValue(records = this.records, cleanup = this.cleanupRecords) { return { version: 1, files: [...records.values()], ...(cleanup.length ? { cleanupVersion: 1, cleanup } : {}) }; }
   CommitRecords(records, { cleanup = this.cleanupRecords } = {}) {
     ValidateCleanup(this, cleanup); fs.mkdirSync(this.directory, { recursive: true });
-    const value = { version: 1, files: [...records.values()], ...(cleanup.length ? { cleanupVersion: 1, cleanup } : {}) };
+    const value = this.IndexValue(records, cleanup);
     AtomicJSON(path.join(this.directory, 'index.json'), value); this.records = new Map(records); this.cleanupRecords = cleanup; this.indexBytes = JSON.stringify(value, null, 2);
   }
   ScheduleCleanup() { this.cleanup.Request(); }

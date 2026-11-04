@@ -7,9 +7,83 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { EventEmitter } = require('node:events');
 async function FlushPlayer() { await new Promise(setImmediate); await new Promise(setImmediate); }
+function SavedTrack(h, entry, content = 'media', height = 720) {
+  const file = `media/${entry.videoId}-p${entry.part}/video-${require('node:crypto').randomUUID()}.mp4`, token = require('../src/core/offline-library.cjs').Key(entry.url, 'video') + '.mp4';
+  fs.mkdirSync(path.dirname(h.offline.ResolvePath(file)), { recursive: true }); fs.writeFileSync(h.offline.ResolvePath(file), content);
+  const record = { token, kind: 'video', url: entry.url, aliases: [entry.url], file, bytes: Buffer.byteLength(content), height, layout: 4 }; h.offline.CommitRecord(record); return record;
+}
+function SavedURL(view) {
+  const video = { addEventListener() {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/ui/local.js'), 'utf8'), { URL, location: { href: view.webContents.getURL() }, document: { getElementById: () => video } });
+  return video.src;
+}
+test('067 deleting the last playing reference waits for native destruction and publishes the cleanup result', async t => {
+  const h = await MainHarness(t, { delayPlayerClose: true }), id = h.store.data.activePlaylistId;
+  const state = await h.invoke('library:action', { type: 'add', playlistId: id, urls: 'av123' }), entry = state.playlists[0].entries[0], record = SavedTrack(h, entry);
+  await h.invoke('player:play', id, entry.id); const view = h.views.at(-1), url = SavedURL(view);
+  await h.invoke('library:action', { type: 'remove', playlistId: id, entryId: entry.id }); await FlushPlayer();
+  assert.equal((await h.invoke('app:state')).current, null); assert.ok(fs.existsSync(h.offline.ResolvePath(record.file))); assert.ok(h.offline.cleanup.leases.size);
+  view.webContents.finishClose(); await FlushPlayer(); assert.equal(fs.existsSync(h.offline.ResolvePath(record.file)), false); assert.equal(h.offline.records.size, 0);
+  assert.equal((await h.protocols.get('favecus')(new Request(url))).status, 403);
+  assert.equal(h.messages.filter(m => m.value?.type === 'downloads').at(-1).value.value.available.length, 0);
+});
+test('067 single and batch moves retain a playing saved file until the final playlist is deleted', async t => {
+  const h = await MainHarness(t, { delayPlayerClose: true }), first = h.store.data.activePlaylistId;
+  let state = await h.invoke('library:action', { type: 'add', playlistId: first, urls: 'av123' }); const entry = state.playlists[0].entries[0], record = SavedTrack(h, entry);
+  state = await h.invoke('library:action', { type: 'create', name: '移動先' }); const second = state.activePlaylistId;
+  await h.invoke('player:play', first, entry.id); const view = h.views.at(-1);
+  const one = await h.invoke('library:transfer', { playlistId: first, entryId: entry.id, destinationIds: [second], mode: 'move' }); await FlushPlayer();
+  assert.equal(h.offline.File(record.token).file, record.file); assert.equal((await h.invoke('app:state')).current.playlistId, second);
+  await h.invoke('library:move-tracks', { entries: [{ playlistId: second, entryId: one.destinations[0].entryId }], destinationIds: [first] }); await FlushPlayer();
+  assert.equal((await h.invoke('app:state')).current.playlistId, first); assert.equal(h.views.at(-1), view);
+  await h.invoke('library:action', { type: 'delete', playlistId: first }); await FlushPlayer(); assert.ok(fs.existsSync(h.offline.ResolvePath(record.file)));
+  view.webContents.finishClose(); await FlushPlayer(); assert.equal(h.offline.File(record.token), null);
+});
+test('067 quality refresh and a second playback keep independent source paths and reject an expired playback route', async t => {
+  const h = await MainHarness(t, { delayPlayerClose: true }), id = h.store.data.activePlaylistId;
+  const state = await h.invoke('library:action', { type: 'add', playlistId: id, urls: 'av123' }), entry = state.playlists[0].entries[0], old = SavedTrack(h, entry, 'old media');
+  await h.invoke('player:play', id, entry.id); const first = h.views.at(-1), originalURL = SavedURL(first), current = SavedTrack(h, entry, 'new quality', 1080);
+  await h.offline.CleanupRecord(old, current); h.offline.FlushCleanup(); assert.equal(await (await h.protocols.get('favecus')(new Request(originalURL))).text(), 'old media');
+  await h.invoke('player:play', id, entry.id); const second = h.views.at(-1); assert.notEqual(first, second);
+  assert.equal(await (await h.protocols.get('favecus')(new Request(SavedURL(second)))).text(), 'new quality');
+  assert.equal(await (await h.protocols.get('favecus')(new Request(originalURL))).text(), 'old media');
+  first.webContents.finishClose(); await FlushPlayer(); assert.equal(fs.existsSync(h.offline.ResolvePath(old.file)), false); assert.ok(h.offline.File(current.token));
+  assert.equal((await h.protocols.get('favecus')(new Request(originalURL))).status, 403);
+  assert.equal((await h.protocols.get('favecus')(new Request(`favecus://offline/${current.token}`))).status, 403);
+  await h.invoke('player:command', 'stop'); second.webContents.finishClose(); await FlushPlayer();
+});
+test('067 an in-flight protocol stream keeps its source after the native player has closed', async t => {
+  const h = await MainHarness(t, { delayPlayerClose: true }), id = h.store.data.activePlaylistId;
+  const state = await h.invoke('library:action', { type: 'add', playlistId: id, urls: 'av123' }), entry = state.playlists[0].entries[0], record = SavedTrack(h, entry);
+  await h.invoke('player:play', id, entry.id); const view = h.views.at(-1), stream = new (require('node:stream').PassThrough)();
+  const mock = t.mock.method(fs, 'createReadStream', () => stream); let response;
+  try { response = await h.protocols.get('favecus')(new Request(SavedURL(view))); } finally { mock.mock.restore(); }
+  await h.invoke('library:action', { type: 'remove', playlistId: id, entryId: entry.id }); await FlushPlayer(); view.webContents.finishClose(); await FlushPlayer();
+  assert.ok(fs.existsSync(h.offline.ResolvePath(record.file))); assert.ok(h.offline.cleanup.leases.size);
+  stream.end('media'); assert.equal(await response.text(), 'media'); await FlushPlayer(); assert.equal(fs.existsSync(h.offline.ResolvePath(record.file)), false);
+});
+test('067 a failed native close holds the file until actual destruction is observed', async t => {
+  let fail = true; const h = await MainHarness(t, { onNative: type => { if (type === 'close' && fail) { fail = false; throw new Error('native busy'); } } }), id = h.store.data.activePlaylistId;
+  const state = await h.invoke('library:action', { type: 'add', playlistId: id, urls: 'av123' }), entry = state.playlists[0].entries[0], record = SavedTrack(h, entry);
+  await h.invoke('player:play', id, entry.id); const view = h.views.at(-1);
+  await h.invoke('library:action', { type: 'remove', playlistId: id, entryId: entry.id }); await FlushPlayer(); assert.ok(fs.existsSync(h.offline.ResolvePath(record.file)));
+  view.webContents.finishClose(); await FlushPlayer(); assert.equal(fs.existsSync(h.offline.ResolvePath(record.file)), false);
+});
+test('067 startup removes known orphan downloads while retaining referenced and unmanaged files', async t => {
+  let kept, orphan;
+  const h = await MainHarness(t, { setupStore: store => store.Apply({ type: 'add', playlistId: store.data.activePlaylistId, urls: 'av123' }), setupDownloads: ({ directory, store }) => {
+    const key = require('../src/core/offline-library.cjs').Key;
+    fs.mkdirSync(directory); const records = ['av123', 'av999'].map((id, i) => {
+      const url = require('../src/core/urls.cjs').ParseBilibili(id).url, file = `media/${id}-p1/video.mp4`; fs.mkdirSync(path.dirname(path.join(directory, file)), { recursive: true }); fs.writeFileSync(path.join(directory, file), 'media');
+      const record = { token: key(url, 'video') + '.mp4', url, file, kind: 'video', layout: 4, bytes: 5 }; if (i) orphan = record; else kept = record; return record;
+    });
+    fs.writeFileSync(path.join(directory, 'unmanaged.bin'), 'keep'); fs.writeFileSync(path.join(directory, 'index.json'), JSON.stringify({ version: 1, files: records }));
+  } });
+  assert.ok(h.offline.File(kept.token)); assert.equal(h.offline.File(orphan.token), null); assert.equal(fs.existsSync(h.offline.ResolvePath(orphan.file)), false); assert.equal(fs.readFileSync(path.join(h.offline.directory, 'unmanaged.bin'), 'utf8'), 'keep');
+});
 async function MainHarness(t, options = {}) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'favecus-main-040-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
-  const protocols=new Map(), handlers=new Map(), views=[], windows=[], messages=[], activities=[], previewCalls=[], connections=[], crashStarts=[], switches=new Map(), paths=new Map();let ready, thumbnailDone, filePaths = [], loggedIn = false;
+  const protocols=new Map(), handlers=new Map(), views=[], windows=[], messages=[], activities=[], previewCalls=[], connections=[], crashStarts=[], switches=new Map(), paths=new Map();let ready, thumbnailDone, filePaths = [], loggedIn = false, activeOffline, activeStore;
   let now = 0, timerId = 0; const timers = new Map();
   const { BackgroundMode: ActualBackgroundMode } = require('../src/core/background-mode.cjs');
   class BackgroundMode extends ActualBackgroundMode {
@@ -23,7 +97,7 @@ async function MainHarness(t, options = {}) {
     constructor(){super();this.frame={url:''};this.sent=[];this.muteHistory=[];}
     get mainFrame(){options.onFrameAccess?.(this);return this.frame;}
     set mainFrame(frame){this.frame=frame;}
-    setWindowOpenHandler(fn){this.openHandler=fn;} isDestroyed(){return !!this.closed;}close(){if(this.closed)return;options.onNative?.('close');this.closed=true;const view=views.find(v=>v.webContents===this);if(view&&options.releaseContents)view.webContents=undefined;this.emit('destroyed');options.onClose?.(this,{windows,ipcMain});}setAudioMuted(value){this.muted=value;this.muteHistory.push(value);}getURL(){return this.frame.url;}getTitle(){return '動画名 - bilibili';}
+    setWindowOpenHandler(fn){this.openHandler=fn;} isDestroyed(){return !!this.closed;}close(){if(this.closed)return;if(options.delayPlayerClose&&views.some(v=>v.webContents===this)&&!this.allowClose){this.closing=true;return;}options.onNative?.('close');this.closed=true;const view=views.find(v=>v.webContents===this);if(view&&options.releaseContents)view.webContents=undefined;this.emit('destroyed');options.onClose?.(this,{windows,ipcMain});}setAudioMuted(value){this.muted=value;this.muteHistory.push(value);}getURL(){return this.frame.url;}getTitle(){return '動画名 - bilibili';}
     async loadURL(url){
       options.onNative?.('load');this.loads=(this.loads || 0)+1;this.loading=true;
       this.emit('did-start-navigation',{isMainFrame:true,isSameDocument:false},url,false,true);
@@ -31,6 +105,7 @@ async function MainHarness(t, options = {}) {
       if(this.closed)return;
       this.frame.url=url;this.loading=false;this.emit('dom-ready');this.emit('did-finish-load');
     }
+    finishClose(){this.allowClose=true;this.close();}
     stop(){options.onNative?.('stop');this.stops=(this.stops || 0)+1;}
     invalidate(){this.repaints=(this.repaints || 0)+1;}
     send(type,value){if(this.closed)throw new Error('Object has been destroyed');void this.mainFrame;this.sent.push({type,value});messages.push({type,value});}
@@ -55,12 +130,18 @@ async function MainHarness(t, options = {}) {
   session.fetch = async url => options.fetch ? options.fetch(url) : new Response(JSON.stringify({ code: 0, data: new URL(url).pathname.endsWith('/nav') ? { isLogin: loggedIn, mid: 1234, uname: 'user' } : options.details || { title: '動画全体', pages: [{ page: 1, part: '第1曲' }, { page: 2, part: '第2曲' }] } }));
   const electron={app,BrowserWindow:Window,WebContentsView:View,ipcMain,dialog:{showErrorBox:(_title,error)=>assert.fail(error),showOpenDialog:async()=>({canceled:!filePaths.length,filePaths})},shell:{},session:{defaultSession:session,fromPartition:()=>session},protocol:{registerSchemesAsPrivileged(){},handle(name,handler){protocols.set(name,handler);}},nativeImage:{createFromDataURL:data=>({isEmpty:()=>false,getSize:()=>({width:1,height:1}),resize:()=>({toPNG:()=>Buffer.from(data.split(',')[1],'base64')})})},net:{},Menu:{setApplicationMenu(){}}};
   electron.crashReporter={start:settings=>{assert.equal(windows.length,0);assert.equal(views.length,0);crashStarts.push(settings);},addExtraParameter(){}};
-  const src=path.resolve(__dirname,'../src'),context={require:name=>name==='electron'?electron:name==='./core/background-mode.cjs'?{BackgroundMode}:name==='./core/player-recovery.cjs'?{PlayerRecovery}:name==='./core/mini-player.cjs'?{MiniPlayer:Mini}:name==='./core/thumbnail.cjs'?{...require('../src/core/thumbnail.cjs'),Thumbnails}:name==='./core/discord.cjs'?{...require('../src/core/discord.cjs'),DiscordPresence:Presence}:require(name.startsWith('.')?path.join(src,name):name),__dirname:src,process:{...process,platform:'linux',env:{},on(){}},URL,Response,Date,structuredClone,setImmediate,clearImmediate,setTimeout,clearTimeout,setInterval:()=>({unref(){}})};
+  const storeModule = require('../src/core/store.cjs'), offlineModule = require('../src/core/offline-library.cjs');
+  class TestStore extends storeModule.Store { constructor(...args) { super(...args); activeStore = this; options.setupStore?.(this); } }
+  class TestOffline extends offlineModule.OfflineLibrary { constructor(settings) {
+    const directory = path.join(root, 'downloads'); options.setupDownloads?.({ store: activeStore, directory });
+    super({ ...settings, directory, ...options.downloadOptions }); activeOffline = this;
+  } }
+  const src=path.resolve(__dirname,'../src'),context={require:name=>name==='electron'?electron:name==='./core/store.cjs'?{...storeModule,Store:TestStore}:name==='./core/offline-library.cjs'?{...offlineModule,OfflineLibrary:TestOffline}:name==='./core/background-mode.cjs'?{BackgroundMode}:name==='./core/player-recovery.cjs'?{PlayerRecovery}:name==='./core/mini-player.cjs'?{MiniPlayer:Mini}:name==='./core/thumbnail.cjs'?{...require('../src/core/thumbnail.cjs'),Thumbnails}:name==='./core/discord.cjs'?{...require('../src/core/discord.cjs'),DiscordPresence:Presence}:require(name.startsWith('.')?path.join(src,name):name),__dirname:src,process:{...process,platform:'linux',env:{},on(){}},URL,Response,Date,structuredClone,setImmediate,clearImmediate,setTimeout,clearTimeout,setInterval:()=>({unref(){}})};
   vm.runInNewContext(fs.readFileSync(path.join(src,'main.cjs'),'utf8'),context);await ready;
   const main=windows[0],event={sender:main.webContents,senderFrame:main.webContents.mainFrame};
   t.after(()=>app.emit('before-quit'));
   const invoke=async(channel,...args)=>{const result=await handlers.get(channel)(event,...args);if(!result.ok)throw new Error(result.error);return result.value;};
-  return {protocols,invoke,views,windows,messages,activities,previewCalls,connections,ipcMain,event,main,root,app,crashStarts,switches,paths,setLogin:value=>loggedIn=value,invokeFrom:async(wc,channel,...args)=>handlers.get(channel)({sender:wc,senderFrame:wc.mainFrame},...args),chooseFiles:files=>filePaths=files,advance(ms) { const until = now + ms; let next; while ((next = [...timers.entries()].sort((a,b) => a[1].at - b[1].at)[0]) && next[1].at <= until) { now = next[1].at; timers.delete(next[0]); next[1].fn(); } now = until; },finishThumbnail:async value=>{thumbnailDone(value);await new Promise(setImmediate);}};
+  return {store:activeStore,offline:activeOffline,protocols,invoke,views,windows,messages,activities,previewCalls,connections,ipcMain,event,main,root,app,crashStarts,switches,paths,setLogin:value=>loggedIn=value,invokeFrom:async(wc,channel,...args)=>handlers.get(channel)({sender:wc,senderFrame:wc.mainFrame},...args),chooseFiles:files=>filePaths=files,advance(ms) { const until = now + ms; let next; while ((next = [...timers.entries()].sort((a,b) => a[1].at - b[1].at)[0]) && next[1].at <= until) { now = next[1].at; timers.delete(next[0]); next[1].fn(); } now = until; },finishThumbnail:async value=>{thumbnailDone(value);await new Promise(setImmediate);}};
 }
 test('moving a playing track preserves its view, media position and the next-track queue', async t=>{
   const h=await MainHarness(t);let state=(await h.invoke('app:state')).state;const source=state.activePlaylistId;
@@ -423,7 +504,8 @@ test('061 saved audio, video and artwork are used by normal and all-playlist pla
   await h.invoke('player:all', false); const snapshot = await h.invoke('app:state'); assert.equal(snapshot.current.offline.kind, 'audio'); assert.equal(snapshot.thumbnail.image, 'data:image/png;base64,' + png.toString('base64'));
   assert.equal(await h.invoke('library:thumbnail', id, entry.id, '*'), snapshot.thumbnail.image); assert.equal(requests, 0);
   const serve = h.protocols.get('favecus'), token = snapshot.current.offline.token;
-  const response = await serve(new Request(`favecus://offline/${token}`, { headers: { Range: 'bytes=2-5' } })); assert.equal(response.status, 206); assert.equal(await response.text(), '2345');
+  const playbackId = new URL(h.views.at(-1).webContents.getURL()).searchParams.get('playback');
+  const response = await serve(new Request(`favecus://offline/${token}?playback=${playbackId}`, { headers: { Range: 'bytes=2-5' } })); assert.equal(response.status, 206); assert.equal(await response.text(), '2345');
   const wrong = await serve(new Request(`favecus://offline/${records[0].token}`)); assert.equal(wrong.status, 403);
 });
 

@@ -49,7 +49,7 @@ function ValidateCleanup(library, input) {
   return input;
 }
 class OfflineCleanup {
-  constructor(library, referenceData) { this.library = library; this.referenceData = referenceData; this.enabled = typeof referenceData === 'function'; this.leases = new Map(); }
+  constructor(library, referenceData) { this.library = library; this.referenceData = referenceData; this.enabled = typeof referenceData === 'function'; this.leases = new Map(); this.waiting = new Set(); }
   Retire(pending, record, reason = 'replaced') {
     if (pending.some(p => p.record.token === record.token && p.record.file === record.file && p.record.thumbnail?.file === record.thumbnail?.file)) return pending;
     const { path: _path, ...saved } = record, files = [];
@@ -67,20 +67,29 @@ class OfflineCleanup {
     let released = false;
     return () => { if (released) return; released = true; for (const file of paths) { const count = this.leases.get(file) - 1; if (count) this.leases.set(file, count); else this.leases.delete(file); } this.Request(); };
   }
+  References() {
+    const data = this.referenceData();
+    if (data !== this.referenceSnapshot) { this.referenceSnapshot = data; this.references = ReferenceKeys(data); }
+    return this.references || null;
+  }
   Held(record) { return [record.file, record.thumbnail?.file].filter(Boolean).some(name => this.leases.has(this.library.ResolvePath(name))); }
-  Request() {
-    if (!this.enabled || this.scheduled || this.disposed) return;
-    this.scheduled = setImmediate(() => { this.scheduled = null; this.Flush(); });
+  Request(continuing = false) {
+    if (!this.enabled || this.disposed) return;
+    if (!continuing) { this.waiting.clear(); this.retryNeeded = false; }
+    if (this.scheduled) return;
+    this.scheduled = setImmediate(() => { this.scheduled = null; this.Flush(true); });
   }
   Retry() { if (!this.retry && !this.disposed) { this.retry = setTimeout(() => { this.retry = null; this.Request(); }, 30000); this.retry.unref?.(); } }
-  Flush() {
+  Flush(continuing = false) {
+    if (!continuing) { this.waiting.clear(); this.retryNeeded = false; }
     if (this.scheduled) { clearImmediate(this.scheduled); this.scheduled = null; }
     const library = this.library;
     if (!this.enabled || this.disposed || this.running || library.indexError || library.controller || library.importing || library.migrationDone) return;
-    if (fs.existsSync(library.ResolvePath('.layout-migration.json'))) return;
+    const previousRecords = library.records, previousPending = library.cleanupRecords, previousWarning = this.warning;
     this.running = true; let more = false, retry = false;
     try {
-      const references = ReferenceKeys(this.referenceData());
+      if (fs.existsSync(library.ResolvePath('.layout-migration.json'))) return;
+      const references = this.References();
       if (!references) { this.warning = '保存確定済みの参照情報を確認できないため整理を保留しています。'; return; }
       const index = library.ResolvePath('index.json');
       if (library.indexBytes === null ? fs.existsSync(index) : !fs.existsSync(index) || fs.readFileSync(index, 'utf8') !== library.indexBytes) throw new Error('保存一覧の先行変更を検出しました。');
@@ -93,22 +102,26 @@ class OfflineCleanup {
         if (++planned >= 100) { more = true; break; }
       }
       if (planned) library.CommitRecords(records, { cleanup: pending });
-      let processed = 0, resolved = 0;
-      for (const item of [...library.cleanupRecords]) {
-        const currentReferences = ReferenceKeys(this.referenceData()); if (!currentReferences) break;
-        if (this.Held(item.record)) continue;
-        const replacement = [...library.records.values()].some(r => r.kind === item.record.kind && currentReferences.keyOf({ type: 'bilibili', url: r.url }) === currentReferences.keyOf({ type: 'bilibili', url: item.record.url }) && library.File(r.token));
-        if (Referenced(item.record, currentReferences) && !replacement) {
+      let pathsFor, used, replacementRecords, replacementReferences, replacements; const completed = new Set();
+      for (const item of library.cleanupRecords.filter(item => !this.waiting.has(item)).slice(0, 100)) {
+        const currentReferences = this.References(); if (!currentReferences) break;
+        if (this.Held(item.record)) { this.waiting.add(item); continue; }
+        const referenced = Referenced(item.record, currentReferences);
+        if (referenced && (replacementRecords !== library.records || replacementReferences !== currentReferences)) {
+          replacementRecords = library.records; replacementReferences = currentReferences; replacements = new Set();
+          for (const record of library.records.values()) if (library.File(record.token)) for (const url of [record.url, ...(record.aliases || [])]) replacements.add(`${currentReferences.keyOf({ type: 'bilibili', url })}\n${record.kind}`);
+        }
+        if (referenced && !replacements.has(`${currentReferences.keyOf({ type: 'bilibili', url: item.record.url })}\n${item.record.kind}`)) {
           const file = SafeFile(library, item.record.file), stat = Stamp(file);
           const saved = item.files.find(value => value.file === item.record.file);
           if (!stat.missing && !stat.blocked && saved && !saved.missing && !saved.blocked && ['bytes', 'dev', 'ino', 'modified', 'changed'].every(key => stat[key] === saved[key])) {
             const restored = new Map(library.records); restored.set(item.record.token, item.record);
-            library.CommitRecords(restored, { cleanup: library.cleanupRecords.filter(p => p !== item) }); resolved++; continue;
+            library.CommitRecords(restored, { cleanup: library.cleanupRecords.filter(p => p !== item && !completed.has(p)) }); completed.clear(); continue;
           }
-          continue;
+          this.waiting.add(item); continue;
         }
         let complete = true;
-        const used = new Set([...library.records.values()].flatMap(r => [r.file, r.thumbnail?.file]));
+        if (pathsFor !== library.records) { pathsFor = library.records; used = new Set([...library.records.values()].flatMap(r => [r.file, r.thumbnail?.file])); }
         for (const value of item.files) {
           if (used.has(value.file)) continue;
           try {
@@ -120,11 +133,15 @@ class OfflineCleanup {
             while (folder !== library.directory) { try { fs.rmdirSync(folder); } catch { break; } folder = path.dirname(folder); }
           } catch (error) { complete = false; retry ||= ['EBUSY', 'EACCES', 'EPERM'].includes(error.code); this.warning = '使用中または確認できない保存データの整理を保留しています。'; }
         }
-        if (complete) { library.CommitRecords(library.records, { cleanup: library.cleanupRecords.filter(p => p !== item) }); resolved++; }
-        if (++processed >= 100) { more ||= resolved > 0 && library.cleanupRecords.length > 0; break; }
+        if (complete) completed.add(item); else this.waiting.add(item);
       }
-    } catch (error) { this.warning = '保存データの整理を完了できませんでした。元データと既存の削除待ち記録を保持しています。'; retry = true; }
-    finally { this.running = false; if (more) this.Request(); else if (retry) this.Retry(); }
+      if (completed.size) library.CommitRecords(library.records, { cleanup: library.cleanupRecords.filter(p => !completed.has(p)) });
+      more ||= library.cleanupRecords.some(item => !this.waiting.has(item));
+    } catch (error) { this.warning = '保存データの整理を完了できませんでした。元データと既存の削除待ち記録を保持しています。'; more = false; retry = true; }
+    finally {
+      this.running = false; this.retryNeeded ||= retry; if (more) this.Request(true); else if (this.retryNeeded) this.Retry();
+      if (!this.disposed && (previousRecords !== library.records || previousPending !== library.cleanupRecords || previousWarning !== this.warning)) { try { library.Notify(true); } catch {} }
+    }
   }
   Dispose() { this.disposed = true; clearImmediate(this.scheduled); clearTimeout(this.retry); }
 }

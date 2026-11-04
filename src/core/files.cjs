@@ -13,15 +13,24 @@ function ParseRange(header, size) {
   if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start >= size || end < start) throw new Error('Invalid range');
   return { start, end };
 }
-async function MediaResponse(request, file) {
-  const stat = await fs.promises.stat(file).catch(() => null);
-  if (!stat?.isFile()) return new Response('動画ファイルが見つかりません', { status: 404 });
-  let range;
-  try { range = ParseRange(request.headers.get('range'), stat.size); }
-  catch { return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${stat.size}` } }); }
-  const headers = { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Accept-Ranges': 'bytes', 'Content-Length': String(range ? range.end - range.start + 1 : stat.size) };
-  if (range) headers['Content-Range'] = `bytes ${range.start}-${range.end}/${stat.size}`;
-  const body = request.method === 'HEAD' || !stat.size ? null : Readable.toWeb(fs.createReadStream(file, range || {}));
-  return new Response(body, { status: range ? 206 : 200, headers });
+async function MediaResponse(request, file, release = () => {}) {
+  let source, released = false;
+  const finish = () => { if (!released) { released = true; release(); } };
+  try {
+    const stat = await fs.promises.stat(file).catch(() => null);
+    if (!stat?.isFile()) return new Response('動画ファイルが見つかりません', { status: 404 });
+    let range;
+    try { range = ParseRange(request.headers.get('range'), stat.size); }
+    catch { return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${stat.size}` } }); }
+    const headers = { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Accept-Ranges': 'bytes', 'Content-Length': String(range ? range.end - range.start + 1 : stat.size) };
+    if (range) headers['Content-Range'] = `bytes ${range.start}-${range.end}/${stat.size}`;
+    let body = null;
+    if (request.method !== 'HEAD' && stat.size) {
+      source = fs.createReadStream(file, { ...range, signal: request.signal }); source.once('close', finish);
+      body = Readable.toWeb(source);
+    }
+    return new Response(body, { status: range ? 206 : 200, headers });
+  } catch (error) { source?.destroy(); throw error; }
+  finally { if (!source) finish(); }
 }
 module.exports = { ParseRange, MediaResponse };

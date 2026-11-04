@@ -22,7 +22,9 @@ function SafeFile(library, name) {
   return file;
 }
 function CheckIndex(library) {
-  const data = JSON.parse(fs.readFileSync(SafeFile(library, 'index.json'), 'utf8'));
+  const raw = fs.readFileSync(SafeFile(library, 'index.json'), 'utf8');
+  if (raw !== library.indexBytes) throw new Error('保存一覧が並行変更されました。移行元を保持しています。');
+  const data = JSON.parse(raw);
   if (data.version !== 1 || !Array.isArray(data.files) || data.files.length !== library.records.size || new Set(data.files.map(r => r?.token)).size !== library.records.size || data.files.some(r => !RecordSame(r, library.records.get(r?.token)))) throw new Error('保存された一覧が並行変更されました。移行元を保持しています。');
 }
 async function Digest(library, name, signal) {
@@ -93,6 +95,18 @@ async function Finish(library, plan, signal) {
     for (const item of plan.files) if (!await Matches(library, item, item.to, signal)) throw new Error('確定した移行先を確認できないため旧データを保持しています。');
     if (plan.cover && !await Matches(library, plan.cover, plan.cover.file, signal)) throw new Error('共用サムネイルを確認できないため旧データを保持しています。');
   } else if (!library.File(plan.source.token)) throw new Error('現在の保存先を確認できないため旧データを保持しています。');
+  if (library.cleanup?.enabled) {
+    let pending = library.cleanup.Retire(library.cleanupRecords, plan.source);
+    const changed = new Set();
+    for (const item of plan.retired) {
+      signal?.throwIfAborted();
+      if (fs.existsSync(SafeFile(library, item.from)) && !await Matches(library, item, item.from, signal)) changed.add(item.from);
+    }
+    if (changed.size) pending = pending.map(item => item.record.token === plan.source.token && item.record.file === plan.source.file ? { ...item, files: item.files.map(value => changed.has(value.file) ? { file: value.file, blocked: true } : value) } : item);
+    CheckIndex(library);
+    if (pending !== library.cleanupRecords) library.CommitRecords(library.records, { cleanup: pending });
+    await fs.promises.unlink(SafeFile(library, Journal)); return;
+  }
   for (const item of plan.retired) {
     signal?.throwIfAborted();
     if ([...library.records.values()].some(r => r.file === item.from || r.thumbnail?.file === item.from)) continue;

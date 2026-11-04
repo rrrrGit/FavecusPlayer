@@ -57,11 +57,11 @@ function DownloadMatches(record, entry, keyOf) { return entry.type === 'bilibili
 async function StageDownloads(library, zip, records, playlists, layout) {
   if (!library || !records?.length) return null;
   if (library.indexError) throw new Error(library.indexError);
-  const before = new Map(library.records), next = new Map(before), copied = [], folders = new Map(), covers = new Map(), processed = new Set(); let committed = false, uncertain = false, imported = 0, staging;
+  const before = new Map(library.records), next = new Map(before), cleanupBefore = library.cleanupRecords, copied = [], folders = new Map(), covers = new Map(), processed = new Set(); let committed = false, uncertain = false, imported = 0, staging, cleanupNext = cleanupBefore;
   const keyOf = LibraryMediaKey(layout?.videoAliases), index = path.join(library.directory, 'index.json'), existed = fs.existsSync(index);
   const indexBefore = existed ? fs.readFileSync(index) : null, stamp = JSON.stringify([...library.records]);
   const unchanged = () => JSON.stringify([...library.records]) === stamp && (existed ? fs.existsSync(index) && fs.readFileSync(index).equals(indexBefore) : !fs.existsSync(index));
-  const matchesIndex = values => { try { return isDeepStrictEqual(JSON.parse(fs.readFileSync(index, 'utf8')), JSON.parse(JSON.stringify({ version: 1, files: [...values.values()] }))); } catch { return false; } };
+  const matchesIndex = values => { try { return isDeepStrictEqual(JSON.parse(fs.readFileSync(index, 'utf8')), JSON.parse(JSON.stringify(library.IndexValue(values, cleanupNext)))); } catch { return false; } };
   const byURL = new Map(), byKey = new Map(); let order = 0;
   const available = new Set();
   for (const record of before.values()) if (library.File(record.token)) {
@@ -87,8 +87,11 @@ async function StageDownloads(library, zip, records, playlists, layout) {
     copied.push(destination); return destination;
   };
   const rollback = async () => {
-    if (uncertain || committed && (!matchesIndex(next) || JSON.stringify([...library.records]) !== JSON.stringify([...next]))) throw new Error('保存一覧の確定状態を確認できないため、追加メディアを保持しています。');
-    if (committed) { library.CommitRecords(before); if (!existed) await fs.promises.rm(index, { force: true }); }
+    if (uncertain || committed && (!matchesIndex(next) || JSON.stringify([...library.records]) !== JSON.stringify([...next]) || JSON.stringify(library.cleanupRecords) !== JSON.stringify(cleanupNext))) throw new Error('保存一覧の確定状態を確認できないため、追加メディアを保持しています。');
+    if (committed) {
+      library.CommitRecords(before, { cleanup: cleanupBefore });
+      if (!existed) { await fs.promises.rm(index, { force: true }); library.indexBytes = null; }
+    }
     const used = new Set([...library.records.values()].flatMap(r => [r.file, r.thumbnail?.file]));
     for (const file of copied) if (!used.has(path.relative(library.directory, file).split(path.sep).join('/'))) await fs.promises.rm(file, { force: true }).catch(() => {});
     for (const folder of new Set(copied.map(file => path.dirname(file)))) await fs.promises.rmdir(folder).catch(() => {});
@@ -116,15 +119,17 @@ async function StageDownloads(library, zip, records, playlists, layout) {
           await fs.promises.writeFile(stagedCover, bytes, { flag: 'wx' }); await publish(stagedCover, name);
           saved.thumbnail = { file: name, bytes: bytes.length }; covers.set(folder, saved.thumbnail);
         }
+        const previous = next.get(saved.token);
+        if (library.cleanup.enabled && previous && (previous.file !== saved.file || previous.thumbnail?.file !== saved.thumbnail?.file)) cleanupNext = library.cleanup.Retire(cleanupNext, previous);
         next.set(saved.token, saved); imported++;
       }
     }
     if (!imported) return null;
     return { imported, commit: () => {
       if (!unchanged()) throw new Error('取り込み中に保存一覧が変更されました。');
-      try { library.CommitRecords(next); committed = true; }
+      try { library.CommitRecords(next, { cleanup: cleanupNext }); committed = true; }
       catch (error) {
-        if (matchesIndex(next)) { committed = true; library.records = new Map(next); }
+        if (matchesIndex(next)) { committed = true; library.records = new Map(next); library.cleanupRecords = cleanupNext; library.indexBytes = fs.readFileSync(index, 'utf8'); }
         else if (!unchanged()) uncertain = true;
         throw error;
       }

@@ -147,11 +147,17 @@ class Store {
     this.data.identityVersion = IDENTITY_SCHEMA_VERSION;
     this.data.videoAliases = videoAliases;
     for (const [entry, mediaId] of assignments) entry.mediaId = mediaId;
-    this.committedJSON = encoded; this.committedData = JSON.parse(encoded);
+    this.committedJSON = encoded; this.committedData = JSON.parse(encoded); this.referenceCache = null;
     try { this.options.committed?.(); } catch {}
   }
   SavedData() {
-    try { return fs.readFileSync(this.file, 'utf8') === this.committedJSON ? this.committedData : null; } catch { return null; }
+    try {
+      const signature = () => { const s = fs.statSync(this.file, { bigint: true }); return [s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs].join(':'); };
+      const stamp = signature();
+      if (this.referenceCache === stamp) return this.committedData;
+      if (fs.readFileSync(this.file, 'utf8') !== this.committedJSON || signature() !== stamp) return null;
+      this.referenceCache = stamp; return this.committedData;
+    } catch { return null; }
   }
   Snapshot() {
     const result = structuredClone(this.data);
