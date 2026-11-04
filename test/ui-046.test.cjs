@@ -257,7 +257,7 @@ test('expanded all-playlist duplicates resolve to the existing deduplicated play
   let selected; h.api.play = async (...args) => selected = args;
   await list.children[2].children[2].events.click(); assert.deepEqual(selected, ['*', original.id]);
 });
-test('067 transfer retains the disabled source and lets its children expand and be selected, while ZIP actions pass no password', async t => {
+test('067 transfer retains the disabled source and lets its children expand and be selected, while export actions use explicit modes without a password', async t => {
   const h = await Harness(t), s = h.store;
   s.Apply({ type: 'create', name: '移動先', parentId: h.id }); const child = s.data.activePlaylistId; s.Apply({ type: 'select', playlistId: h.id }); h.emit('state', s.Snapshot());
   h.run('TransferEntry(List().id, List().entries[0])');
@@ -268,9 +268,31 @@ test('067 transfer retains the disabled source and lets its children expand and 
   inputs[1].checked = true; inputs[1].onchange(); assert.equal(choices.children[1].querySelector('input').checked, true);
   h.run('Transfer()'); assert.equal(h.node('archive-password'), undefined);
   let exportArgs, importArgs; h.api.exportLibrary = async (...args) => { exportArgs = args; return {}; }; h.api.importLibrary = async (...args) => { importArgs = args; return null; };
-  await h.node('export-button').onclick(); await h.node('import-button').onclick(); assert.deepEqual(exportArgs, []); assert.deepEqual(importArgs, []);
+  await h.node('export-information').onclick(); assert.deepEqual(JSON.parse(JSON.stringify(exportArgs)), [{ mode: 'information' }]); await h.node('export-media').onclick(); assert.deepEqual(JSON.parse(JSON.stringify(exportArgs)), [{ mode: 'media' }]); await h.node('import-button').onclick(); assert.deepEqual(importArgs, []);
 });
 
+test('067 export buttons share a busy guard and report information, media, cancellation and retry results', async t => {
+  const h = await Harness(t); let finish, calls = 0; h.api.exportLibrary = () => { calls++; return new Promise(resolve => finish = resolve); }; h.api.importLibrary = async () => assert.fail('import must wait for export'); h.run('Transfer()');
+  const pending = h.node('export-information').onclick(); assert.equal(h.node('export-media').disabled, true); assert.equal(h.node('import-button').disabled, true);
+  await h.node('export-media').onclick(); await h.node('import-button').onclick(); assert.equal(calls, 1);
+  finish({ file: 'information.json', mode: 'information', omitted: 2 }); await pending; assert.match(h.node('share-status').textContent, /情報をJSON/); assert.match(h.node('share-status').textContent, /2件は含めていません/); assert.equal(h.node('export-media').disabled, false);
+  h.api.exportLibrary = async () => null; await h.node('export-media').onclick(); assert.match(h.node('share-status').textContent, /キャンセル/);
+  h.api.exportLibrary = async () => { throw new Error('書き込めません'); }; await h.node('export-media').onclick(); assert.match(h.node('share-status').textContent, /書き込めません/); assert.equal(h.node('export-information').disabled, false);
+  h.api.exportLibrary = async () => ({ file: 'media.zip', downloaded: 3, missing: 1 }); await h.node('export-media').onclick(); assert.match(h.node('share-status').textContent, /動画・音声 3件/); assert.match(h.node('share-status').textContent, /ファイル：1件/);
+});
+test('067 late export responses cannot change another modal and closed import plans are cancelled', async t => {
+  const h = await Harness(t); let finishExport, finishImport; const cancelled = []; h.api.exportLibrary = () => new Promise(resolve => finishExport = resolve); h.api.importLibrary = () => new Promise(resolve => finishImport = resolve); h.api.cancelImport = async id => cancelled.push(id);
+  h.run('Transfer()'); const output = h.node('export-information').onclick(); h.run('Transfer()'); const status = h.node('share-status'); status.textContent = '新しい画面'; finishExport({ file: 'late.json' }); await output;
+  assert.equal(h.node('share-status').textContent, '新しい画面'); assert.equal(h.node('export-media').disabled, false);
+  const input = h.node('import-button').onclick(); h.run('NewList()'); finishImport({ id: 'closed' }); await input; assert.deepEqual(cancelled, ['closed']); assert.equal(h.node('modal-title').textContent, '新しいプレイリスト');
+});
+test('067 both sharing modes are described during import and information-only local tracks are explained after commit', async t => {
+  const h = await Harness(t), plan = { id: 'p', mode: 'information', rootPlaylistIds: ['a'], playlists: [{ id: 'a', name: '親', count: 0, childIds: ['b'] }, { id: 'b', name: '子', count: 1, childIds: [] }] };
+  h.api.cancelImport = async () => {}; h.api.commitImport = async () => ({ state: h.store.Snapshot(), imported: 2, ancestors: 1, omitted: 1 });
+  h.run(`ImportSelection(${JSON.stringify(plan)})`); assert.match(h.node('archive-content-summary').textContent, /情報のみ/); assert.match(h.node('archive-content-summary').textContent, /登録情報のみ/);
+  h.node('archive-search').value = '子'; h.node('archive-search').oninput(); const child = h.node('archive-lists').querySelectorAll('input').find(n => n.value === 'b'); child.checked = true; child.onchange(); await h.submit(); assert.match(h.node('toast').textContent, /ローカル曲 1件は登録情報のみ/);
+  h.run(`ImportSelection(${JSON.stringify({ ...plan, mode: 'media' })})`); assert.match(h.node('archive-content-summary').textContent, /DLデータ付き/); assert.match(h.node('archive-content-summary').textContent, /復元/);
+});
 function ParentTree(h) {
   const s = h.store; s.Apply({ type: 'rename', playlistId: h.id, name: 'EroGameSongs' });
   const create = (name, parentId = null) => { s.Apply({ type: 'create', name, parentId }); return s.data.activePlaylistId; };

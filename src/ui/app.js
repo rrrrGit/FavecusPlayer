@@ -719,21 +719,36 @@ function PlaylistURL(prefill = {}) {
   if (prefill.url) { $('playlist-source-url').value = prefill.url; void browser.Search(prefill.url); }
 }
 function Transfer() {
-  OpenModal('プレイリストの出力・取り込み', `<p class="form-note">プレイリスト・ローカルファイル・保存済みの動画と音声・サムネイルをZIPにまとめます。出力・取り込みにパスワードは不要です。ログイン情報とアプリ設定は含みません。</p>
-    <div class="settings-actions"><button type="button" id="export-button" class="button primary">ZIPで出力</button><button type="button" id="import-button" class="button secondary">ZIP・旧JSONを取り込む</button></div>`, null, '保存', Settings);
-  const epoch = modalEpoch;
-  $('export-button').onclick = () => Run(async () => {
-    $('export-button').disabled = true;
-    try { const result = await api.exportLibrary(); if (epoch === modalEpoch && result) Toast(`ZIPを出力しました。${result.downloaded ? `保存済み動画・音声 ${result.downloaded}件を同梱しました。` : ''}${result.missing ? `見つからないローカルファイル：${result.missing}件。` : ''}`); }
-    finally { if (epoch === modalEpoch) $('export-button').disabled = false; }
+  OpenModal('プレイリストの出力・取り込み', `<p class="form-note">ライブラリ内のすべてのプレイリストを、親子関係と並び順を保って出力します。ログイン情報とアプリ設定は含みません。パスワードは不要です。</p>
+    <div class="share-options"><section class="share-option"><h3>プレイリスト情報のみ</h3><p class="share-purpose">主な用途：PC・スマホ間で情報を共有</p><p class="form-note">リスト名、親子関係、並び順、曲名、動画リンク、パート番号などを含めます。動画・音声ファイルとDLサムネイルは含めません。</p><button type="button" id="export-information" class="button primary">プレイリスト情報のみ出力</button><p class="form-note">JSON（標準）またはZIP。ローカル曲は登録情報のみです。</p></section>
+    <section class="share-option"><h3>DLデータ付き</h3><p class="share-purpose">主な用途：PC間で情報と保存データを共有</p><p class="form-note">上記の情報と、保存済みの動画・音声・サムネイルをZIPにまとめます。ローカルファイルも同梱します。</p><button type="button" id="export-media" class="button primary">DLデータを含めて出力</button><p class="form-note">未保存の曲はリンク情報を保持します。ローカルファイルの不足は完了時に件数を案内します。</p></section></div>
+    <p class="form-note">取り込みでは、取り込むリストと取り込み先の親を選べます。情報のみのJSON・ZIP、DLデータ付きZIP、旧形式に対応します。</p><button type="button" id="import-button" class="button secondary">JSON・ZIPを取り込む</button><p id="share-status" class="status-detail" role="status" aria-live="polite"></p>`, null, '保存', Settings);
+  const epoch = modalEpoch; let busy = false;
+  const valid = () => epoch === modalEpoch && $('modal').open;
+  const controls = () => { if (valid()) for (const id of ['export-information', 'export-media', 'import-button']) $(id).disabled = busy; };
+  const perform = task => Run(async () => {
+    if (busy) return;
+    busy = true; controls();
+    try { await task(); }
+    catch (error) { if (valid()) $('share-status').textContent = `処理を完了できませんでした。${error.message}`; throw error; }
+    finally { busy = false; controls(); }
   });
-  $('import-button').onclick = () => Run(async () => {
-    $('import-button').disabled = true;
-    try {
-      const result = await api.importLibrary(); if (!result) return;
-      if (epoch !== modalEpoch || !$('modal').open) { await api.cancelImport(result.id); return; }
-      ImportSelection(result);
-    } finally { if (epoch === modalEpoch) $('import-button').disabled = false; }
+  const output = mode => perform(async () => {
+    $('share-status').textContent = '出力先を選んでください。ファイルを作成しています…';
+    const result = await api.exportLibrary({ mode }); if (!valid()) return;
+    if (!result) { $('share-status').textContent = '出力をキャンセルしました。'; return; }
+    const format = result.file?.toLowerCase().endsWith('.json') ? 'JSON' : 'ZIP';
+    const message = mode === 'information' ? `プレイリスト情報を${format}で出力しました。${result.omitted ? `ローカルファイル ${result.omitted}件は含めていません。` : ''}`
+      : `DLデータ付きZIPを出力しました。保存済み動画・音声 ${result.downloaded || 0}件を同梱しました。${result.missing ? `見つからないローカルファイル：${result.missing}件。` : ''}`;
+    $('share-status').textContent = message; Toast(message);
+  });
+  $('export-information').onclick = () => output('information'); $('export-media').onclick = () => output('media');
+  $('import-button').onclick = () => perform(async () => {
+    $('share-status').textContent = '取り込むファイルを選んでください。内容を確認しています…';
+    const result = await api.importLibrary();
+    if (!result) { if (valid()) $('share-status').textContent = '取り込みをキャンセルしました。'; return; }
+    if (!valid()) { await api.cancelImport(result.id); return; }
+    ImportSelection(result);
   });
 }
 function ImportSelection(plan) {
@@ -746,10 +761,11 @@ function ImportSelection(plan) {
     try {
       const result = await api.commitImport(plan.id, ids, { parentId: destination.get() });
       cancelModal = null; state = result.state; allListsView = false; tree.ExpandTo(state, state.activePlaylistId, expandedLists); Render();
-      Toast(`${result.imported}リストを親子関係を保って取り込みました。${result.ancestors ? `祖先 ${result.ancestors}リストは階層を保つために追加しました。` : ''}${result.downloaded ? `保存済み動画・音声 ${result.downloaded}件を復元しました。` : ''}${result.missing ? `ファイル不足：${result.missing}件。` : ''}`);
+      Toast(`${result.imported}リストを親子関係を保って取り込みました。${result.ancestors ? `祖先 ${result.ancestors}リストは階層を保つために追加しました。` : ''}${result.downloaded ? `保存済み動画・音声 ${result.downloaded}件を復元しました。` : ''}${result.missing ? `ファイル不足：${result.missing}件。` : ''}${result.omitted ? `ローカル曲 ${result.omitted}件は登録情報のみ取り込みました。` : ''}`);
     } finally { importing = false; if ($('archive-import-all')) $('archive-import-all').disabled = false; }
   };
-  OpenModal('取り込むプレイリストを選択', '<p class="form-note">親を選ぶと子孫もまとめて取り込みます。子だけを選んでも元の祖先を構造として残します。未選択の祖先の曲や、無関係な兄弟は取り込みません。同名リストは別名で追加します。</p><div class="field"><span>取り込み先の親プレイリスト</span><div id="archive-parent"></div></div><label class="field">取り込むリストを検索<input id="archive-search" type="search" placeholder="プレイリスト名を検索"></label><div class="settings-actions"><button id="archive-select-all" type="button" class="button secondary">すべて選択</button><button id="archive-select-none" type="button" class="button secondary">選択を解除</button><button id="archive-import-all" type="button" class="button primary">すべて取り込む</button></div><p id="archive-selection-summary" class="form-note" role="status"></p><div id="archive-lists" class="archive-lists"></div>', () => commit(picker.get()), '選択したリストを取り込む');
+  OpenModal('取り込むプレイリストを選択', '<p id="archive-content-summary" class="form-note"></p><p class="form-note">親を選ぶと子孫もまとめて取り込みます。子だけを選んでも元の祖先を構造として残します。未選択の祖先の曲や、無関係な兄弟は取り込みません。同名リストは別名で追加します。</p><div class="field"><span>取り込み先の親プレイリスト</span><div id="archive-parent"></div></div><label class="field">取り込むリストを検索<input id="archive-search" type="search" placeholder="プレイリスト名を検索"></label><div class="settings-actions"><button id="archive-select-all" type="button" class="button secondary">すべて選択</button><button id="archive-select-none" type="button" class="button secondary">選択を解除</button><button id="archive-import-all" type="button" class="button primary">すべて取り込む</button></div><p id="archive-selection-summary" class="form-note" role="status"></p><div id="archive-lists" class="archive-lists"></div>', () => commit(picker.get()), '選択したリストを取り込む');
+  $('archive-content-summary').textContent = plan.mode === 'information' ? '情報のみ：動画・音声ファイルとDLサムネイルは含まれていません。ローカル曲は登録情報のみです。' : plan.mode === 'media' ? 'DLデータ付き：同梱された動画・音声・サムネイルとローカルファイルを復元します。' : '既存形式のプレイリストを取り込みます。';
   cancelModal = () => api.cancelImport(plan.id);
   destination = window.FavecusParentPicker($('archive-parent'), state, { selected: null, label: '取り込み先の親を検索' });
   const summary = () => {

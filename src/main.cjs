@@ -7,6 +7,7 @@ const { randomUUID } = require('node:crypto');
 const { Store, MEDIA_NAME } = require('./core/store.cjs');
 const { LocalDuration } = require('./core/media-duration.cjs');
 const { LibraryArchive } = require('./core/library-archive.cjs');
+const { ShareMode } = require('./core/library-share.cjs');
 const { Queue } = require('./core/queue.cjs');
 const { PlayCounts } = require('./core/play-counts.cjs');
 const { ReadIcon } = require('./core/playlist-icon.cjs');
@@ -644,12 +645,20 @@ async function Start() {
     if (moved) { Object.assign(current, moved.destinations[0]); current.entry = structuredClone(store.Entry(current.playlistId, current.entryId)); if (thumbnail) thumbnail.entryId = current.entryId; Emit('current-update', current); }
     SyncPlayingQueue(); Emit('state', result.state); return result;
   });
-  Handle('library:export', async () => {
-    const result = await dialog.showSaveDialog(win, { title: 'プレイリストをZIPで出力', defaultPath: `FavecusPlayer-playlists-${new Date().toISOString().slice(0, 10)}.zip`, filters: [{ name: 'ZIPアーカイブ', extensions: ['zip'] }] });
-    return result.canceled ? null : archive.Export(result.filePath);
+  let exporting = false;
+  Handle('library:export', async (options = {}) => {
+    const mode = ShareMode(options), information = mode === 'information';
+    if (exporting) throw new Error('別の出力処理が進行中です。完了後にもう一度お試しください。');
+    exporting = true;
+    try {
+      const result = await dialog.showSaveDialog(win, { title: information ? 'プレイリスト情報のみ出力' : 'DLデータを含めて出力',
+        defaultPath: `FavecusPlayer-playlists-${information ? 'information' : 'media'}-${new Date().toISOString().slice(0, 10)}.${information ? 'json' : 'zip'}`,
+        filters: information ? [{ name: 'プレイリスト情報（JSON）', extensions: ['json'] }, { name: 'ZIPアーカイブ', extensions: ['zip'] }] : [{ name: 'ZIPアーカイブ', extensions: ['zip'] }] });
+      return result.canceled ? null : await archive.Export(result.filePath, undefined, { mode });
+    } finally { exporting = false; }
   });
   Handle('library:import', async () => {
-    const result = await dialog.showOpenDialog(win, { title: 'プレイリストのZIPを選択', properties: ['openFile'], filters: [{ name: 'Favecus Playerのプレイリスト', extensions: ['zip', 'json'] }] });
+    const result = await dialog.showOpenDialog(win, { title: 'プレイリストのJSON・ZIPを選択', properties: ['openFile'], filters: [{ name: 'Favecus Playerのプレイリスト', extensions: ['zip', 'json'] }] });
     return result.canceled ? null : archive.Prepare(result.filePaths[0]);
   });
   Handle('library:import-commit', async (id, ids, options) => { const result = await archive.Commit(id, ids, options); SyncPlayingQueue(); Emit('state', result.state); return result; });
