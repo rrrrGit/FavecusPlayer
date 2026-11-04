@@ -50,7 +50,7 @@ test('new media keeps both formats and covers in a song folder; old layout migra
   const video = library.Find(entry(123), 'video'), audio = library.Find(entry(123), 'audio'); assert.equal(path.dirname(video.file), path.dirname(audio.file)); assert.equal(video.file.split('/').length, 3); assert.equal(path.dirname(video.thumbnail.file), path.dirname(video.file));
   const oldFile = 'old/saved-song.mp4', oldCover = 'old/saved-song.thumbnail.png'; fs.mkdirSync(path.join(library.directory, 'old')); fs.copyFileSync(video.path, library.ResolvePath(oldFile)); fs.copyFileSync(library.ResolvePath(video.thumbnail.file), library.ResolvePath(oldCover));
   library.CommitRecord({ ...video, layout: undefined, file: oldFile, thumbnail: { ...video.thumbnail, file: oldCover } });
-  await library.Organize(); const moved = library.Find(entry(123), 'video'); assert.equal(moved.layout, 2); assert.equal(fs.readFileSync(moved.path, 'utf8'), 'playable fixture'); assert.equal(library.Cover(moved.token), PNG); assert.equal(fs.existsSync(library.ResolvePath(oldFile)), false);
+  await library.Organize(); const moved = library.Find(entry(123), 'video'); assert.equal(moved.layout, 4, library.warning); assert.equal(fs.readFileSync(moved.path, 'utf8'), 'playable fixture'); assert.equal(library.Cover(moved.token), PNG); assert.equal(fs.existsSync(library.ResolvePath(oldFile)), false);
   const restarted = Offline(root); assert.equal(restarted.Find(entry(123)).file, moved.file); const before = fs.readFileSync(path.join(library.directory, 'index.json'), 'utf8'); await restarted.Organize(); assert.equal(fs.readFileSync(path.join(library.directory, 'index.json'), 'utf8'), before);
 });
 async function ArchiveFixture(t) {

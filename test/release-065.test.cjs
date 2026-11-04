@@ -80,25 +80,25 @@ test('065 a rate limit stops peer workers and reports one coded fatal failure', 
   assert.equal(job.status, 'failed'); assert.equal(job.failures[0].code, 'FP-DOWNLOAD-LIMIT'); assert.match(job.message, /FP-DOWNLOAD-LIMIT/);
   assert.doesNotMatch(JSON.stringify(h.diagnostics), /SECRET|signed-url/);
 });
-test('065 existing flat media and thumbnails migrate into the full playlist hierarchy and survive reparenting and restart without downloading again', async t => {
+test('067 existing flat media and thumbnails migrate into shared folders and stay fixed through reparenting and restart', async t => {
   const entry = Entry(501); let data = Data([entry]);
   const h = Manager(t, { libraryData: () => data }); fs.mkdirSync(h.directory, { recursive: true });
   const oldMedia = '古い曲.mp4', oldCover = '古い曲.png'; fs.writeFileSync(path.join(h.directory, oldMedia), 'original media'); fs.writeFileSync(path.join(h.directory, oldCover), image);
   const record = { token: `${Key(entry.url, 'video')}.mp4`, file: oldMedia, url: entry.url, kind: 'video', bytes: 14, duration: 10, height: 360, requestedHeight: 360, thumbnail: { file: oldCover, bytes: image.length } }; h.library.CommitRecord(record);
   await h.library.Organize(); const migrated = h.library.File(record.token);
-  assert.ok(migrated.file.startsWith(Folder(data, 'B') + '/')); assert.equal(migrated.layout, 3); assert.equal(migrated.playlistId, 'B'); assert.equal(fs.readFileSync(migrated.path, 'utf8'), 'original media'); assert.ok(h.library.Cover(record.token)); assert.equal(fs.existsSync(path.join(h.directory, oldMedia)), false);
+  assert.match(migrated.file, /^media\/av501-p1\//); assert.equal(migrated.layout, 4); assert.equal(fs.readFileSync(migrated.path, 'utf8'), 'original media'); assert.ok(h.library.Cover(record.token)); assert.equal(fs.existsSync(path.join(h.directory, oldMedia)), false);
   h.library.Start([entry], { ...Options, playlistId: 'A', playlistName: '親A' }); await h.library.done; assert.equal(h.resolves(), 0); assert.equal(h.library.Snapshot().job.skipped, 1);
   data.playlists[0].childIds = []; data.playlists[3].childIds = ['B']; await h.library.Organize(); const moved = h.library.File(record.token);
-  assert.ok(moved.file.startsWith(Folder(data, 'B') + '/')); assert.notEqual(moved.file, migrated.file); assert.equal(fs.existsSync(migrated.path), false);
+  assert.equal(moved.file, migrated.file); assert.equal(fs.existsSync(migrated.path), true);
   const restarted = new OfflineLibrary(h.options); assert.equal(restarted.File(record.token).file, moved.file); assert.ok(restarted.Cover(record.token)); assert.equal(restarted.records.size, 1);
 });
-test('065 a failed index commit rolls back copied hierarchy files and keeps the originals and index usable', async t => {
+test('067 a failed migration index commit keeps original media and completed copies for retry', async t => {
   const entry = Entry(601), data = Data([entry]), h = Manager(t, { libraryData: () => data });
   fs.mkdirSync(path.join(h.directory, 'old/song'), { recursive: true }); fs.writeFileSync(path.join(h.directory, 'old/song/video.mp4'), 'media'); fs.writeFileSync(path.join(h.directory, 'old/song/cover.png'), image);
   const record = { token: `${Key(entry.url, 'video')}.mp4`, file: 'old/song/video.mp4', layout: 2, playlistId: 'B', url: entry.url, kind: 'video', bytes: 5, thumbnail: { file: 'old/song/cover.png', bytes: image.length } }; h.library.CommitRecord(record);
   const index = fs.readFileSync(path.join(h.directory, 'index.json')); h.library.CommitRecord = () => { throw new Error('index failed'); };
   await h.library.ReconcileLayout(data); assert.equal(h.library.File(record.token).file, record.file); assert.ok(h.library.Cover(record.token)); assert.deepEqual(fs.readFileSync(path.join(h.directory, 'index.json')), index);
-  assert.match(h.library.warning, /FP-DOWNLOAD-LAYOUT/); assert.deepEqual(fs.readdirSync(path.join(h.directory, Folder(data, 'B'), 'song')), []);
+  assert.match(h.library.warning, /FP-DOWNLOAD-LAYOUT/); assert.ok(fs.existsSync(path.join(h.directory, '.layout-migration.json'))); assert.equal(fs.readdirSync(path.join(h.directory, 'media/av601-p1')).length, 2);
 });
 test('065 a child saved first is reused when saving its parent or another membership, without duplicate files', async t => {
   const entry = Entry(701), data = Data([entry]), h = Manager(t, { libraryData: () => data });

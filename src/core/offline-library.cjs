@@ -10,16 +10,13 @@ const { BilibiliDownloadSource } = require('./bilibili-download.cjs');
 const { DownloadStream, Assemble } = require('./download-transfer.cjs');
 const { RemoteImage, ImageData, ImageURL } = require('./thumbnail.cjs');
 const { DownloadSelection, EstimateKey, EstimateDownloads, LiveEstimate, PlanBytes, AvailableBytes, JobTiming } = require('./download-estimate.cjs');
-const { SafeName, Target, SharedFolder } = require('./offline-layout.cjs');
+const { SafeName, SharedFolder } = require('./offline-layout.cjs');
 const { DownloadDiagnostic } = require('./download-errors.cjs');
+const { MigrateShared } = require('./offline-migration.cjs');
 const Token = /^[a-f0-9]{64}\.(mp4|m4a)$/;
 const Key = (url, kind) => createHash('sha256').update(DownloadIdentity(url, kind).key).digest('hex');
 function AtomicJSON(file, value) { const tmp = `${file}.${randomUUID()}.tmp`; try { fs.writeFileSync(tmp, JSON.stringify(value, null, 2), { flag: 'wx' }); fs.renameSync(tmp, file); } finally { fs.rmSync(tmp, { force: true }); } }
 function ReadJSON(file, fallback) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return fallback; throw e; } }
-async function LinkOrCopy(from, to) {
-  try { await fs.promises.link(from, to); }
-  catch (error) { if (!['EXDEV', 'EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EACCES', 'EMLINK', 'ENOSYS'].includes(error.code)) throw error; await fs.promises.copyFile(from, to, fs.constants.COPYFILE_EXCL); }
-}
 class OfflineLibrary {
   constructor({ directory, previousDirectories = [], settingsFile, fetch, ffmpeg, changed = () => {}, diagnostic = () => {}, libraryData = () => null, identify = () => {}, resolve, cover, thumbnail = RemoteImage, assemble = Assemble, transfer = DownloadStream }) {
     Object.assign(this, { settingsFile, fetch, ffmpeg, changed, diagnostic, libraryData, assemble, transfer, thumbnail }); this.active = new Map();
@@ -124,7 +121,8 @@ class OfflineLibrary {
     } finally { if (this.estimateController === controller) this.estimateController = null; }
   }
   TrackPath(entry, kind, height, playlistId, playlistName, data = this.libraryData() || this.layoutData) {
-    const shared = ['video', 'audio'].map(format => this.Find(entry, format, true)).find(r => r?.layout === 4);
+    const url = ParseBilibili(entry.url).url, keyOf = LibraryMediaKey(data?.videoAliases), key = keyOf(entry);
+    const shared = [...this.records.values()].find(r => r.layout === 4 && (r.aliases?.includes(url) || keyOf({ type: 'bilibili', url: r.url }) === key) && this.File(r.token));
     const folder = shared ? path.posix.dirname(shared.file) : SharedFolder(entry, data);
     return `${folder}/${kind === 'video' ? `video-${height || 720}p` : 'audio'}-${randomUUID()}.${kind === 'video' ? 'mp4' : 'm4a'}`;
   }
@@ -137,46 +135,21 @@ class OfflineLibrary {
   }
   async Organize() {
     if (this.controller || this.importing || this.indexError) return;
-    for (const record of [...this.records.values()]) {
-      if (record.layout >= 2 || !this.File(record.token)) continue;
-      const oldPath = this.ResolvePath(record.file), title = path.basename(record.file, path.extname(record.file)).replace(/-[a-f0-9-]{36}$/, '');
-      const group = record.file.split('/').length > 1 ? record.file.split('/')[0] : '整理済み';
-      const track = `${SafeName(title)}-${createHash('sha256').update(ParseBilibili(record.url).url).digest('hex').slice(0, 12)}`;
-      const relative = `${group}/${track}/${record.kind}-${randomUUID().slice(0, 8)}.${record.kind === 'video' ? 'mp4' : 'm4a'}`;
-      const copied = []; let committed = false;
-      try {
-        const destination = this.ResolvePath(relative); await fs.promises.mkdir(path.dirname(destination), { recursive: true }); this.ResolvePath(relative);
-        await LinkOrCopy(oldPath, destination); copied.push(destination);
-        const updated = { ...record, file: relative, layout: 2 };
-        if (this.Cover(record.token)) { const coverFile = `${path.posix.dirname(relative)}/thumbnail-${randomUUID().slice(0, 8)}${path.extname(record.thumbnail.file)}`; const target = this.ResolvePath(coverFile); await LinkOrCopy(this.ResolvePath(record.thumbnail.file), target); copied.push(target); updated.thumbnail = { ...record.thumbnail, file: coverFile }; }
-        this.CommitRecord(updated); committed = true; await this.CleanupRecord(record, updated);
-      } catch { this.warning = '一部の保存データを整理できませんでした。元の保存データは保持しています。'; }
-      finally { if (!committed) for (const file of copied) await fs.promises.rm(file, { force: true }).catch(() => {}); }
-    }
-    await this.ReconcileLayout(this.libraryData()).catch(error => { const failure = this.Failure(null, error, 'layout'); this.warning = `[${failure.code}] ${failure.message} 記録ID: ${failure.recordId}`; });
+    await this.ReconcileLayout(this.libraryData());
   }
   async ReconcileLayout(data, signal) {
-    if (!data?.playlists) return;
-    for (const record of [...this.records.values()]) {
-      signal?.throwIfAborted();
-      if (record.layout === 4) continue;
-      const target = Target(data, record); if (!target || !this.File(record.token)) continue;
-      const relative = `${target.folder}/${path.posix.basename(record.file)}`;
-      if (relative === record.file) { if (record.layout !== 3 || record.playlistId !== target.playlist.id) this.CommitRecord({ ...record, layout: 3, playlistId: target.playlist.id }); continue; }
-      const copied = []; let committed = false;
-      try {
-        const destination = this.ResolvePath(relative); await fs.promises.mkdir(path.dirname(destination), { recursive: true }); this.ResolvePath(relative);
-        await LinkOrCopy(this.ResolvePath(record.file), destination); copied.push(destination);
-        const updated = { ...record, file: relative, layout: 3, playlistId: target.playlist.id };
-        if (this.Cover(record.token)) { const coverFile = `${target.folder}/${path.posix.basename(record.thumbnail.file)}`, cover = this.ResolvePath(coverFile); await LinkOrCopy(this.ResolvePath(record.thumbnail.file), cover); copied.push(cover); updated.thumbnail = { ...record.thumbnail, file: coverFile }; }
-        signal?.throwIfAborted(); this.CommitRecord(updated); committed = true; await this.CleanupRecord(record, updated);
-      } catch (error) {
-        if (signal?.aborted) throw error;
-        const failure = this.Failure(target.entry, error, 'layout'); this.warning = `[${failure.code}] ${failure.message} 記録ID: ${failure.recordId}`;
-        if (this.job?.status === 'running' && this.job.warnings.length < 200) this.job.warnings.push(failure);
-        if (['ENOSPC', 'EACCES', 'EPERM'].includes(error.code)) throw error;
-      } finally { if (!committed) for (const file of copied) await fs.promises.rm(file, { force: true }).catch(() => {}); }
-    }
+    if (this.migrationDone) return this.migrationDone;
+    if (this.indexError || this.importing || (this.controller && signal !== this.controller.signal)) return;
+    if (this.warning === this.migrationWarning) this.warning = '';
+    this.CancelEstimate(); this.importing = true;
+    this.migrationDone = MigrateShared(this, data, signal).catch(error => {
+      if (signal?.aborted) throw error;
+      const failure = this.Failure(null, error, 'layout'); this.warning = `[${failure.code}] ${failure.message} 記録ID: ${failure.recordId}`;
+      this.migrationWarning = this.warning;
+      if (this.job?.status === 'running' && this.job.warnings.length < 200) this.job.warnings.push(failure);
+      if (this.controller) throw error;
+    }).finally(() => { this.importing = false; this.migrationDone = null; });
+    return this.migrationDone;
   }
   Start(entries, { kind, height = 720, playlistId, playlistName, estimateId }) {
     if (this.controller || this.importing) throw new Error('別の保存・取り込み処理が進行中です。');
