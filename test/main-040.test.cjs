@@ -17,6 +17,39 @@ function SavedURL(view) {
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/ui/local.js'), 'utf8'), { URL, location: { href: view.webContents.getURL() }, document: { getElementById: () => video } });
   return video.src;
 }
+test('067 single downloads save exactly the requested part, reuse saved formats, and leave titles unchanged', async t => {
+  const resolved = [], transfers = [];
+  const h = await MainHarness(t, { downloadOptions: { ffmpeg: process.execPath, cover: async () => null,
+    resolve: async (entry, kind) => { resolved.push({ url: entry.url, kind }); return { kind, height: 720, url: entry.url, duration: 1, layout: 'dash', streams: [{ urls: [] }] }; },
+    transfer: async (_fetch, _stream, file) => { transfers.push(file); fs.writeFileSync(file, 'raw'); return 3; },
+    assemble: async (_exe, _plan, _files, dest) => { fs.writeFileSync(dest, 'saved media'); return 1; }
+  } }), id = h.store.data.activePlaylistId;
+  await h.invoke('library:action', { type: 'add', playlistId: id, urls: 'av123\nhttps://www.bilibili.com/video/av123/?p=2' });
+  await h.invoke('library:action', { type: 'create', name: '子', parentId: id }); const child = h.store.data.activePlaylistId;
+  await h.invoke('library:action', { type: 'add', playlistId: child, urls: 'av456' });
+  const [first, entry] = h.store.Playlist(id).entries, before = h.store.Snapshot(), options = { playlistId: id, entryId: entry.id, entryURL: entry.url, includeChildren: false, kind: 'video', height: 720 };
+  const start = await h.invoke('downloads:start', options); assert.equal(start.job.total, 1); assert.equal(start.job.entryId, entry.id); assert.equal(start.job.entryURL, entry.url);
+  await h.offline.done; assert.equal(h.offline.job.completed, 1); assert.deepEqual(resolved, [{ url: entry.url, kind: 'video' }]); assert.equal(transfers.length, 1);
+  assert.equal(h.offline.Find(first), null); assert.equal(h.offline.Find(h.store.Playlist(child).entries[0]), null); assert.ok(fs.existsSync(h.offline.Find(entry).path));
+  const estimate = await h.invoke('downloads:estimate', options); assert.equal(estimate.total, 1); assert.equal(estimate.skipped, 1);
+  await h.invoke('downloads:start', { ...options, estimateId: estimate.id }); await h.offline.done; assert.equal(h.offline.job.skipped, 1); assert.equal(transfers.length, 1);
+  await h.invoke('downloads:start', { ...options, kind: 'audio' }); await h.offline.done; assert.equal(h.offline.job.completed, 1); assert.equal(transfers.length, 2);
+  await h.invoke('downloads:start', { ...options, kind: 'audio' }); await h.offline.done; assert.equal(h.offline.job.skipped, 1); assert.equal(transfers.length, 2);
+  assert.ok(h.offline.Find(entry, 'audio')); assert.ok(h.offline.Find(entry, 'video')); assert.deepEqual(h.store.Snapshot(), before);
+});
+test('067 main rejects incomplete, forged, local and stale single targets before any transfer', async t => {
+  let resolves = 0; const h = await MainHarness(t, { downloadOptions: { ffmpeg: process.execPath, resolve: async () => { resolves++; throw new Error('must not resolve'); } } }), id = h.store.data.activePlaylistId;
+  await h.invoke('library:action', { type: 'add', playlistId: id, urls: 'av123\nav456' }); const entry = h.store.Playlist(id).entries[0], other = h.store.Playlist(id).entries[1];
+  const input = { playlistId: id, entryId: entry.id, entryURL: entry.url, includeChildren: false, kind: 'video', height: 720 };
+  for (const change of [{ entryId: undefined }, { entryURL: undefined }, { entryId: 'missing' }, { entryURL: other.url }, { includeChildren: true }, { kind: 'invalid' }, { height: 4 }]) {
+    for (const channel of ['downloads:estimate', 'downloads:start']) await assert.rejects(h.invoke(channel, { ...input, ...change }));
+  }
+  h.store.Playlist(id).entries[0] = { ...entry, type: 'local', path: path.join(h.root, 'music.mp3') }; h.store.Save();
+  await assert.rejects(h.invoke('downloads:start', input)); h.store.Playlist(id).entries[0] = entry; h.store.Save();
+  await h.invoke('library:action', { type: 'remove', playlistId: id, entryId: entry.id });
+  await assert.rejects(h.invoke('downloads:estimate', input)); await assert.rejects(h.invoke('downloads:start', { ...input, estimateId: 'stale' }));
+  assert.equal(resolves, 0); assert.equal(h.offline.controller, null); assert.equal(h.offline.records.size, 0);
+});
 test('067 deleting the last playing reference waits for native destruction and publishes the cleanup result', async t => {
   const h = await MainHarness(t, { delayPlayerClose: true }), id = h.store.data.activePlaylistId;
   const state = await h.invoke('library:action', { type: 'add', playlistId: id, urls: 'av123' }), entry = state.playlists[0].entries[0], record = SavedTrack(h, entry);

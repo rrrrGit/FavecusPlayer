@@ -66,6 +66,68 @@ async function Harness(t) {
   return { store, id, api, artworkObserver, nodes, scrolls, bounds, calls, html, document, surfaces, windowEvent: name => windowEvents[name]?.(), flush, run: code => vm.runInContext(code, context), emit: (type, value) => emit({ type, value }), advance: ms => now += ms,
     play(index) { const entry = store.Playlist(id).entries[index]; emit({ type: 'current', value: { source: entry.type, playlistId: id, entryId: entry.id, entry } }); }, node: id => nodes.get(id), submit: () => vm.runInContext('PerformModal(submitModal, true)', context), tick(ms) { now += ms; for (const [id, timer] of [...timers]) if (timer.at <= now) { timers.delete(id); timer.fn(); } } };
 }
+function SingleDownloadAPI(h) {
+  const started = [], estimates = [], value = { id: 'single-estimate', total: 1, skipped: 0, unknown: 0, fileBytes: 1048576, requiredBytes: 2097152, secondsMin: 1, secondsMax: 10 };
+  h.api.downloads = async () => ({}); h.api.cancelDownloadEstimate = async () => {};
+  h.api.estimateDownload = async input => { estimates.push({ ...input }); return value; };
+  h.api.downloadPlaylist = async input => { started.push({ ...input }); return { job: { ...input, playlistName: '曲の保存先', status: 'running', total: 1, finished: 0, completed: 0, skipped: 0, failed: 0 } }; };
+  return { started, estimates, value };
+}
+function EditEntry(h, playlistId = h.id, index = 0) { h.run(`EntryMenu(${JSON.stringify({ ...h.store.Playlist(playlistId).entries[index], playlistId })})`); }
+test('067 single download targets the edited child and part, preserves drafts on back and start, and saves a title only on submit', async t => {
+  const h = await Harness(t), s = h.store, api = SingleDownloadAPI(h);
+  s.Apply({ type: 'create', name: '子', parentId: h.id }); const child = s.data.activePlaylistId;
+  s.Apply({ type: 'add', playlistId: child, urls: 'av999\nhttps://www.bilibili.com/video/av999/?p=2' });
+  s.Apply({ type: 'select', playlistId: h.id }); h.emit('state', s.Snapshot());
+  const entry = s.Playlist(child).entries[1], before = s.Snapshot(); EditEntry(h, child, 1);
+  h.node('entry-title-input').value = '編集中の名前'; h.node('entry-download-button').onclick(); await new Promise(setImmediate);
+  assert.equal(h.node('modal-title').textContent, 'この動画のみをダウンロード'); assert.match(h.node('download-entry-meta').textContent, /av999 \/ パート 2/);
+  assert.equal(h.node('download-list-picker'), undefined); assert.equal(h.node('download-children'), undefined);
+  assert.equal(api.estimates[0].playlistId, child); assert.equal(api.estimates[0].entryId, entry.id); assert.equal(api.estimates[0].entryURL, entry.url); assert.equal(api.estimates[0].includeChildren, false);
+  await h.node('modal-back').onclick(); assert.equal(h.node('entry-title-input').value, '編集中の名前'); assert.deepEqual(s.Snapshot(), before);
+  h.node('entry-download-button').onclick(); await new Promise(setImmediate);
+  h.node('download-kind').value = 'audio'; h.node('download-kind').onchange(); await new Promise(setImmediate); assert.equal(h.node('download-height').disabled, true);
+  await h.node('download-start').onclick(); assert.equal(api.started.length, 1); assert.equal(api.started[0].entryId, entry.id); assert.equal(api.started[0].kind, 'audio');
+  assert.equal(h.node('modal-title').textContent, '動画の編集'); assert.equal(h.node('entry-title-input').value, '編集中の名前'); assert.deepEqual(s.Snapshot(), before);
+  assert.equal(h.node('download-mini').classList.contains('hidden'), false); await h.submit(); assert.equal(s.Entry(child, entry.id).title, '編集中の名前'); assert.equal(s.Playlist(child).entries[0].title, before.playlists.find(p => p.id === child).entries[0].title);
+});
+test('067 local editing has no download action and saved badges follow the exact part', async t => {
+  const h = await Harness(t); SingleDownloadAPI(h); const entry = h.store.Playlist(h.id).entries[0];
+  h.emit('downloads', { available: [{ url: entry.url + '?p=2', kind: 'video' }] }); EditEntry(h); assert.equal(h.node('entry-download-state').textContent, 'オンライン');
+  h.emit('downloads', { available: [{ url: entry.url, kind: 'audio' }] }); assert.equal(h.node('entry-download-state').textContent, '音声保存済み');
+  h.node('entry-download-button').onclick(); await new Promise(setImmediate); assert.equal(h.node('download-entry-saved').textContent, '音声保存済み');
+  h.emit('downloads', { available: [{ url: entry.url, kind: 'video' }] }); assert.equal(h.node('download-entry-saved').textContent, '動画保存済み');
+  const local = { ...entry, type: 'local', fileName: 'music.mp3' }; h.store.Playlist(h.id).entries[0] = local; h.emit('state', h.store.Snapshot()); EditEntry(h);
+  assert.equal(h.node('entry-download-button'), undefined); assert.equal(h.node('entry-download-state'), undefined);
+});
+test('067 stale single targets disable start and late estimates cannot reach another editor', async t => {
+  const h = await Harness(t), api = SingleDownloadAPI(h), pending = []; let cancelled = 0;
+  h.api.cancelDownloadEstimate = async () => cancelled++; h.api.estimateDownload = () => new Promise(resolve => pending.push(resolve));
+  EditEntry(h); h.node('entry-download-button').onclick(); await new Promise(setImmediate); assert.equal(h.node('download-start').disabled, false);
+  const entry = h.store.Playlist(h.id).entries[0]; h.store.Apply({ type: 'remove', playlistId: h.id, entryId: entry.id }); h.emit('state', h.store.Snapshot());
+  assert.equal(h.node('download-start').disabled, true); assert.match(h.node('download-count').textContent, /移動・削除/);
+  pending[0]({ ...api.value, id: 'removed' }); await new Promise(setImmediate); assert.equal(h.run('downloadEstimate'), null);
+  await h.node('download-start').onclick(); assert.equal(api.started.length, 0); await h.node('modal-back').onclick(); assert.equal(h.node('modal').open, false);
+  EditEntry(h); h.node('entry-download-button').onclick(); await new Promise(setImmediate); h.run('CloseModal()'); EditEntry(h);
+  pending[1]({ ...api.value, id: 'closed' }); await new Promise(setImmediate); assert.equal(h.run('downloadEstimate'), null); assert.equal(h.node('modal-title').textContent, '動画の編集'); assert.equal(cancelled, 2);
+});
+test('067 a single start resists double clicks, reports rejection, and can retry without committing the draft', async t => {
+  const h = await Harness(t); SingleDownloadAPI(h); let reject, starts = 0;
+  h.api.downloadPlaylist = () => { starts++; return new Promise((_resolve, fail) => reject = fail); };
+  EditEntry(h); h.node('entry-title-input').value = '未確定'; h.node('entry-download-button').onclick(); await new Promise(setImmediate);
+  const start = h.node('download-start').onclick(); await h.node('download-start').onclick(); assert.equal(starts, 1); assert.equal(h.node('download-start').disabled, true);
+  reject(new Error('保存先に書き込めません。')); await start; assert.equal(h.node('download-start').disabled, false); assert.match(h.node('toast').textContent, /保存先に書き込めません/);
+  assert.notEqual(h.store.Playlist(h.id).entries[0].title, '未確定');
+  h.api.downloadPlaylist = async input => { starts++; return { job: { ...input, playlistName: '再試行', status: 'running', total: 1, finished: 0 } }; };
+  await h.node('download-start').onclick(); assert.equal(starts, 2); assert.equal(h.node('modal-title').textContent, '動画の編集'); assert.equal(h.node('entry-title-input').value, '未確定'); assert.notEqual(h.store.Playlist(h.id).entries[0].title, '未確定');
+});
+test('067 another running single job blocks start and does not supply an estimate for this part', async t => {
+  const h = await Harness(t), api = SingleDownloadAPI(h), entry = h.store.Playlist(h.id).entries[1];
+  h.emit('downloads', { job: { playlistId: h.id, entryId: entry.id, kind: 'video', height: 720, playlistName: '別の曲', status: 'running', total: 1, finished: 0, estimate: { ...api.value, fileBytes: 999999999 } } });
+  EditEntry(h); h.node('entry-download-button').onclick(); await new Promise(setImmediate);
+  assert.equal(h.node('download-start').disabled, true); assert.match(h.node('download-estimate').textContent, /別の保存処理/); assert.equal(api.estimates.length, 0);
+  h.emit('downloads', { job: { status: 'completed', total: 1, finished: 1 } }); await new Promise(setImmediate); assert.equal(h.node('download-start').disabled, false); assert.equal(api.estimates.length, 1);
+});
 test('normal playback follows each new row to the top without reordering and does not follow in the background', async t => {
   const h = await Harness(t), order = h.store.Playlist(h.id).entries.map(e => e.id); h.play(1); h.flush(); assert.equal(h.node('entries').scrollTop, 60);
   h.play(11); h.flush(); assert.equal(h.node('entries').scrollTop, 660); assert.equal(h.node('entries').querySelector('.queue-tail').style.height, '240px');

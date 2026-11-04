@@ -564,8 +564,14 @@ async function Start() {
   Handle('downloads:state', () => offline.Snapshot());
   const downloadTarget = options => {
     if (!options || typeof options.includeChildren !== 'boolean') throw new Error('保存対象を指定してください。');
-    const list = store.Playlist(options.playlistId);
-    return { entries: options.includeChildren ? store.Entries(list.id) : list.entries.map(e => ({ ...e, playlistId: list.id })), options: { kind: options.kind, height: options.height, playlistId: list.id, playlistName: list.name, estimateId: options.estimateId } };
+    const list = store.Playlist(options.playlistId), selected = { kind: options.kind, height: options.height, playlistId: list.id, playlistName: list.name, estimateId: options.estimateId };
+    if (Object.hasOwn(options, 'entryId') || Object.hasOwn(options, 'entryURL')) {
+      if (options.includeChildren || typeof options.entryId !== 'string' || typeof options.entryURL !== 'string') throw new Error('保存する1曲を指定してください。');
+      const entry = store.Entry(list.id, options.entryId);
+      if (entry.type !== 'bilibili' || ParseBilibili(options.entryURL).url !== entry.url) throw new Error('保存対象が変更されました。動画の編集を開き直してください。');
+      return { entries: [{ ...entry, playlistId: list.id }], options: { ...selected, entryId: entry.id, entryURL: entry.url } };
+    }
+    return { entries: options.includeChildren ? store.Entries(list.id) : list.entries.map(e => ({ ...e, playlistId: list.id })), options: selected };
   };
   Handle('downloads:estimate', options => { const target = downloadTarget(options); return offline.Estimate(target.entries, target.options); });
   Handle('downloads:estimate-cancel', () => offline.CancelEstimate());

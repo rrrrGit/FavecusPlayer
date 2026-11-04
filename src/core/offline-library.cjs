@@ -133,7 +133,7 @@ class OfflineLibrary {
     this.CancelEstimate(); const selected = DownloadSelection(entries, options), controller = new AbortController(); this.estimateController = controller;
     try {
       const value = await EstimateDownloads(selected, options, { directory: this.directory, resolve: this.resolve, cached: (...args) => this.Find(...args), cover: token => this.Cover(token), signal: controller.signal,
-        changed: progress => this.changed({ estimateProgress: { ...progress, playlistId: options.playlistId } }) });
+        changed: progress => this.changed({ estimateProgress: { ...progress, playlistId: options.playlistId, ...(options.entryId ? { entryId: options.entryId } : {}) } }) });
       controller.signal.throwIfAborted(); this.estimate = { ...value, id: randomUUID() }; return structuredClone(this.estimate);
     } finally { if (this.estimateController === controller) this.estimateController = null; }
   }
@@ -169,7 +169,7 @@ class OfflineLibrary {
     }).finally(() => { this.importing = false; this.migrationDone = null; this.ScheduleCleanup(); });
     return this.migrationDone;
   }
-  Start(entries, { kind, height = 720, playlistId, playlistName, estimateId }) {
+  Start(entries, { kind, height = 720, playlistId, playlistName, estimateId, entryId, entryURL }) {
     if (this.controller || this.importing) throw new Error('別の保存・取り込み処理が進行中です。');
     const selected = DownloadSelection(entries, { kind, height });
     const estimate = this.estimate?.key === EstimateKey(selected, { kind, height }, this.directory) ? this.estimate : null;
@@ -181,7 +181,7 @@ class OfflineLibrary {
     if (fs.existsSync(partial)) for (const name of fs.readdirSync(partial)) if (/^favecus-[a-f0-9-]{36}$/.test(name)) { const old = this.ResolvePath(`.partial/${name}`); if (!fs.lstatSync(old).isSymbolicLink()) fs.rmSync(old, { recursive: true, force: true }); }
     const data = this.libraryData(), layoutData = data ? structuredClone(data) : null;
     this.CancelEstimate(); this.controller = new AbortController(); this.cancelRequested = false; this.active.clear(); this.layoutData = layoutData;
-    this.job = { id: randomUUID(), playlistId, playlistName, kind, height, status: 'running', concurrency: 3, startedAt: Date.now(), downloadedBytes: 0, estimate, total: selected.length, completed: 0, skipped: 0, failed: 0, finished: 0, title: '', phase: '準備中', bytes: 0, totalBytes: 0, failures: [], warnings: [], thumbnailFailed: 0 };
+    this.job = { id: randomUUID(), playlistId, playlistName, ...(entryId ? { entryId, entryURL } : {}), kind, height, status: 'running', concurrency: 3, startedAt: Date.now(), downloadedBytes: 0, estimate, total: selected.length, completed: 0, skipped: 0, failed: 0, finished: 0, title: '', phase: '準備中', bytes: 0, totalBytes: 0, failures: [], warnings: [], thumbnailFailed: 0 };
     this.liveEstimate = estimate ? null : new LiveEstimate(selected, { kind, height }, this.directory);
     this.Notify(); this.done = this.Run(selected, this.controller.signal); return this.Snapshot();
   }

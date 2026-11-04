@@ -7,7 +7,7 @@ const api = window.favecusApp;
 const tree = window.FavecusTree;
 const expandedLists = new Set(), expandedEntryLists = new Set(), playlistDrag = { value: null };
 let allListsView = false, timelineManual = false, timelineOpen = false;
-let downloadInfo = {}, savedKinds = new Map(), downloadEstimate = null, downloadPicker = null, refreshDownloadEstimate = null, downloadPanelTimer, downloadTargetCount = 0, downloadStarting = false;
+let downloadInfo = {}, savedKinds = new Map(), downloadEstimate = null, downloadPicker = null, refreshDownloadEstimate = null, downloadPanelTimer, downloadTargetCount = 0, downloadStarting = false, downloadSingle = null;
 const ViewScope = () => allListsView ? '*' : List().id;
 const PlaybackEntries = () => tree.Entries(state, ViewScope());
 const entryRows = new Map(), playlistRows = new Map(), playlistExpandButtons = new Map();
@@ -290,6 +290,8 @@ function UpdateDownloads(value = {}) {
   if (value.available) {
     savedKinds = new Map(); for (const item of value.available) { const kinds = savedKinds.get(item.url) || new Set(); kinds.add(item.kind); savedKinds.set(item.url, kinds); }
     for (const badge of $('entries').querySelectorAll('.entry-type')) if (badge.dataset.mediaUrl) badge.textContent = SavedLabel(badge.dataset.mediaUrl);
+    if ($('entry-download-state')) $('entry-download-state').textContent = SavedLabel($('entry-download-state').dataset.mediaUrl);
+    if ($('download-entry-saved') && downloadSingle) $('download-entry-saved').textContent = SavedLabel(downloadSingle.entryURL);
   }
   $('downloads-status').textContent = busy ? `保存中 ${job.finished} / ${job.total}件` : '動画・音声の保存';
   clearTimeout(downloadPanelTimer);
@@ -305,15 +307,15 @@ function UpdateDownloads(value = {}) {
   }
   if (!$('download-start')) return;
   $('download-path').textContent = downloadInfo.directory || '標準の保存先';
-  for (const id of ['download-kind', 'download-children', 'download-directory', 'download-list-picker', 'download-recalculate']) $(id).disabled = busy || downloadStarting;
+  for (const id of ['download-kind', 'download-children', 'download-directory', 'download-list-picker', 'download-recalculate']) if ($(id)) $(id).disabled = busy || downloadStarting;
   $('download-start').disabled = busy || downloadStarting || !downloadTargetCount;
   $('download-height').disabled = busy || downloadStarting || $('download-kind').value === 'audio'; $('download-stop').disabled = !busy || job?.status === 'cancelling';
   const states = { running: '保存中', cancelling: '中止しています', cancelled: '中止', completed: '完了', partial: '一部を保存できませんでした', failed: '中断' };
   $('download-progress').textContent = job ? `${job.playlistName}：${states[job.status]} · ${job.finished} / ${job.total}件\n保存 ${job.completed}件 · 保存済み ${job.skipped}件 · 失敗 ${job.failed}件\n${job.phase ? `${job.phase}：${job.title}` : job.message || ''}${job.phase === 'ダウンロード中' ? `\n${(job.bytes / 1048576).toFixed(1)} MB${job.totalBytes ? ` / ${(job.totalBytes / 1048576).toFixed(1)} MB` : ''}` : ''}` : downloadInfo.warning || '形式を選んで「保存を開始」を押してください。';
   if (job) $('download-progress').textContent += `\n全体の取得量：${DownloadBytes(job.downloadedBytes || 0)}${job.estimate && (!job.estimate.unknown || job.estimate.projected) ? ` / 約${DownloadBytes(job.estimate.downloadBytes)}` : ''} · 経過 ${DownloadTime(job.elapsedSeconds || 0)} · 残り ${job.remainingSeconds == null ? '計測中' : `約${DownloadTime(job.remainingSeconds)}`}`;
   if (job?.active?.length) $('download-progress').textContent += `\n${job.active.map(a => `${a.phase}：${a.title}`).join('\n')}`;
-  if (!downloadEstimate && value?.estimateProgress?.playlistId === downloadPicker?.get()) $('download-estimate').textContent = `容量を確認中 ${value.estimateProgress.checked} / ${value.estimateProgress.total}件…`;
-  if (busy && job.estimate && job.playlistId === downloadPicker?.get()) $('download-estimate').textContent = DownloadEstimateText(job.estimate);
+  if (!downloadEstimate && value?.estimateProgress?.playlistId === downloadPicker?.get() && (value.estimateProgress.entryId || null) === (downloadSingle?.entryId || null)) $('download-estimate').textContent = `容量を確認中 ${value.estimateProgress.checked} / ${value.estimateProgress.total}件…`;
+  if (busy && job.estimate && DownloadJobMatches(job)) $('download-estimate').textContent = DownloadEstimateText(job.estimate);
   if (wasBusy && !busy) void refreshDownloadEstimate?.();
   $('download-errors').replaceChildren(); for (const failure of job?.failures?.slice(-20) || []) $('download-errors').append(Element('p', '', `${failure.title}：[${failure.code || 'FP-DOWNLOAD-UNKNOWN'}] ${failure.message}${failure.recordId ? ` 記録ID: ${failure.recordId}` : ''}`));
   for (const warning of job?.warnings?.slice(-20) || []) $('download-errors').append(Element('p', 'form-note', `${warning.title}：[${warning.code || 'FP-DOWNLOAD-COVER'}] ${warning.message}${warning.recordId ? ` 記録ID: ${warning.recordId}` : ''}`));
@@ -328,47 +330,52 @@ function DownloadEstimateText(e) {
     + (e.freeBytes != null && e.requiredBytes > e.freeBytes ? '\n空き容量が不足する見込みです。保存先を変更してください。' : '')
     + (e.failures?.length ? `\n${e.failures.map(f => `${f.title}：[${f.code || 'FP-DOWNLOAD-METADATA'}] ${f.message}`).join('\n')}` : '');
 }
-function DownloadsDialog() {
-  const list = List(); if (!list) return;
+function DownloadEntry(target) { return state.playlists.find(p => p.id === target.playlistId)?.entries.find(e => e.id === target.entryId && e.type === 'bilibili' && e.url === target.entryURL); }
+function DownloadJobMatches(job) { return job.playlistId === downloadPicker?.get() && (job.entryId || null) === (downloadSingle?.entryId || null) && job.kind === $('download-kind').value && (job.kind === 'audio' || job.height === Number($('download-height').value)); }
+function DownloadsDialog(target = null, back = null) {
+  const list = target ? state.playlists.find(p => p.id === target.playlistId) : List(), single = target && DownloadEntry(target);
+  if (!list || target && !single) { Toast('保存対象が変更されました。動画の編集を開き直してください。'); return; }
   downloadEstimate = null; downloadTargetCount = 0;
-  OpenModal('プレイリストの動画・音声を保存', `<fieldset id="download-list-picker" class="download-picker"></fieldset>
+  OpenModal(target ? 'この動画のみをダウンロード' : 'プレイリストの動画・音声を保存', `${target ? '<section class="download-target"><p class="form-note">保存対象（1曲）</p><strong id="download-entry-title"></strong><p id="download-entry-meta" class="form-note"></p><p id="download-entry-saved" class="status-detail"></p></section><p class="form-note">表示名の変更はここでは保存しません。「戻る」で編集画面へ戻れます。</p>' : '<fieldset id="download-list-picker" class="download-picker"></fieldset>'}
     <label class="field">保存形式<select id="download-kind"><option value="video">動画（MP4）</option><option value="audio">音声のみ（M4A）</option></select></label>
     <label class="field">動画の画質<select id="download-height"><option value="720">標準：720p（画質と容量のバランス）</option><option value="360">小さめ：360p</option><option value="1080">高画質：1080p</option></select></label>
     <p class="form-note">配信済みのH.264・AACを再圧縮せず保存します。音声は原則192 kbps以下の最良候補を選びます。配信内容により指定画質と異なる場合があります。</p>
-    <label class="check-row"><input id="download-children" type="checkbox">子プレイリストも含める</label>
+    ${target ? '' : '<label class="check-row"><input id="download-children" type="checkbox">子プレイリストも含める</label>'}
     <p id="download-count" class="form-note"></p><p class="form-note">保存先</p><p id="download-path" class="download-path"></p>
     <div class="settings-actions"><button id="download-directory" type="button" class="button secondary">保存先を変更</button><button id="download-open" type="button" class="button secondary">保存先を開く</button></div>
     <p class="form-note">最大3曲を同時に保存します。容量の確認が途中でも開始でき、保存しながら容量と残り時間を更新します。この画面を閉じても保存は続き、左下に進捗を表示します。保存済み・オンラインの再生優先は、設定の「再生・表示」で選べます。</p>
     <p id="download-estimate" class="form-note download-estimate" role="status" aria-live="polite"></p><button id="download-recalculate" type="button" class="button secondary">容量・時間を再計算</button>
     <div class="settings-actions"><button id="download-start" type="button" class="button primary">保存を開始</button><button id="download-stop" type="button" class="button secondary">保存を中止</button></div>
-    <p id="download-progress" class="status-detail download-progress" role="status" aria-live="polite"></p><div id="download-errors" class="download-errors"></div>`, null);
+    <p id="download-progress" class="status-detail download-progress" role="status" aria-live="polite"></p><div id="download-errors" class="download-errors"></div>`, null, '保存', back);
+  downloadSingle = target;
+  if (target) { $('download-entry-title').textContent = EntryTitle(single); $('download-entry-meta').textContent = `${single.videoId} / パート ${single.part}`; $('download-entry-saved').textContent = SavedLabel(single.url); }
   const epoch = modalEpoch; let revision = 0;
   const valid = () => modalEpoch === epoch && $('modal').open;
-  const options = () => ({ playlistId: downloadPicker.get(), kind: $('download-kind').value, height: Number($('download-height').value), includeChildren: $('download-children').checked });
+  const options = () => ({ playlistId: downloadPicker.get(), kind: $('download-kind').value, height: Number($('download-height').value), includeChildren: target ? false : $('download-children').checked, ...(target ? { entryId: target.entryId, entryURL: target.entryURL } : {}) });
   const recalculate = async () => {
     const nonce = ++revision; downloadEstimate = null;
     if (!valid()) return;
-    const input = options(), selected = state.playlists.find(p => p.id === input.playlistId), entries = selected ? (input.includeChildren ? tree.Entries(state, selected.id) : selected.entries) : [];
+    const input = options(), selected = state.playlists.find(p => p.id === input.playlistId), entries = target ? (DownloadEntry(target) ? [DownloadEntry(target)] : []) : selected ? (input.includeChildren ? tree.Entries(state, selected.id) : selected.entries) : [];
     const count = new Set(entries.filter(e => e.type === 'bilibili').map(e => e.url)).size;
     downloadTargetCount = count;
-    $('download-count').textContent = `保存対象 ${count}件（同じURLは1回・ローカルファイルは対象外）`; UpdateDownloads();
-    if (['running', 'cancelling'].includes(downloadInfo.job?.status)) { if (downloadInfo.job.estimate) $('download-estimate').textContent = DownloadEstimateText(downloadInfo.job.estimate); return; }
+    $('download-count').textContent = target ? count ? 'この動画・パートの1曲だけを保存します。' : '対象の曲が移動・削除されました。編集画面を開き直してください。' : `保存対象 ${count}件（同じURLは1回・ローカルファイルは対象外）`; UpdateDownloads();
+    if (['running', 'cancelling'].includes(downloadInfo.job?.status)) { $('download-estimate').textContent = downloadInfo.job.estimate && DownloadJobMatches(downloadInfo.job) ? DownloadEstimateText(downloadInfo.job.estimate) : '別の保存処理が進行中です。終了後に容量を確認します。'; return; }
     if (!count) { $('download-estimate').textContent = '保存対象のBilibili動画がありません。'; return; }
     $('download-estimate').textContent = '容量・時間を確認しています…';
     try { const result = await api.estimateDownload(input); if (!valid() || nonce !== revision) return; downloadEstimate = result; $('download-estimate').textContent = DownloadEstimateText(result); }
     catch (error) { if (valid() && nonce === revision) $('download-estimate').textContent = `見積もりを取得できませんでした。${error.message}`; }
     finally { if (valid() && nonce === revision) UpdateDownloads(); }
   };
-  downloadPicker = window.FavecusParentPicker($('download-list-picker'), state, { selected: downloadInfo.job?.status === 'running' ? downloadInfo.job.playlistId : list.id, allowRoot: false, label: '保存するプレイリストを検索', onChange: () => { void recalculate(); } });
-  $('download-kind').value = 'video'; $('download-height').value = '720'; $('download-children').checked = true;
+  downloadPicker = target ? { get: () => target.playlistId } : window.FavecusParentPicker($('download-list-picker'), state, { selected: downloadInfo.job?.status === 'running' ? downloadInfo.job.playlistId : list.id, allowRoot: false, label: '保存するプレイリストを検索', onChange: () => { void recalculate(); } });
+  $('download-kind').value = 'video'; $('download-height').value = '720'; if ($('download-children')) $('download-children').checked = true;
   refreshDownloadEstimate = recalculate;
-  cancelModal = () => { revision++; downloadEstimate = null; downloadPicker = null; refreshDownloadEstimate = null; return api.cancelDownloadEstimate(); };
-  for (const id of ['download-children', 'download-kind', 'download-height']) $(id).onchange = () => { void recalculate(); };
+  cancelModal = () => { revision++; downloadEstimate = null; downloadPicker = null; downloadSingle = null; refreshDownloadEstimate = null; return api.cancelDownloadEstimate(); };
+  for (const id of ['download-children', 'download-kind', 'download-height']) if ($(id)) $(id).onchange = () => { void recalculate(); };
   $('download-recalculate').onclick = () => { void recalculate(); };
   $('download-start').onclick = () => Run(async () => {
     if (!downloadTargetCount || downloadStarting || ['running', 'cancelling'].includes(downloadInfo.job?.status)) return;
     const input = { ...options(), ...(downloadEstimate ? { estimateId: downloadEstimate.id } : {}) }; revision++; downloadEstimate = null; downloadStarting = true; UpdateDownloads();
-    try { const result = await api.downloadPlaylist(input); UpdateDownloads(result); if (valid()) CloseModal(); }
+    try { const result = await api.downloadPlaylist(input); UpdateDownloads(result); if (valid()) { if (back) back(); else CloseModal(); } }
     finally { downloadStarting = false; if (valid()) UpdateDownloads(); }
   });
   $('download-stop').onclick = () => Run(async () => UpdateDownloads(await api.cancelDownload()));
@@ -377,10 +384,21 @@ function DownloadsDialog() {
   UpdateDownloads(); void recalculate(); void Run(async () => { const value = await api.downloads(); if (valid() && !downloadStarting) UpdateDownloads(value); });
 }
 
-function EntryMenu(entry) {
+function EntryMenu(entry, draft = undefined) {
   const p = state.playlists.find(p => p.id === entry.playlistId) || List();
-  OpenModal('動画の編集', '<label class="field">表示する名前<input id="entry-title-input" maxlength="180"></label><div class="settings-actions" id="entry-actions"></div><p class="form-note">上下への移動で、再生順を変更できます。</p>', () => Action({ type: 'title', playlistId: p.id, entryId: entry.id, title: $('entry-title-input').value }));
-  $('entry-title-input').value = EntryTitle(entry);
+  OpenModal('動画の編集', '<label class="field">表示する名前<input id="entry-title-input" maxlength="180"></label>' + (entry.type === 'bilibili' ? '<section class="entry-download"><p id="entry-download-state" class="status-detail"></p><button id="entry-download-button" type="button" class="button secondary">この動画のみをダウンロード</button><p class="form-note">この動画・パートの1曲を保存します。表示名の変更は「保存」で確定します。</p></section>' : '') + '<div class="settings-actions" id="entry-actions"></div><p class="form-note">上下への移動で、再生順を変更できます。</p>', () => Action({ type: 'title', playlistId: p.id, entryId: entry.id, title: $('entry-title-input').value }));
+  $('entry-title-input').value = draft ?? EntryTitle(entry);
+  if (entry.type === 'bilibili') {
+    $('entry-download-state').dataset.mediaUrl = entry.url; $('entry-download-state').textContent = SavedLabel(entry.url);
+    $('entry-download-button').onclick = () => {
+      const value = $('entry-title-input').value, target = { playlistId: p.id, entryId: entry.id, entryURL: entry.url };
+      DownloadsDialog(target, () => {
+        const latest = DownloadEntry(target);
+        if (!latest) { CloseModal(); Toast('対象の曲が変更されました。編集画面を開き直してください。'); return; }
+        EntryMenu({ ...latest, playlistId: p.id }, value);
+      });
+    };
+  }
   const index = p.entries.findIndex(e => e.id === entry.id);
   for (const [label, direction] of [['↑ 上へ', -1], ['↓ 下へ', 1]]) {
     const b = Button(label, 'button secondary', async () => { await Action({ type: 'move', playlistId: p.id, entryId: entry.id, direction }); CloseModal(); });
@@ -1000,7 +1018,7 @@ document.addEventListener('keydown', event => {
 for (const type of ['wheel', 'pointerdown', 'keydown', 'touchmove']) $('queue-timeline').addEventListener(type, () => { timelineManual = true; }, { passive: true });
 $('all-lists').onclick = () => { allListsView = true; $('filter').value = ''; Render(); };
 $('sort-lists').onclick = SortLists;
-$('downloads-status').onclick = DownloadsDialog;
+$('downloads-status').onclick = () => DownloadsDialog();
 $('download-mini-cancel').onclick = () => Run(async () => UpdateDownloads(await api.cancelDownload()));
 $('playlist-up').onclick = () => Run(async () => {
   const parentId = allListsView ? null : tree.Parent(state, List().id); if (!parentId) return;
@@ -1035,7 +1053,7 @@ $('mode-song').onclick = () => Run(() => SelectDisplayMode('song'));
 $('mode-video').onclick = () => Run(() => SelectDisplayMode('video'));
 if (api) {
   api.onEvent(event => {
-    if (event.type === 'state') { state = event.value; Render(); }
+    if (event.type === 'state') { state = event.value; Render(); if (downloadSingle && (!DownloadEntry(downloadSingle) || !downloadTargetCount)) void refreshDownloadEstimate?.(); }
     else if (event.type === 'current') { current = event.value; loaded = false; playback = null; thumbnail = null; seeking = false; UpdateCurrentRows(); queueFollower?.Request(); RenderPlayer(); RenderNext(); }
     else if (event.type === 'current-update') { current = event.value; Render(); }
     else if (event.type === 'downloads') UpdateDownloads(event.value);
