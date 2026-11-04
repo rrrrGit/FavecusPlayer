@@ -293,6 +293,13 @@ test('067 both sharing modes are described during import and information-only lo
   h.node('archive-search').value = '子'; h.node('archive-search').oninput(); const child = h.node('archive-lists').querySelectorAll('input').find(n => n.value === 'b'); child.checked = true; child.onchange(); await h.submit(); assert.match(h.node('toast').textContent, /ローカル曲 1件は登録情報のみ/);
   h.run(`ImportSelection(${JSON.stringify({ ...plan, mode: 'media' })})`); assert.match(h.node('archive-content-summary').textContent, /DLデータ付き/); assert.match(h.node('archive-content-summary').textContent, /復元/);
 });
+test('067 parent search reaches the last of 999 nested playlists and a rejected 1000th creation keeps the dialog and data', async t => {
+  const h = await Harness(t), s = h.store, first = s.Playlist(h.id), ids = Array.from({ length: 998 }, () => require('node:crypto').randomUUID());
+  first.childIds = [ids[0]]; s.data.playlists = [first, ...ids.map((id, index) => ({ ...first, id, name: index === 997 ? '最後の親' : `親${index + 2}`, entries: [], childIds: index < 997 ? [ids[index + 1]] : [] }))]; s.Save(); h.emit('state', s.Snapshot()); const before = s.Snapshot();
+  h.run('NewList()'); const picker = h.node('new-parent'), search = picker.querySelector('.parent-search'); search.value = '最後の親'; search.oninput();
+  const choices = picker.querySelector('.parent-choices'); assert.equal(choices.children.length, 999); choices.children.at(-1).querySelector('.parent-name').onclick(); assert.match(picker.querySelector('.parent-selection').textContent, /最後の親$/);
+  h.node('name-input').value = '1000個目'; await h.submit(); assert.equal(h.node('modal').open, true); assert.match(h.node('toast').textContent, /999個/); assert.deepEqual(s.Snapshot(), before);
+});
 function ParentTree(h) {
   const s = h.store; s.Apply({ type: 'rename', playlistId: h.id, name: 'EroGameSongs' });
   const create = (name, parentId = null) => { s.Apply({ type: 'create', name, parentId }); return s.data.activePlaylistId; };

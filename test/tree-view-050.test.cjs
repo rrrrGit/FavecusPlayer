@@ -43,6 +43,13 @@ test('067 search allows a disabled ancestor to collapse and reopen without losin
   box.children[0].children.at(-1).onclick(); assert.deepEqual(box.children.map(r => r.dataset.playlistId), ['a', 'd', 'b', 'c']); assert.deepEqual([...picker.get()], ['c']);
   box.children[0].children.at(-1).onclick(); assert.deepEqual(box.children.map(r => r.dataset.playlistId), ['a', 'b', 'c', 'd', 'b', 'c']); assert.equal(box.children[2].querySelector('input').checked, true);
 });
+test('067 999-level hierarchies remain selectable beyond depth 100 and cyclic input is bounded by its path', () => {
+  const { data, box, render } = Harness(); data.rootPlaylistIds = ['n0'];
+  data.playlists = Array.from({ length: 999 }, (_, n) => ({ id: `n${n}`, name: n === 998 ? '末端' : `親${n}`, entries: [], childIds: n < 998 ? [`n${n + 1}`] : [] }));
+  const picker = render({ checkboxes: true, query: '末端' }); assert.equal(box.children.length, 999);
+  const input = box.children.at(-1).querySelector('input'); input.checked = true; input.onchange(); assert.deepEqual([...picker.get()], ['n998']);
+  data.playlists[2].childIds = ['n1']; render({ checkboxes: true, expanded: new Set(['n0', 'n0/n1', 'n0/n1/n2']), count: () => 0 }); assert.equal(box.children.length, 3);
+});
 test('drag handle distinguishes sibling ordering from child-drop and blocks descendant hover', () => {
   const { box, render } = Harness(), calls = [], drag = { value: null };
   render({ drag, onDrop: (...args) => calls.push(args), expanded: new Set(['a', 'a/b']) });

@@ -3,7 +3,7 @@ const fs = require('node:fs'), path = require('node:path'), os = require('node:o
 const { randomUUID, randomBytes, createCipheriv, createDecipheriv, scrypt } = require('node:crypto');
 const { promisify } = require('node:util');
 const { WriteZip, ZipReader } = require('./zip.cjs');
-const { ValidateLibrary } = require('./store.cjs');
+const { ValidateLibrary, MAX_PLAYLISTS, ValidatePlaylistCount } = require('./store.cjs');
 const { ReadJSON, ExportJSON } = require('./library-json.cjs');
 const { PlanImportIdentity } = require('./import-identity.cjs');
 const { VideoAliases } = require('./library-identity.cjs');
@@ -86,7 +86,7 @@ class LibraryArchive {
             if (!meta || !Object.hasOwn(meta, 'identityVersion')) throw new Error('識別形式の情報がありません。');
             identity = { identityVersion: meta.identityVersion, videoAliases: meta.videoAliases, ...(Object.hasOwn(meta, 'shareVersion') ? { shareVersion: meta.shareVersion } : {}), ...(Object.hasOwn(meta, 'exportMode') ? { exportMode: meta.exportMode } : {}) };
           }
-          if (reader.entries.size - Number(reader.entries.has('identity.json')) > 100) throw new Error('プレイリスト数の上限は100個です。');
+          ValidatePlaylistCount(reader.entries.size - Number(reader.entries.has('identity.json')));
           for (const name of reader.entries.keys()) { if (name === 'identity.json') continue; if (!/^playlists\/[a-f0-9-]{36}\.json$/.test(name)) throw new Error('プレイリストのファイル構成が正しくありません。'); records.push(ReadJSON(await reader.Content(name))); }
         } finally { await reader.Close(); }
         input = { version: 3, ...identity, playlists: records.map(r => r.playlist), rootPlaylistIds: records.filter(r => r.rootIndex >= 0).sort((a, b) => a.rootIndex - b.rootIndex).map(r => r.playlist.id) };
@@ -108,12 +108,12 @@ class LibraryArchive {
   async Commit(id, ids, options = {}) {
     const plan = this.plans.get(id);
     if (!plan || plan.busy || Date.now() - plan.at > 30 * 60000) throw new Error('取り込み一覧を読み込み直してください。');
-    if (!Array.isArray(ids) || !ids.length || ids.length > 100 || ids.some(id => !plan.input.playlists.some(p => p.id === id))) throw new Error('取り込むプレイリストを選んでください。');
+    if (!Array.isArray(ids) || !ids.length || ids.length > MAX_PLAYLISTS || ids.some(id => !plan.input.playlists.some(p => p.id === id))) throw new Error('取り込むプレイリストを選んでください。');
     if (!options || typeof options !== 'object' || Array.isArray(options)) throw new Error('取り込み先の指定が正しくありません。');
     const parentId = options.parentId || null; if (parentId) this.store.Playlist(parentId);
     const selection = Tree.Selection(plan.input, ids), chosen = structuredClone(selection.playlists), roots = selection.rootPlaylistIds;
     let lists = ValidateLibrary({ ...plan.input, playlists: chosen, rootPlaylistIds: roots });
-    const checkLimits = () => { if (this.store.data.playlists.length + lists.length > 100 || [...this.store.data.playlists, ...lists].reduce((n, p) => n + p.entries.length, 0) > 10000) throw new Error('登録数の上限を超えています。'); };
+    const checkLimits = () => { ValidatePlaylistCount(this.store.data.playlists.length + lists.length); if ([...this.store.data.playlists, ...lists].reduce((n, p) => n + p.entries.length, 0) > 10000) throw new Error('登録数の上限を超えています。'); };
     checkLimits();
     if (this.store.sharingBusy || this.offline?.controller || this.offline?.importing) throw new Error('保存・出力・取り込みの完了後に取り込んでください。');
     if (this.offline) { this.offline.CancelEstimate(); this.offline.importing = true; }

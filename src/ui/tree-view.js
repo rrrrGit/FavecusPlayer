@@ -9,11 +9,12 @@
     function render() {
       capture(); for (const id of selected) if (options.disabled?.(id)) selected.delete(id);
       container.replaceChildren(); visible = []; arrows = new Map();
-      function visit(id, parentId, depth, path) {
-        const p = map.get(id); if (!p || visible.length >= 2000 || depth > 100) return;
+      function visit(id, parentId, depth, path, ancestors = new Set()) {
+        const p = map.get(id); if (!p || visible.length >= 2000 || ancestors.has(id)) return;
+        const lineage = new Set([...ancestors, id]);
         const query = options.query?.trim() || '';
         if (query && !tree.RawWalk(data, [id]).some(q => !options.hidden?.(q.id) && tree.Matches(q.name, query))) return;
-        if (options.hidden?.(id)) { selected.delete(id); for (const child of p.childIds || []) visit(child, id, depth, `${path}/${child}`); return; }
+        if (options.hidden?.(id)) { selected.delete(id); for (const child of p.childIds || []) visit(child, id, depth, `${path}/${child}`, lineage); return; }
         visible.push(id);
         const row = node('div', `tree-row${options.activeId === id ? ' selected' : ''}`); row.dataset.playlistId = id; row.dataset.parentId = parentId || ''; row.dataset.path = path; row.style.paddingLeft = `${Math.min(depth * 16, 160)}px`;
         if (query && tree.Matches(p.name, query)) row.classList.add('search-match');
@@ -62,7 +63,7 @@
           row.addEventListener('drop', event => { const dragged = options.drag.value; if (!dragged || dragged.id === id) return; const mode = zone(event); if (mode !== 'child' && dragged.parentId !== parentId) return; event.preventDefault(); options.drag.value = null; clearMarks(); options.onDrop(dragged, id, mode, parentId); });
         }
         container.append(row);
-        if (open) for (const child of children) visit(child, id, depth + 1, `${path}/${child}`);
+        if (open) for (const child of children) visit(child, id, depth + 1, `${path}/${child}`, lineage);
       }
       for (const id of tree.Ordered(data, tree.Roots(data))) visit(id, null, 0, id);
     }

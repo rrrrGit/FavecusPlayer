@@ -12,7 +12,7 @@ const { ValidateTitleWords, TitleCleaner } = require('./title-cleanup.cjs');
 const { Repository, DriveURL } = require('./releases.cjs');
 const { VideoIdentity } = require('./media-identity.cjs');
 const { IDENTITY_SCHEMA_VERSION, MEDIA_ID, IdentityError, ValidateIdentityVersion, PlanMediaIds, VideoAliases, LibraryMediaKey } = require('./library-identity.cjs');
-const MAX_ENTRIES = 10000;
+const MAX_PLAYLISTS = 999, MAX_ENTRIES = 10000;
 const MAX_JSON = 32 * 1024 * 1024;
 const ID = /^[a-f0-9-]{36}$/;
 const MEDIA_NAME = /^[a-f0-9-]{36}\.[a-z0-9]{2,5}$/;
@@ -46,8 +46,13 @@ function ValidateSettings(input) {
   if (s.discordEnabled && !s.discordClientId) throw new Error('DiscordのApplication IDを入力してください。');
   return s;
 }
+function ValidatePlaylistCount(count) {
+  if (count <= MAX_PLAYLISTS) return;
+  const error = new Error(`再生リストは親・子を合わせて${MAX_PLAYLISTS}個までです。`); error.playlistLimitExceeded = true; throw error;
+}
 function ValidateLibrary(input, freshIds = false) {
-  if (!input || ![1, 2, 3].includes(input.version) || !Array.isArray(input.playlists) || input.playlists.length > 100 || input.playlists.length < 1) throw new Error('対応していない再生リストファイルです。');
+  if (!input || ![1, 2, 3].includes(input.version) || !Array.isArray(input.playlists) || input.playlists.length < 1) throw new Error('対応していない再生リストファイルです。');
+  ValidatePlaylistCount(input.playlists.length);
   ValidateIdentityVersion(input);
   const keyOf = LibraryMediaKey(input.identityVersion === 2 ? input.videoAliases : []);
   let total = 0;
@@ -123,7 +128,7 @@ class Store {
         }
         return { version: 3, ...(Object.hasOwn(value, 'identityVersion') ? { identityVersion: value.identityVersion } : {}), ...(value.identityVersion === 2 ? { videoAliases: VideoAliases(value.videoAliases) } : {}), playlists, rootPlaylistIds: value.version === 3 ? value.rootPlaylistIds : playlists.map(p => p.id), activePlaylistId, settings };
       } catch (error) {
-        if (error.identityDataInvalid) throw error;
+        if (error.identityDataInvalid || error.playlistLimitExceeded) throw error;
         if (error.migrationBackupFailed) throw new Error('更新前のバックアップを保存できません。空き容量とデータフォルダーの書き込み権限を確認してください。保存データは変更していません。');
         this.warning = '保存ファイルを読み込めませんでした。元のファイルは damaged として残しています。';
         fs.copyFileSync(candidate, `${candidate}.damaged-${Date.now()}`);
@@ -132,6 +137,7 @@ class Store {
     return Defaults();
   }
   Save() {
+    ValidatePlaylistCount(this.data.playlists.length);
     ValidateIdentityVersion(this.data);
     const videoAliases = VideoAliases(this.data.videoAliases);
     const assignments = PlanMediaIds(this.data.playlists, randomUUID, LibraryMediaKey(videoAliases));
@@ -196,7 +202,7 @@ class Store {
   }
   Targets(destinationIds) {
     const ids = typeof destinationIds === 'string' ? [destinationIds] : destinationIds;
-    if (!Array.isArray(ids) || !ids.length || ids.length > 100) throw new Error('追加先のプレイリストにチェックしてください。');
+    if (!Array.isArray(ids) || !ids.length || ids.length > MAX_PLAYLISTS) throw new Error('追加先のプレイリストにチェックしてください。');
     return [...new Set(ids)].map(id => this.Playlist(id));
   }
   InputItems(action) {
@@ -244,7 +250,7 @@ class Store {
     if (!action || typeof action !== 'object') throw new Error('操作が正しくありません。');
     const p = action.playlistId ? this.Playlist(action.playlistId) : null;
     if (action.type === 'create') {
-      if (this.data.playlists.length >= 100) throw new Error('再生リストは100個までです。');
+      ValidatePlaylistCount(this.data.playlists.length + 1);
       const parent = action.parentId ? this.Playlist(action.parentId) : null;
       const created = NewPlaylist(action.name); this.data.playlists.push(created);
       (parent ? parent.childIds : this.data.rootPlaylistIds).push(created.id);
@@ -268,7 +274,7 @@ class Store {
     } else if (action.type === 'playlist-move' && p) {
       this.Parent(p.id, action.parentId || null, true);
     } else if (action.type === 'playlist-attach' && p) {
-      if (!Array.isArray(action.ids) || !action.ids.length || action.ids.length > 100) throw new Error('取り込むプレイリストを選んでください。');
+      if (!Array.isArray(action.ids) || !action.ids.length || action.ids.length > MAX_PLAYLISTS) throw new Error('取り込むプレイリストを選んでください。');
       const ids = [...new Set(action.ids)], descendants = new Set(ids.flatMap(id => Tree.RawWalk(this.data, [id]).slice(1).map(child => child.id)));
       for (const id of ids.filter(id => !descendants.has(id))) this.Parent(id, p.id, action.removeOriginal === true);
     } else if (action.type === 'playlist-reorder' && p) {
@@ -341,7 +347,7 @@ class Store {
     }
   }
   Transfer({ playlistId, entryId, destinationIds, mode, targetId, after = false } = {}) {
-    if (!['copy', 'move'].includes(mode) || !Array.isArray(destinationIds) || !destinationIds.length || destinationIds.length > 99) throw new Error('移動・追加先のプレイリストを選んでください。');
+    if (!['copy', 'move'].includes(mode) || !Array.isArray(destinationIds) || !destinationIds.length || destinationIds.length > MAX_PLAYLISTS - 1) throw new Error('移動・追加先のプレイリストを選んでください。');
     const source = this.Playlist(playlistId), entry = this.Entry(playlistId, entryId);
     const targets = [...new Set(destinationIds)].map(id => {
       if (id === playlistId) throw new Error('元のプレイリスト以外を選んでください。');
@@ -435,4 +441,4 @@ class Store {
   }
 }
 
-module.exports = { Store, CleanText, ValidateLibrary, ValidateSettings, MEDIA_NAME };
+module.exports = { Store, MAX_PLAYLISTS, ValidatePlaylistCount, CleanText, ValidateLibrary, ValidateSettings, MEDIA_NAME };
