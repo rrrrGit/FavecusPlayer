@@ -13,12 +13,13 @@ const { DownloadSelection, EstimateKey, EstimateDownloads, LiveEstimate, PlanByt
 const { SafeName, SharedFolder, TrackFile } = require('./offline-layout.cjs');
 const { DownloadDiagnostic } = require('./download-errors.cjs');
 const { MigrateShared } = require('./offline-migration.cjs');
+const { OfflineCleanup, ValidateCleanup } = require('./offline-cleanup.cjs');
 const Token = /^[a-f0-9]{64}\.(mp4|m4a)$/;
 const Key = (url, kind) => createHash('sha256').update(DownloadIdentity(url, kind).key).digest('hex');
 function AtomicJSON(file, value) { const tmp = `${file}.${randomUUID()}.tmp`; try { fs.writeFileSync(tmp, JSON.stringify(value, null, 2), { flag: 'wx' }); fs.renameSync(tmp, file); } finally { fs.rmSync(tmp, { force: true }); } }
 function ReadJSON(file, fallback) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return fallback; throw e; } }
 class OfflineLibrary {
-  constructor({ directory, previousDirectories = [], settingsFile, fetch, ffmpeg, changed = () => {}, diagnostic = () => {}, libraryData = () => null, identify = () => {}, resolve, cover, thumbnail = RemoteImage, assemble = Assemble, transfer = DownloadStream }) {
+  constructor({ directory, previousDirectories = [], settingsFile, fetch, ffmpeg, changed = () => {}, diagnostic = () => {}, libraryData = () => null, identify = () => {}, referenceData, resolve, cover, thumbnail = RemoteImage, assemble = Assemble, transfer = DownloadStream }) {
     Object.assign(this, { settingsFile, fetch, ffmpeg, changed, diagnostic, libraryData, assemble, transfer, thumbnail }); this.active = new Map();
     this.cover = cover || ((...args) => new BilibiliDownloadSource(fetch, identify).Cover(...args));
     this.resolve = resolve || ((...args) => new BilibiliDownloadSource(fetch, identify).Resolve(...args)); this.job = null; this.controller = null; this.done = Promise.resolve();
@@ -26,18 +27,22 @@ class OfflineLibrary {
     this.directory = path.resolve(typeof settings.directory === 'string' && path.isAbsolute(settings.directory) ? settings.directory : directory);
     this.preferSaved = settings.preferSaved !== false;
     if (!fs.existsSync(this.directory) && previousDirectories.some(p => path.resolve(p) === this.directory)) { this.directory = path.resolve(directory); this.SaveSettings(); }
-    this.ReadIndex();
+    this.ReadIndex(); this.cleanup = new OfflineCleanup(this, referenceData);
   }
   ReadIndex() {
-    this.records = new Map(); this.indexError = '';
+    this.records = new Map(); this.cleanupRecords = []; this.indexBytes = null; this.indexError = '';
     try {
       const data = ReadJSON(path.join(this.directory, 'index.json'), { version: 1, files: [] });
       if (data.version !== 1 || !Array.isArray(data.files) || data.files.length > 20000) throw new Error('invalid index');
-      for (const r of data.files) {
-        if (!r || !['video', 'audio'].includes(r.kind) || !Token.test(r.token) || r.token !== `${Key(r.url, r.kind)}.${r.kind === 'video' ? 'mp4' : 'm4a'}` || typeof r.file !== 'string' || !Number.isSafeInteger(r.bytes) || r.bytes <= 0) throw new Error('invalid record');
-        this.ResolvePath(r.file); r.aliases = (Array.isArray(r.aliases) ? r.aliases : []).slice(0, 2).filter(url => { try { return ParseBilibili(url).part === ParseBilibili(r.url).part; } catch { return false; } }); this.records.set(r.token, r);
-      }
+      if (Object.hasOwn(data, 'cleanupVersion') && data.cleanupVersion !== 1 || Object.hasOwn(data, 'cleanup') && data.cleanupVersion !== 1) throw new Error('invalid cleanup version');
+      for (const r of data.files) { this.ValidateRecord(r); this.records.set(r.token, r); }
+      this.cleanupRecords = ValidateCleanup(this, Object.hasOwn(data, 'cleanup') ? data.cleanup : []);
+      this.indexBytes = fs.existsSync(path.join(this.directory, 'index.json')) ? fs.readFileSync(path.join(this.directory, 'index.json'), 'utf8') : null;
     } catch { this.records.clear(); this.indexError = '保存一覧を読み込めません。index.jsonを保持したまま、別の保存先を選択してください。'; }
+  }
+  ValidateRecord(r) {
+    if (!r || !['video', 'audio'].includes(r.kind) || !Token.test(r.token) || r.token !== `${Key(r.url, r.kind)}.${r.kind === 'video' ? 'mp4' : 'm4a'}` || typeof r.file !== 'string' || !Number.isSafeInteger(r.bytes) || r.bytes <= 0) throw new Error('invalid record');
+    this.ResolvePath(r.file); r.aliases = (Array.isArray(r.aliases) ? r.aliases : []).slice(0, 2).filter(url => { try { return ParseBilibili(url).part === ParseBilibili(r.url).part; } catch { return false; } });
   }
   ResolvePath(relative) {
     if (typeof relative !== 'string' || path.isAbsolute(relative) || relative.includes('\\') || relative.split('/').some(p => !p || p === '.' || p === '..')) throw new Error('保存先の相対パスが正しくありません。');
@@ -91,8 +96,19 @@ class OfflineLibrary {
     return { title: entry?.title || entry?.videoId || '', recordId, ...details };
   }
   CoverWarning(entry, error) { this.job.thumbnailFailed++; const failure = this.Failure(entry, error, 'cover'); if (this.job.warnings.length < 200) this.job.warnings.push({ ...failure, message: `サムネイルを保存できませんでした。動画・音声は利用できます。${failure.message}` }); }
-  CommitRecord(record) { const { path: _localPath, ...saved } = record; const next = new Map(this.records); next.set(record.token, saved); AtomicJSON(path.join(this.directory, 'index.json'), { version: 1, files: [...next.values()] }); this.records = next; }
-  CommitRecords(records) { fs.mkdirSync(this.directory, { recursive: true }); AtomicJSON(path.join(this.directory, 'index.json'), { version: 1, files: [...records.values()] }); this.records = new Map(records); }
+  CommitRecord(record) {
+    const { path: _localPath, ...saved } = record, next = new Map(this.records), previous = next.get(saved.token);
+    const cleanup = this.cleanup?.enabled && previous && (previous.file !== saved.file || previous.thumbnail?.file !== saved.thumbnail?.file) ? this.cleanup.Retire(this.cleanupRecords, previous) : this.cleanupRecords;
+    next.set(saved.token, saved); this.CommitRecords(next, { cleanup });
+  }
+  CommitRecords(records, { cleanup = this.cleanupRecords } = {}) {
+    ValidateCleanup(this, cleanup); fs.mkdirSync(this.directory, { recursive: true });
+    const value = { version: 1, files: [...records.values()], ...(cleanup.length ? { cleanupVersion: 1, cleanup } : {}) };
+    AtomicJSON(path.join(this.directory, 'index.json'), value); this.records = new Map(records); this.cleanupRecords = cleanup; this.indexBytes = JSON.stringify(value, null, 2);
+  }
+  ScheduleCleanup() { this.cleanup.Request(); }
+  FlushCleanup() { this.cleanup.Flush(); }
+  Pin(record) { return this.cleanup.Pin(record); }
   Snapshot() {
     const aliases = new Map();
     for (const pair of this.libraryData()?.videoAliases || []) { aliases.set(`av${pair.aid}`, pair); aliases.set(pair.bvid, pair); }
@@ -100,7 +116,7 @@ class OfflineLibrary {
       const video = VideoIdentity(r), urls = VideoIdentity(r, aliases.get(video.videoId)).aliases;
       return [...new Set([r.url, ...(r.aliases || []), ...urls])].map(url => ({ url, kind: r.kind, height: r.height }));
     });
-    return { directory: this.directory, preferSaved: this.preferSaved, warning: this.indexError || this.warning || '', job: JobTiming(this.job), available };
+    return { directory: this.directory, preferSaved: this.preferSaved, warning: this.indexError || this.cleanup?.warning || this.warning || '', job: JobTiming(this.job), available };
   }
   Notify(catalog = false) {
     if (this.liveEstimate) this.job.estimate = this.liveEstimate.Snapshot();
@@ -108,7 +124,7 @@ class OfflineLibrary {
     this.changed(catalog ? this.Snapshot() : { job: JobTiming(this.job) });
   }
   SaveSettings(directory = this.directory, preferSaved = this.preferSaved) { fs.mkdirSync(path.dirname(this.settingsFile), { recursive: true }); AtomicJSON(this.settingsFile, { directory, preferSaved }); }
-  SetDirectory(directory) { if (this.controller || this.importing) throw new Error('保存・出力・取り込み中は保存先を変更できません。'); if (typeof directory !== 'string' || !path.isAbsolute(directory)) throw new Error('保存先を選択してください。'); this.CancelEstimate(); this.SaveSettings(path.resolve(directory)); this.directory = path.resolve(directory); this.ReadIndex(); this.Notify(true); return this.Snapshot(); }
+  SetDirectory(directory) { if (this.controller || this.importing || this.cleanup.running || this.cleanup.leases.size) throw new Error('保存・再生・出力・取り込み中は保存先を変更できません。'); if (typeof directory !== 'string' || !path.isAbsolute(directory)) throw new Error('保存先を選択してください。'); this.CancelEstimate(); this.SaveSettings(path.resolve(directory)); this.directory = path.resolve(directory); this.ReadIndex(); this.ScheduleCleanup(); this.Notify(true); return this.Snapshot(); }
   PreferSaved(value) { if (typeof value !== 'boolean') throw new Error('設定が正しくありません。'); this.SaveSettings(this.directory, value); this.preferSaved = value; this.Notify(true); return this.Snapshot(); }
   CancelEstimate() { this.estimateController?.abort(); this.estimateController = null; this.estimate = null; }
   async Estimate(entries, options) {
@@ -128,14 +144,15 @@ class OfflineLibrary {
   }
   async CleanupRecord(previous, current) {
     if (!previous) return;
+    if (this.cleanup.enabled && previous.token) { this.ScheduleCleanup(); return; }
     const used = new Set([...this.records.values()].flatMap(r => [r.file, r.thumbnail?.file]));
-    for (const name of [previous.file, previous.thumbnail?.file].filter(Boolean)) if (name !== current?.file && name !== current?.thumbnail?.file && !used.has(name)) {
+    for (const name of [previous.file, previous.thumbnail?.file].filter(Boolean)) if (name !== current?.file && name !== current?.thumbnail?.file && !used.has(name) && !this.cleanup.leases.has(this.ResolvePath(name))) {
       try { const file = this.ResolvePath(name); if (!fs.lstatSync(file).isSymbolicLink()) { await fs.promises.rm(file, { force: true }); let directory = path.dirname(file); while (directory !== this.directory) { try { await fs.promises.rmdir(directory); } catch { break; } directory = path.dirname(directory); } } } catch {}
     }
   }
   async Organize() {
     if (this.controller || this.importing || this.indexError) return;
-    await this.ReconcileLayout(this.libraryData());
+    await this.ReconcileLayout(this.libraryData()); this.FlushCleanup();
   }
   async ReconcileLayout(data, signal) {
     if (this.migrationDone) return this.migrationDone;
@@ -148,7 +165,7 @@ class OfflineLibrary {
       this.migrationWarning = this.warning;
       if (this.job?.status === 'running' && this.job.warnings.length < 200) this.job.warnings.push(failure);
       if (this.controller) throw error;
-    }).finally(() => { this.importing = false; this.migrationDone = null; });
+    }).finally(() => { this.importing = false; this.migrationDone = null; this.ScheduleCleanup(); });
     return this.migrationDone;
   }
   Start(entries, { kind, height = 720, playlistId, playlistName, estimateId }) {
@@ -244,7 +261,7 @@ class OfflineLibrary {
       this.job.status = this.cancelRequested ? 'cancelled' : 'failed';
       const failure = this.cancelRequested ? null : fatalDetails || this.Failure(null, error, 'layout');
       this.job.message = failure ? `[${failure.code}] ${failure.message} 記録ID: ${failure.recordId}` : '保存を中止しました。完了したファイルは残っています。';
-    } finally { this.controller = null; this.layoutData = null; this.active.clear(); this.job.endedAt = Date.now(); this.Notify(true); this.liveEstimate = null; }
+    } finally { this.controller = null; this.layoutData = null; this.active.clear(); this.job.endedAt = Date.now(); this.FlushCleanup(); this.Notify(true); this.liveEstimate = null; }
   }
   async SaveEntry(entry, plan, signal, task) {
     const staging = `.partial/favecus-${randomUUID()}`, directory = this.ResolvePath(staging); await fs.promises.mkdir(directory, { recursive: true }); this.ResolvePath(staging);

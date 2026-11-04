@@ -136,9 +136,10 @@ class Store {
     const videoAliases = VideoAliases(this.data.videoAliases);
     const assignments = PlanMediaIds(this.data.playlists, randomUUID, LibraryMediaKey(videoAliases));
     const next = { ...this.data, identityVersion: IDENTITY_SCHEMA_VERSION, videoAliases, playlists: this.data.playlists.map(p => ({ ...p, entries: p.entries.map(e => ({ ...e, mediaId: assignments.get(e) })) })) };
+    const encoded = JSON.stringify(next, null, 2);
     const temp = `${this.file}.${randomUUID()}.tmp`;
     try {
-      fs.writeFileSync(temp, JSON.stringify(next, null, 2), { mode: 0o600, flag: 'wx' });
+      fs.writeFileSync(temp, encoded, { mode: 0o600, flag: 'wx' });
       // 置換前の正常な内容を保持し、途中終了で本体が空になることを防ぐ。
       if (fs.existsSync(this.file) && (!this.warning || this.recovered)) fs.copyFileSync(this.file, `${this.file}.bak`);
       fs.renameSync(temp, this.file);
@@ -146,6 +147,11 @@ class Store {
     this.data.identityVersion = IDENTITY_SCHEMA_VERSION;
     this.data.videoAliases = videoAliases;
     for (const [entry, mediaId] of assignments) entry.mediaId = mediaId;
+    this.committedJSON = encoded; this.committedData = JSON.parse(encoded);
+    try { this.options.committed?.(); } catch {}
+  }
+  SavedData() {
+    try { return fs.readFileSync(this.file, 'utf8') === this.committedJSON ? this.committedData : null; } catch { return null; }
   }
   Snapshot() {
     const result = structuredClone(this.data);

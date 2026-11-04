@@ -57,7 +57,7 @@ class LibraryArchive {
       items.unshift({ name: 'playlists.fvpa', data: Buffer.concat([header, cipher.getAuthTag(), encrypted]) });
       const downloads = mode === 'media' ? await ExportDownloads(this.offline, data.playlists) : { items: [], count: 0 }; items.push(...downloads.items);
       await WriteZip(temp, items); await fs.promises.rename(temp, file); return { file, mode, missing, omitted, downloaded: downloads.count };
-    } finally { this.store.sharingBusy = false; if (this.offline) this.offline.importing = false; if (folder) await fs.promises.rm(folder, { recursive: true, force: true }); }
+    } finally { this.store.sharingBusy = false; if (this.offline) { this.offline.importing = false; this.offline.ScheduleCleanup(); } if (folder) await fs.promises.rm(folder, { recursive: true, force: true }); }
   }
   async Prepare(file, password) {
     const folder = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'favecus-import-'));
@@ -177,7 +177,7 @@ class LibraryArchive {
     finally {
       try { if (localStage) await fs.promises.rm(localStage, { recursive: true, force: true }); }
       finally {
-        this.store.sharingBusy = false; if (this.offline) this.offline.importing = false; plan.busy = false;
+        this.store.sharingBusy = false; if (this.offline) { this.offline.importing = false; this.offline.ScheduleCleanup(); } plan.busy = false;
         try { if (this.offline) this.offline.Notify(true); } finally { await this.Cancel(id); }
       }
     }
