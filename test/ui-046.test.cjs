@@ -22,7 +22,7 @@ async function Harness(t) {
       this.classList = { add: (...values) => values.forEach(v => this.classes.add(v)), remove: (...values) => values.forEach(v => this.classes.delete(v)), contains: v => this.classes.has(v), toggle: (v, force) => { if (force ?? !this.classes.has(v)) this.classes.add(v); else this.classes.delete(v); } };
     }
     set className(value) { this.classes = new Set(value.split(/\s+/)); } get className() { return [...this.classes].join(' '); }
-    append(...children) { for (const node of children) { node.parentElement = this; this.children.push(node); } }
+    append(...children) { for (const node of children) { if (node.parentElement) node.parentElement.children = node.parentElement.children.filter(n => n !== node); node.parentElement = this; this.children.push(node); } }
     replaceChildren(...children) { this.children = []; this.text = ''; this.append(...children); }
     set textContent(value) { this.text = String(value); this.children = []; } get textContent() { return (this.text || '') + this.children.map(c => c.textContent).join(''); }
     set value(value) { this.val = String(value); } get value() { return this.val ?? this.children[0]?.value ?? ''; }
@@ -257,11 +257,15 @@ test('expanded all-playlist duplicates resolve to the existing deduplicated play
   let selected; h.api.play = async (...args) => selected = args;
   await list.children[2].children[2].events.click(); assert.deepEqual(selected, ['*', original.id]);
 });
-test('transfer hides the source playlist while leaving its children selectable, and ZIP actions pass no password', async t => {
+test('067 transfer retains the disabled source and lets its children expand and be selected, while ZIP actions pass no password', async t => {
   const h = await Harness(t), s = h.store;
   s.Apply({ type: 'create', name: '移動先', parentId: h.id }); const child = s.data.activePlaylistId; s.Apply({ type: 'select', playlistId: h.id }); h.emit('state', s.Snapshot());
   h.run('TransferEntry(List().id, List().entries[0])');
-  const inputs = h.node('modal-body').children.at(-1).querySelectorAll('input').filter(n => n.type === 'checkbox'); assert.deepEqual(inputs.map(n => n.value), [child]);
+  const choices = h.node('modal-body').querySelector('.destination-choices'), row = choices.children[0];
+  assert.equal(row.querySelector('input').value, h.id); assert.equal(row.querySelector('input').disabled, true); assert.equal(row.querySelector('.tree-name').disabled, true);
+  assert.equal(row.querySelector('.tree-expand').disabled, false); row.querySelector('.tree-expand').onclick();
+  const inputs = choices.querySelectorAll('input'); assert.deepEqual(inputs.map(n => n.value), [h.id, child]); assert.equal(inputs[1].disabled, false);
+  inputs[1].checked = true; inputs[1].onchange(); assert.equal(choices.children[1].querySelector('input').checked, true);
   h.run('Transfer()'); assert.equal(h.node('archive-password'), undefined);
   let exportArgs, importArgs; h.api.exportLibrary = async (...args) => { exportArgs = args; return {}; }; h.api.importLibrary = async (...args) => { importArgs = args; return null; };
   await h.node('export-button').onclick(); await h.node('import-button').onclick(); assert.deepEqual(exportArgs, []); assert.deepEqual(importArgs, []);
@@ -321,10 +325,16 @@ test('the header plus creates under the current nested playlist and the sidebar 
   assert.deepEqual(h.node('new-parent').querySelector('.parent-choices').children.map(r => r.dataset.playlistId), [h.id, ids.other]);
   h.run('CloseModal(); allListsView = true; Render()'); assert.equal(h.node('new-child-list').classList.contains('hidden'), true);
 });
-test('move and nested-create parent pickers exclude the moved playlist and descendants while preserving the original dialog', async t => {
+test('067 parent changes retain disabled self and descendants, searchable with their ancestors, and preserve the original dialog', async t => {
   const h = await Harness(t), ids = ParentTree(h); h.run(`MovePlaylist('${ids.parent}')`);
   const picker = h.node('move-parent'), search = picker.querySelector('.parent-search'); search.value = 'サクラ'; search.oninput();
-  assert.match(picker.querySelector('.parent-search-status').textContent, /ありません/);
+  assert.match(picker.querySelector('.parent-search-status').textContent, /1 \/ 2件/);
+  const rows = picker.querySelector('.parent-choices').children;
+  assert.deepEqual(rows.map(r => r.dataset.playlistId), [h.id, ids.parent, ids.a, ids.b, ids.other]);
+  for (const id of [ids.parent, ids.a, ids.b]) { const name = rows.find(r => r.dataset.playlistId === id).querySelector('.parent-name'); assert.equal(name.disabled, true); name.onclick(); }
+  assert.equal(picker.querySelector('.parent-root').getAttribute('aria-pressed'), 'true');
+  const arrow = rows.find(r => r.dataset.playlistId === ids.parent).querySelector('.tree-expand'); assert.equal(arrow.disabled, false); arrow.onclick();
+  assert.deepEqual(picker.querySelector('.parent-choices').children.map(r => r.dataset.playlistId), [h.id, ids.parent, ids.other]);
   picker.querySelector('.parent-choices').children[0].querySelector('.tree-expand').onclick();
   assert.deepEqual(picker.querySelector('.parent-choices').children.map(r => r.dataset.playlistId), [h.id, ids.other]);
   h.node('move-new-parent').onclick(); const dialog = h.document.body.children.at(-1), form = dialog.children[0];
@@ -334,6 +344,39 @@ test('move and nested-create parent pickers exclude the moved playlist and desce
   const created = h.store.data.playlists.find(p => p.name === '新しい親');
   assert.ok(h.store.Playlist(ids.other).childIds.includes(created.id)); assert.ok(created.childIds.includes(ids.parent));
   assert.equal(h.store.Playlist(h.id).childIds.includes(ids.parent), false); assert.equal(h.node('modal').open, false); assert.equal(dialog.open, false);
+});
+test('067 existing-track sources show the hierarchy and retain song selections across source changes, with move beside add', async t => {
+  const h = await Harness(t), ids = ParentTree(h), s = h.store;
+  s.Apply({ type: 'add', playlistId: ids.a, urls: 'av777', title: '選択する曲' }); s.Apply({ type: 'add', playlistId: ids.b, urls: 'av888', title: '別の曲' }); h.emit('state', s.Snapshot()); h.run('ExistingTracks()');
+  const source = h.node('existing-source'), names = () => source.querySelectorAll('.parent-name');
+  assert.deepEqual(source.querySelector('.parent-choices').children.map(r => r.dataset.playlistId), [h.id, ids.parent, ids.a, ids.b, ids.other]);
+  assert.equal(h.node('existing-tracks').querySelectorAll('input').length, 1);
+  const song = h.node('existing-tracks').querySelector('input'); song.checked = true; song.onchange(); assert.match(h.node('existing-count').textContent, /1曲/);
+  names().find(n => n.textContent === 'サクラノ刻').onclick(); assert.match(h.node('existing-tracks').textContent, /別の曲/); assert.match(h.node('existing-count').textContent, /1曲/);
+  names().find(n => n.textContent === 'サクラノ詩').onclick(); assert.equal(h.node('existing-tracks').querySelector('input').checked, true);
+  const choices = h.node('modal-body').querySelector('.destination-choices'), search = h.node('modal-body').querySelector('.destination-search');
+  search.value = 'サクラ'; search.oninput(); const blocked = choices.querySelectorAll('input').filter(n => [ids.a].includes(n.value)); assert.equal(blocked.length, 1); assert.equal(blocked[0].disabled, true);
+  assert.equal(choices.querySelectorAll('input').find(n => n.value === ids.b).disabled, false);
+  source.querySelector('.parent-root').onclick(); assert.equal(h.node('existing-tracks').querySelectorAll('input').length, 14); assert.match(source.querySelector('.parent-selection').textContent, /ライブラリ全体/);
+  assert.equal(h.node('modal-actions').children[0], h.node('existing-move')); assert.ok(h.html.indexOf('id="modal-actions"') < h.html.indexOf('id="modal-submit"'));
+  let moved; h.api.moveTracks = async args => { moved = args; return { moved: 1, state: s.Snapshot() }; }; await h.node('existing-move').onclick();
+  assert.deepEqual(Array.from(moved.destinationIds), [h.id]); assert.equal(moved.entries[0].playlistId, ids.a); assert.equal(moved.entries[0].entryId, s.Playlist(ids.a).entries[0].id);
+  h.run('AddURL()'); assert.equal(h.node('modal-actions').children.length, 0); assert.equal(h.node('existing-move'), undefined);
+});
+test('067 choosing an existing song in the hierarchy uses the normal addition review and retains its source', async t => {
+  const h = await Harness(t), ids = ParentTree(h), s = h.store;
+  s.Apply({ type: 'add', playlistId: ids.a, urls: 'av777', title: '追加する曲' }); h.emit('state', s.Snapshot()); h.run('ExistingTracks()');
+  const original = s.Playlist(ids.a).entries[0], input = h.node('existing-tracks').querySelector('input'); input.checked = true; input.onchange(); await h.submit();
+  assert.equal(s.Playlist(h.id).entries.length, 13); assert.equal(s.Playlist(h.id).entries.at(-1).url, original.url); assert.equal(s.Playlist(ids.a).entries.length, 1); assert.equal(s.Playlist(ids.a).entries[0].id, original.id); assert.equal(h.node('modal').open, false);
+});
+test('067 playlist attachment keeps disabled ancestors and self in place while their children can open', async t => {
+  const h = await Harness(t), ids = ParentTree(h); h.store.Apply({ type: 'select', playlistId: ids.parent }); h.emit('state', h.store.Snapshot()); h.run('AttachPlaylists()');
+  const lists = h.node('attach-lists');
+  const self = lists.children.find(r => r.dataset.playlistId === ids.parent); assert.equal(self.querySelector('input').disabled, true); assert.equal(self.querySelector('.tree-name').disabled, true);
+  assert.equal(lists.children[0].querySelector('input').disabled, true); assert.equal(self.querySelector('.tree-expand').disabled, false); self.querySelector('.tree-expand').onclick();
+  const child = lists.children.find(r => r.dataset.playlistId === ids.a).querySelector('input'); assert.equal(child.disabled, false); child.checked = true; child.onchange();
+  lists.children.find(r => r.dataset.playlistId === ids.parent).querySelector('.tree-expand').onclick(); lists.children.find(r => r.dataset.playlistId === ids.parent).querySelector('.tree-expand').onclick();
+  assert.equal(lists.children.find(r => r.dataset.playlistId === ids.a).querySelector('input').checked, true);
 });
 test('next-track hierarchy uses the track owner and playback scope while keeping the existing number and title', async t => {
   const h = await Harness(t), ids = ParentTree(h); h.play(0);

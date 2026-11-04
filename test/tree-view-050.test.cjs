@@ -28,6 +28,21 @@ test('tree picker starts with roots, expands multiple levels, preserves collapse
   box.children[2].querySelector('input').checked = true; box.children[2].querySelector('input').onchange();
   box.children[0].children.at(-1).onclick(); assert.deepEqual([...picker.get()], ['a', 'c']);
 });
+test('067 disabled selections remain in the hierarchy, cannot be restored by stale checked inputs, and do not block child expansion', () => {
+  const { box, render } = Harness(), selected = new Set(['a', 'b']); let blocked = true;
+  const picker = render({ checkboxes: true, selected, disabled: id => blocked && id === 'a' });
+  const first = box.children[0]; assert.equal(first.querySelector('input').disabled, true); assert.equal(first.children.find(n => n.className === 'tree-name').disabled, true);
+  first.querySelector('input').checked = true; first.querySelector('input').onchange(); assert.equal(first.querySelector('input').checked, false);
+  first.children.at(-1).onclick(); assert.deepEqual(box.children.map(r => r.dataset.playlistId), ['a', 'b', 'd']); assert.equal(box.children[1].querySelector('input').checked, true);
+  assert.deepEqual([...picker.get()], ['b']); blocked = false; picker.render(); assert.equal(box.children[0].querySelector('input').checked, false);
+});
+test('067 search allows a disabled ancestor to collapse and reopen without losing a selected descendant', () => {
+  const { box, render } = Harness(), selected = new Set(['c']);
+  const picker = render({ checkboxes: true, selected, query: '孫', disabled: id => id === 'a' });
+  assert.deepEqual(box.children.map(r => r.dataset.playlistId), ['a', 'b', 'c', 'd', 'b', 'c']); assert.equal(box.children[0].children.at(-1).disabled, false);
+  box.children[0].children.at(-1).onclick(); assert.deepEqual(box.children.map(r => r.dataset.playlistId), ['a', 'd', 'b', 'c']); assert.deepEqual([...picker.get()], ['c']);
+  box.children[0].children.at(-1).onclick(); assert.deepEqual(box.children.map(r => r.dataset.playlistId), ['a', 'b', 'c', 'd', 'b', 'c']); assert.equal(box.children[2].querySelector('input').checked, true);
+});
 test('drag handle distinguishes sibling ordering from child-drop and blocks descendant hover', () => {
   const { box, render } = Harness(), calls = [], drag = { value: null };
   render({ drag, onDrop: (...args) => calls.push(args), expanded: new Set(['a', 'a/b']) });
