@@ -7,6 +7,7 @@ const { ValidateLibrary } = require('./store.cjs');
 const { ReadJSON, ExportJSON } = require('./library-json.cjs');
 const { PlanImportIdentity } = require('./import-identity.cjs');
 const { VideoAliases } = require('./library-identity.cjs');
+const { ShareMode, ShareData, ReadShare } = require('./library-share.cjs');
 const { ExportDownloads, ReadDownloads, StageDownloads, DownloadMatches } = require('./offline-archive.cjs');
 const Tree = require('../ui/library-tree.js');
 const MAGIC = Buffer.from('FVPA0001'), AUTO_MAGIC = Buffer.from('FVPA0002'), LIMIT = 32 * 1024 * 1024;
@@ -14,17 +15,37 @@ const Key = (password, salt) => promisify(scrypt)(password, salt, 32, { N: 32768
 function Password(value) { if (typeof value !== 'string' || value.length < 8 || value.length > 1024) throw new Error('パスワードは8〜1024文字で入力してください。'); }
 class LibraryArchive {
   constructor(store, offline) { this.store = store; this.offline = offline; this.plans = new Map(); }
-  async Export(file, password) {
+  async Export(file, password, options = {}) {
     if (password !== undefined) Password(password);
-    if (this.offline?.controller || this.offline?.importing) throw new Error('保存・出力・取り込みの完了後に出力してください。');
-    const data = structuredClone(this.store.data), folder = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'favecus-export-'));
-    const temp = `${file}.${randomUUID()}.tmp`; let missing = 0;
+    const mode = ShareMode(options), json = path.extname(file).toLowerCase() === '.json';
+    if (json && (mode !== 'information' || password !== undefined)) throw new Error('JSONはパスワードなしの情報のみ出力で使用してください。');
+    if (this.store.sharingBusy || this.offline?.controller || this.offline?.importing) throw new Error('保存・出力・取り込みの完了後に出力してください。');
+    const data = ShareData(structuredClone(this.store.data), mode);
+    this.store.sharingBusy = true;
     if (this.offline) { this.offline.CancelEstimate(); this.offline.importing = true; }
+    let folder, missing = 0, omitted = 0;
     try {
+      folder = await fs.promises.mkdtemp(path.join(path.dirname(file), '.favecus-export-'));
+      const temp = path.join(folder, json ? 'library.json' : 'library.zip'), items = [], locals = new Map();
+      for (const p of data.playlists) for (const e of p.entries) if (e.type === 'local') {
+        if (!locals.has(e.fileName)) {
+          let included = false;
+          if (mode === 'media') {
+            const source = path.join(this.store.media, e.fileName), stat = await fs.promises.lstat(source).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+            if (stat?.isFile() && !stat.isSymbolicLink()) { items.push({ name: `media/${e.fileName}`, file: source }); included = true; } else missing++;
+          } else omitted++;
+          locals.set(e.fileName, included);
+        }
+        e.mediaIncluded = locals.get(e.fileName);
+      }
+      if (json) {
+        const bytes = Buffer.from(ExportJSON(data)); if (bytes.length > LIMIT) throw new Error('プレイリスト情報が大きすぎます。');
+        await fs.promises.writeFile(temp, bytes, { flag: 'wx' }); await fs.promises.rename(temp, file);
+        return { file, mode, missing, omitted, downloaded: 0 };
+      }
       const inner = path.join(folder, 'lists.zip');
-      ValidateLibrary(data);
       await WriteZip(inner, [
-        { name: 'identity.json', data: Buffer.from(ExportJSON({ identityVersion: data.identityVersion, videoAliases: VideoAliases(data.videoAliases) })) },
+        { name: 'identity.json', data: Buffer.from(ExportJSON({ shareVersion: data.shareVersion, exportMode: mode, identityVersion: data.identityVersion, videoAliases: data.videoAliases })) },
         ...data.playlists.map(p => ({ name: `playlists/${p.id}.json`, data: Buffer.from(ExportJSON({ version: 3, playlist: p, rootIndex: data.rootPlaylistIds.indexOf(p.id) })) }))
       ]);
       const plain = await fs.promises.readFile(inner); if (plain.length > LIMIT) throw new Error('プレイリスト情報が大きすぎます。');
@@ -33,14 +54,10 @@ class LibraryArchive {
       // 自動形式は復号キーも同梱するため、秘密保護用の暗号化ではない。
       const header = Buffer.concat(automatic ? [AUTO_MAGIC, key, nonce] : [MAGIC, salt, nonce]), cipher = createCipheriv('aes-256-gcm', key, nonce); cipher.setAAD(header);
       const encrypted = Buffer.concat([cipher.update(plain), cipher.final()]); key.fill(0);
-      const items = [{ name: 'playlists.fvpa', data: Buffer.concat([header, cipher.getAuthTag(), encrypted]) }];
-      for (const name of new Set(data.playlists.flatMap(p => p.entries).filter(e => e.type === 'local').map(e => e.fileName))) {
-        const file = path.join(this.store.media, name), stat = await fs.promises.lstat(file).catch(() => null);
-        if (stat?.isFile() && !stat.isSymbolicLink()) items.push({ name: `media/${name}`, file }); else missing++;
-      }
-      const downloads = await ExportDownloads(this.offline, data.playlists); items.push(...downloads.items);
-      await WriteZip(temp, items); await fs.promises.rename(temp, file); return { file, missing, downloaded: downloads.count };
-    } finally { if (this.offline) this.offline.importing = false; await fs.promises.rm(folder, { recursive: true, force: true }); await fs.promises.rm(temp, { force: true }); }
+      items.unshift({ name: 'playlists.fvpa', data: Buffer.concat([header, cipher.getAuthTag(), encrypted]) });
+      const downloads = mode === 'media' ? await ExportDownloads(this.offline, data.playlists) : { items: [], count: 0 }; items.push(...downloads.items);
+      await WriteZip(temp, items); await fs.promises.rename(temp, file); return { file, mode, missing, omitted, downloaded: downloads.count };
+    } finally { this.store.sharingBusy = false; if (this.offline) this.offline.importing = false; if (folder) await fs.promises.rm(folder, { recursive: true, force: true }); }
   }
   async Prepare(file, password) {
     const folder = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'favecus-import-'));
@@ -67,21 +84,23 @@ class LibraryArchive {
           if (reader.entries.has('identity.json')) {
             const meta = ReadJSON(await reader.Content('identity.json'));
             if (!meta || !Object.hasOwn(meta, 'identityVersion')) throw new Error('識別形式の情報がありません。');
-            identity = { identityVersion: meta.identityVersion, videoAliases: meta.videoAliases };
+            identity = { identityVersion: meta.identityVersion, videoAliases: meta.videoAliases, ...(Object.hasOwn(meta, 'shareVersion') ? { shareVersion: meta.shareVersion } : {}), ...(Object.hasOwn(meta, 'exportMode') ? { exportMode: meta.exportMode } : {}) };
           }
           if (reader.entries.size - Number(reader.entries.has('identity.json')) > 100) throw new Error('プレイリスト数の上限は100個です。');
           for (const name of reader.entries.keys()) { if (name === 'identity.json') continue; if (!/^playlists\/[a-f0-9-]{36}\.json$/.test(name)) throw new Error('プレイリストのファイル構成が正しくありません。'); records.push(ReadJSON(await reader.Content(name))); }
         } finally { await reader.Close(); }
         input = { version: 3, ...identity, playlists: records.map(r => r.playlist), rootPlaylistIds: records.filter(r => r.rootIndex >= 0).sort((a, b) => a.rootIndex - b.rootIndex).map(r => r.playlist.id) };
       }
-      const playlists = ValidateLibrary(input), roots = input.version === 3 ? input.rootPlaylistIds : playlists.map(p => p.id);
+      const playlists = ValidateLibrary(input), roots = input.version === 3 ? input.rootPlaylistIds : playlists.map(p => p.id), share = ReadShare(input);
+      if (zip && share.mode === 'information' && [...zip.entries.keys()].some(name => name !== 'playlists.fvpa')) throw new Error('情報のみのアーカイブにメディアが含まれています。');
+      if (zip && share.mode === 'media') for (const [name, included] of share.locals) if (included !== zip.entries.has(`media/${name}`)) throw new Error('ローカル曲の同梱情報と実体が一致しません。');
       await fs.promises.rm(folder, { recursive: true, force: true });
       const downloads = await ReadDownloads(zip);
       const id = randomUUID(); this.Prune();
       const identity = Object.hasOwn(input, 'identityVersion') ? { identityVersion: input.identityVersion, ...(input.identityVersion === 2 ? { videoAliases: VideoAliases(input.videoAliases) } : {}) } : {};
       const skipped = input.playlists.reduce((n, p) => n + p.entries.filter(e => e?.type === 'youtube').length, 0);
-      this.plans.set(id, { id, input: { version: 3, ...identity, playlists, rootPlaylistIds: roots }, skipped, file, zip, downloads, folder, at: Date.now(), busy: false });
-      return { id, playlists: playlists.map(p => ({ id: p.id, name: p.name, count: p.entries.length, downloaded: downloads.filter(r => p.entries.some(e => DownloadMatches(r, e))).length, childIds: p.childIds, sameName: this.store.data.playlists.some(q => q.name === p.name) })), rootPlaylistIds: roots };
+      this.plans.set(id, { id, input: { version: 3, ...identity, playlists, rootPlaylistIds: roots }, skipped, file, zip, downloads, share, folder, at: Date.now(), busy: false });
+      return { id, mode: share.mode, playlists: playlists.map(p => ({ id: p.id, name: p.name, count: p.entries.length, downloaded: downloads.filter(r => p.entries.some(e => DownloadMatches(r, e))).length, childIds: p.childIds, sameName: this.store.data.playlists.some(q => q.name === p.name) })), rootPlaylistIds: roots };
     } catch (error) { await zip?.Close(); await fs.promises.rm(folder, { recursive: true, force: true }); throw error; }
   }
   Prune() { for (const [id, p] of this.plans) if (!p.busy && (Date.now() - p.at > 30 * 60000 || this.plans.size >= 3)) void this.Cancel(id); }
@@ -96,15 +115,24 @@ class LibraryArchive {
     let lists = ValidateLibrary({ ...plan.input, playlists: chosen, rootPlaylistIds: roots });
     const checkLimits = () => { if (this.store.data.playlists.length + lists.length > 100 || [...this.store.data.playlists, ...lists].reduce((n, p) => n + p.entries.length, 0) > 10000) throw new Error('登録数の上限を超えています。'); };
     checkLimits();
-    if (this.offline?.controller || this.offline?.importing) throw new Error('保存・出力・取り込みの完了後に取り込んでください。');
+    if (this.store.sharingBusy || this.offline?.controller || this.offline?.importing) throw new Error('保存・出力・取り込みの完了後に取り込んでください。');
     if (this.offline) { this.offline.CancelEstimate(); this.offline.importing = true; }
-    plan.busy = true;
-    const copied = [], files = new Map(); let before, downloadStage, localStage, missing = 0;
+    this.store.sharingBusy = true; plan.busy = true;
+    const copied = [], files = new Map(); let before, downloadStage, localStage, missing = 0, omitted = 0;
     try {
       for (const p of lists) for (const entry of p.entries) if (entry.type === 'local') {
         const original = entry.fileName;
         if (!files.has(original)) {
-          const name = `${randomUUID()}${path.extname(original)}`, destination = path.join(this.store.media, name); files.set(original, name);
+          let name;
+          const reserved = new Set([...this.store.data.playlists.flatMap(p => p.entries).filter(e => e.type === 'local').map(e => e.fileName), ...files.values()]);
+          for (let attempt = 0; attempt < 16; attempt++) {
+            const candidate = `${randomUUID()}${path.extname(original)}`;
+            let exists = true; try { fs.lstatSync(path.join(this.store.media, candidate)); } catch (error) { if (error.code !== 'ENOENT') throw error; exists = false; }
+            if (!exists && !reserved.has(candidate)) { name = candidate; break; }
+          }
+          if (!name) throw new Error('衝突しないローカル曲の保存先を作成できません。');
+          const destination = path.join(this.store.media, name); files.set(original, name);
+          if (plan.share.locals.get(original) === false) { if (plan.share.mode === 'information') omitted++; else missing++; entry.fileName = name; continue; }
           localStage ||= await fs.promises.mkdtemp(path.join(this.store.media, '.import-'));
           const staged = path.join(localStage, name); let available = false;
           if (plan.zip?.entries.has(`media/${original}`)) { await plan.zip.Content(`media/${original}`, staged, 0xffffff00); available = true; }
@@ -112,6 +140,7 @@ class LibraryArchive {
             const source = path.join(path.dirname(plan.file), 'media', original), stat = await fs.promises.lstat(source).catch(() => null), dir = await fs.promises.lstat(path.dirname(source)).catch(() => null);
             if (stat?.isFile() && !stat.isSymbolicLink() && dir?.isDirectory() && !dir.isSymbolicLink()) { await fs.promises.copyFile(source, staged, fs.constants.COPYFILE_EXCL); available = true; } else missing++;
           } else missing++;
+          if (!available && plan.share.locals.get(original) === true) throw new Error('同梱されたローカル曲を読み取れません。');
           if (available) {
             try { await fs.promises.link(staged, destination); }
             catch (error) {
@@ -143,9 +172,15 @@ class LibraryArchive {
       if (parent) parent.lastAddedAt = new Date().toISOString();
       this.store.data.activePlaylistId = identity.idMap.get(ids[0]);
       Tree.ValidateGraph(this.store.data.playlists, this.store.data.rootPlaylistIds); this.store.Save();
-      return { state: this.store.Snapshot(), imported: lists.length, ancestors: selection.ancestorIds.length, missing, skipped: plan.skipped, downloaded: downloadStage?.imported || 0 };
+      return { state: this.store.Snapshot(), imported: lists.length, ancestors: selection.ancestorIds.length, missing, omitted, skipped: plan.skipped, downloaded: downloadStage?.imported || 0 };
     } catch (error) { if (before) this.store.data = before; await downloadStage?.rollback(); for (const file of copied) await fs.promises.rm(file, { force: true }); throw error; }
-    finally { if (localStage) await fs.promises.rm(localStage, { recursive: true, force: true }); if (this.offline) { this.offline.importing = false; this.offline.Notify(true); } plan.busy = false; await this.Cancel(id); }
+    finally {
+      try { if (localStage) await fs.promises.rm(localStage, { recursive: true, force: true }); }
+      finally {
+        this.store.sharingBusy = false; if (this.offline) this.offline.importing = false; plan.busy = false;
+        try { if (this.offline) this.offline.Notify(true); } finally { await this.Cancel(id); }
+      }
+    }
   }
 }
 module.exports = { LibraryArchive };

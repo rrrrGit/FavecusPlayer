@@ -10,7 +10,7 @@ const { BilibiliDownloadSource } = require('./bilibili-download.cjs');
 const { DownloadStream, Assemble } = require('./download-transfer.cjs');
 const { RemoteImage, ImageData, ImageURL } = require('./thumbnail.cjs');
 const { DownloadSelection, EstimateKey, EstimateDownloads, LiveEstimate, PlanBytes, AvailableBytes, JobTiming } = require('./download-estimate.cjs');
-const { SafeName, SharedFolder } = require('./offline-layout.cjs');
+const { SafeName, SharedFolder, TrackFile } = require('./offline-layout.cjs');
 const { DownloadDiagnostic } = require('./download-errors.cjs');
 const { MigrateShared } = require('./offline-migration.cjs');
 const Token = /^[a-f0-9]{64}\.(mp4|m4a)$/;
@@ -124,7 +124,7 @@ class OfflineLibrary {
     const url = ParseBilibili(entry.url).url, keyOf = LibraryMediaKey(data?.videoAliases), key = keyOf(entry);
     const shared = [...this.records.values()].find(r => r.layout === 4 && (r.aliases?.includes(url) || keyOf({ type: 'bilibili', url: r.url }) === key) && this.File(r.token));
     const folder = shared ? path.posix.dirname(shared.file) : SharedFolder(entry, data);
-    return `${folder}/${kind === 'video' ? `video-${height || 720}p` : 'audio'}-${randomUUID()}.${kind === 'video' ? 'mp4' : 'm4a'}`;
+    return `${folder}/${TrackFile(kind, height)}`;
   }
   async CleanupRecord(previous, current) {
     if (!previous) return;

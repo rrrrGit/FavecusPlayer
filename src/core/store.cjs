@@ -386,18 +386,33 @@ class Store {
     } catch (error) { this.data = before; throw error; }
     return { state: this.Snapshot(), moved: sources.length, added, mappings };
   }
-  async Export(parent) {
-    const folder = path.join(parent, `FavecusPlayer-${new Date().toISOString().replace(/[:.]/g, '-')}`);
-    await fs.promises.mkdir(path.join(folder, 'media'), { recursive: true });
-    const playlists = ValidateLibrary(this.data);
-    const names = new Set(playlists.flatMap(p => p.entries).filter(e => e.type === 'local').map(e => e.fileName));
-    let missing = 0;
-    for (const name of names) {
-      if (fs.existsSync(path.join(this.media, name))) await fs.promises.copyFile(path.join(this.media, name), path.join(folder, 'media', name));
-      else missing++;
-    }
-    await fs.promises.writeFile(path.join(folder, 'favecus-player-library.json'), ExportJSON({ version: 3, identityVersion: this.data.identityVersion, videoAliases: this.data.videoAliases, playlists, rootPlaylistIds: this.data.rootPlaylistIds }));
-    return { folder, missing };
+  async Export(parent, options = {}) {
+    const { ShareMode, ShareData } = require('./library-share.cjs');
+    const mode = ShareMode(options);
+    if (this.sharingBusy) throw new Error('出力・取り込みの完了後に出力してください。');
+    const data = ShareData(structuredClone(this.data), mode); this.sharingBusy = true;
+    let folder, missing = 0, omitted = 0;
+    try {
+      folder = await fs.promises.mkdtemp(path.join(parent, 'FavecusPlayer-'));
+      const included = new Map();
+      for (const p of data.playlists) for (const e of p.entries) if (e.type === 'local') {
+        if (!included.has(e.fileName)) {
+          let available = false;
+          if (mode === 'media') {
+            const source = path.join(this.media, e.fileName), stat = await fs.promises.lstat(source).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+            if (stat?.isFile() && !stat.isSymbolicLink()) {
+              await fs.promises.mkdir(path.join(folder, 'media'), { recursive: true });
+              await fs.promises.copyFile(source, path.join(folder, 'media', e.fileName), fs.constants.COPYFILE_EXCL); available = true;
+            } else missing++;
+          } else omitted++;
+          included.set(e.fileName, available);
+        }
+        e.mediaIncluded = included.get(e.fileName);
+      }
+      await fs.promises.writeFile(path.join(folder, 'favecus-player-library.json'), ExportJSON(data), { flag: 'wx' });
+      return { folder, mode, missing, omitted };
+    } catch (error) { if (folder) await fs.promises.rm(folder, { recursive: true, force: true }); throw error; }
+    finally { this.sharingBusy = false; }
   }
   async Import(file) {
     const { LibraryArchive } = require('./library-archive.cjs');

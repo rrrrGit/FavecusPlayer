@@ -18,7 +18,7 @@
 | 永続化 | store.cjs がNodeのファイルI/OとUUID生成を担当。既存JSONはversion 3を維持し、identityVersion 2でmediaIdとvideoAliasesを保存します。割当計画は純粋なlibrary-identity.cjsで行います |
 | ネットワーク・実保存 | bilibili-download.cjs / download-fetch.cjs / download-transfer.cjs / offline-library.cjs がメタデータ取得、ハッシュ、保存先、カタログ、FFmpegを担当します |
 | 再生とOS連携 | main.cjs / Electron / native が担当し、共通識別からは参照しません |
-| 出力・取り込み | library-archive.cjs / import-identity.cjs が共有形式とIDの衝突を処理。offline-archive.cjsのメディア分離はStep3で接続します |
+| 出力・取り込み | library-share.cjsが共有方式を検証し、library-archive.cjs / import-identity.cjsが構造とIDの衝突を処理。offline-archive.cjsがメディアを分離して配置します |
 
 ## メディア識別の保存形式（Step1-2 / Step1-3-1）
 
@@ -32,7 +32,7 @@
 - 旧version 3でidentityVersionがない場合、またはidentityVersion 1の場合は、移行前のJSONをlibrary.pre-0.6.7-*.jsonにバイト単位で保存してから追加します。さらに古いversion 1/2は既存のlibrary.pre-0.5.0-*.jsonを保持します。バックアップできなければ移行しません。
 - 保存は新規一時JSONを書き、通常バックアップを保管してから本体を置換します。mediaIdは置換成功後にメモリ上の登録曲へ反映します。操作中の保存失敗は既存のロールバックで元の状態を戻します。
 
-共有JSONはversion 3にidentityVersionとvideoAliasesを含めます。ZIPは従来のFVPA0002（明示パスワード指定時はFVPA0001）の内側へidentity.jsonを加え、同じ識別形式を保持します。identity.jsonのない旧ZIPと、識別形式のない旧JSONも読み込めます。新ZIPを旧版アプリで読めることは保証しません。情報のみ/DL同梱の出力分離はStep3で行います。
+共有JSONはversion 3にidentityVersionとvideoAliasesを含めます。ZIPは従来のFVPA0002（明示パスワード指定時はFVPA0001）の内側へidentity.jsonを加え、同じ識別形式を保持します。identity.jsonのない旧ZIPと、識別形式のない旧JSONも読み込めます。新ZIPを旧版アプリで読めることは保証しません。情報のみ/DL同梱の出力分離は後述のStep3-2の共有形式に従います。
 
 ## 確認済み動画の対応情報（Step1-3-1）
 
@@ -76,7 +76,7 @@ import-identity.cjsは検証済みのリスト・ルート一覧と移入先の�
 - リスト名・曲名・親子関係の変更や所属の移動ではlayout 4の保存先を変更しません。既存の階層再整理処理もlayout 4を対象外とします。
 - 書き込み失敗時は自分で作成できたファイルだけを片付けます。排他的配置で衝突した既存ファイル、またはカタログ内の別形式が使用中の画像は削除しません。
 
-旧カタログのtoken、URL、index.json version 1は保持します。情報のみ/DL同梱の出力分離と、取り込み時のメディア照合の追加整備はStep3-2以降で行います。
+旧カタログのtoken、URL、index.json version 1は保持します。情報のみ/DL同梱の出力分離と、取り込み時のメディア照合は下記のStep3-2で接続しました。
 
 ## 既存DLデータの移行（Step3-1）
 
@@ -92,6 +92,28 @@ offline-migration.cjsが旧layoutなし/1/2/3の正常な管理対象をlayout 4
 - 確認済みav/BVと同じパートは既存layout 4のフォルダーを優先し、正常な画像を共用します。別パートは別フォルダーです。旧配置の同形式レコードが別表記で複数残る場合もtokenを保持し、内容・画質を推測して統合しません。
 
 本工程の自動検証はプロセス中断・I/O失敗の模擬を含みます。電源断に対するストレージ全体の耐久性、Windows実機のファイルロックと実GUIは別途確認します。
+
+## 出力方式と共有メディア（Step3-2）
+
+共有構造はversion 3/identityVersion 2を維持し、shareVersion 1とexportMode（information/media）を加えます。未知の共有版・出力方式・矛盾した同梱宣言はファイル配置前に拒否します。旧JSONと共有方式の識別がない旧ZIPは従来の互換経路で読み込みます。
+
+| 方式 | 出力とローカル曲の扱い |
+| --- | --- |
+| information | メディアとDLカタログを読み込まず、構造だけをJSONまたはZIPに出力します。ローカル曲はmediaIncluded falseを明示します |
+| media | ZIPに構造、正常な保存済み動画・音声・画像、ローカル実体を同梱します。見つからないローカル曲はmediaIncluded falseで情報を残します |
+
+- library-share.cjsは構造を検証して必要なフィールドのみを取り出します。プレイリスト/登録曲/mediaId、親子関係、順序、名前、正規化リンクとパート、日時、リスト画像などを保持します。設定・認証情報・端末の絶対パス・未知の追加プロパティを構造へコピーしません。リスト画像は既存の小型PNG形式を継続します。
+- LibraryArchive.Export(file, password, { mode })が両方式を担当します。省略時は従来どおりmedia、informationでは.jsonと.zipを使用できます。ZIPの内側のidentity.jsonにも共有方式を記録します。JSONへのメディア同梱やパスワード指定は拒否します。出力先と同じ親に排他的な一時ディレクトリを作り、完成後に置換します。
+- Store.Export(parent, { mode })は旧フォルダーJSON用の互換APIです。informationではJSONだけ、mediaではローカルsidecarも出力します。DL実体も渡す通常アプリの経路はOfflineLibrary付きのLibraryArchiveです。
+- 同じローカルfileNameの同梱宣言は全登録で一致させます。falseの取り込みではsidecarや同名の移入先ファイルを探しません。既存のローカル参照と実ファイルに衝突しない新しいfileNameを割り当て、登録とmediaIdの衝突を従来方針で解決します。実体がない登録はSnapshotのmissingで判別でき、再起動・再出力でも情報を保持します。
+- informationで省いたローカル曲はomitted、mediaで欠落した実体はmissingとして別に集計します。新ZIPのmediaIncluded trueに実体がない場合や、informationのZIPにメディア等が隠れている場合は拒否します。共有方式のない旧JSONでは従来のmedia/sidecar探索を継続します。
+- DLカタログの共有情報はtoken・正規化URL/同パートの別表記・形式・サイズ・時間・画質と同梱先に限定します。元のPC保存位置、署名等が付く可能性のあるthumbnailURL、設定・未知のメタデータは出力しません。
+- 取り込み先が確認済みの動画・パート・形式に正常な実体を持つ場合は、その画質と保存先を優先し再配置しません。欠けた形式だけを同じ曲フォルダーへ追加し、画像も共用します。参照を先に索引化してから配置し、同じメディアを登録曲ごとにコピーしません。
+- 外部の対応情報はソース側の実体選択にだけ使います。取り込み先へ未確認のav/BV対応を登録せず、保存URL/aliasesは取り込み先の確認済み識別に合わせます。取り込み先で未確認の別表記がそれぞれ明示的に登録される場合は、別mediaId/保存参照として保持します。
+- 実体は専用ステージへZIPのCRC・サイズを検証して展開し、排他的に公開します。衝突した別ファイルは削除しません。保存一覧のメモリ/ディスクの先行変更を検出し、保存後に失敗を報告された場合は実際のindex.jsonを読み返して復旧します。確定状態や復旧自体を確認できない場合は、参照がある可能性のある追加ファイルを残して停止します。
+- 出力と取り込みは同じStoreとOfflineLibraryで排他にし、失敗後もロックを解除します。構造保存失敗時は従来どおり新規登録と配置を戻します。プレイリスト名の衝突時の接尾辞、移入先設定による曲名整理、ID衝突時の再割当は既存仕様を維持します。自動同期や既存登録の上書きは行いません。
+
+ここまでの変更はコア処理です。画面の二つの出力ボタン、階層の選択・取り込み先UIはStep6で接続します。Windows実機での操作、実通信と全体ビルドは後続の所定工程で確認します。
 
 ## v0.6.6から継続する構造
 
