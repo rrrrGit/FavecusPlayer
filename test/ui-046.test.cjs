@@ -94,9 +94,9 @@ test('067 single download targets the edited child and part, preserves drafts on
 test('067 local editing has no download action and saved badges follow the exact part', async t => {
   const h = await Harness(t); SingleDownloadAPI(h); const entry = h.store.Playlist(h.id).entries[0];
   h.emit('downloads', { available: [{ url: entry.url + '?p=2', kind: 'video' }] }); EditEntry(h); assert.equal(h.node('entry-download-state').textContent, 'オンライン');
-  h.emit('downloads', { available: [{ url: entry.url, kind: 'audio' }] }); assert.equal(h.node('entry-download-state').textContent, '音声保存済み');
-  h.node('entry-download-button').onclick(); await new Promise(setImmediate); assert.equal(h.node('download-entry-saved').textContent, '音声保存済み');
-  h.emit('downloads', { available: [{ url: entry.url, kind: 'video' }] }); assert.equal(h.node('download-entry-saved').textContent, '動画保存済み');
+  h.emit('downloads', { available: [{ url: entry.url, kind: 'audio' }] }); assert.equal(h.node('entry-download-state').textContent, '音声DL済み');
+  h.node('entry-download-button').onclick(); await new Promise(setImmediate); assert.equal(h.node('download-entry-saved').textContent, '音声DL済み');
+  h.emit('downloads', { available: [{ url: entry.url, kind: 'video' }] }); assert.equal(h.node('download-entry-saved').textContent, 'DL済み');
   const local = { ...entry, type: 'local', fileName: 'music.mp3' }; h.store.Playlist(h.id).entries[0] = local; h.emit('state', h.store.Snapshot()); EditEntry(h);
   assert.equal(h.node('entry-download-button'), undefined); assert.equal(h.node('entry-download-state'), undefined);
 });
@@ -299,6 +299,47 @@ test('067 parent search reaches the last of 999 nested playlists and a rejected 
   h.run('NewList()'); const picker = h.node('new-parent'), search = picker.querySelector('.parent-search'); search.value = '最後の親'; search.oninput();
   const choices = picker.querySelector('.parent-choices'); assert.equal(choices.children.length, 999); choices.children.at(-1).querySelector('.parent-name').onclick(); assert.match(picker.querySelector('.parent-selection').textContent, /最後の親$/);
   h.node('name-input').value = '1000個目'; await h.submit(); assert.equal(h.node('modal').open, true); assert.match(h.node('toast').textContent, /999個/); assert.deepEqual(s.Snapshot(), before);
+});
+function TransportTrack(h, playlistId, entryId, { scope = playlistId, offline = null, paused = false } = {}) {
+  const entry = h.store.Entry(playlistId, entryId), source = offline ? 'local' : entry.type;
+  h.emit('current', { source, playlistId, entryId, entry, queuePlaylistId: scope, offline });
+  h.emit('playback', { source, title: entry.title || entry.videoId, artist: 'アーティスト', position: 12, duration: 180, paused });
+}
+test('067 transport follows the playing owner through shared parents, browsing, renaming and moves without starting playback', async t => {
+  const h = await Harness(t), ids = ParentTree(h), s = h.store;
+  s.Apply({ type: 'add', playlistId: ids.b, urls: 'https://www.bilibili.com/video/av999/?p=2' }); s.Apply({ type: 'add', playlistId: ids.other, urls: 'https://www.bilibili.com/video/av999/?p=2' }); s.Apply({ type: 'playlist-attach', playlistId: ids.other, ids: [ids.parent], removeOriginal: false }); h.emit('state', s.Snapshot());
+  const entry = s.Playlist(ids.b).entries[0]; h.api.play = () => assert.fail('display changes must not start playback');
+  h.emit('downloads', { available: [{ url: entry.url, kind: 'video' }] }); TransportTrack(h, ids.b, entry.id, { scope: ids.other, offline: { kind: 'video', token: 'saved' } });
+  assert.equal(h.node('now-artist').textContent, 'ホーム ＞ toneworks ＞ ケロQ・枕 ＞ サクラノ刻'); assert.equal(h.node('now-saved').textContent, 'DL済み'); assert.match(h.node('now-saved').title, /保存済みの動画から再生/);
+  s.Apply({ type: 'select', playlistId: h.id }); h.emit('state', s.Snapshot()); h.run('allListsView = true; Render()'); assert.equal(h.node('now-artist').textContent, 'ホーム ＞ toneworks ＞ ケロQ・枕 ＞ サクラノ刻');
+  s.Apply({ type: 'rename', playlistId: ids.other, name: '作業用' }); h.emit('state', s.Snapshot()); assert.equal(h.node('now-artist').textContent, 'ホーム ＞ 作業用 ＞ ケロQ・枕 ＞ サクラノ刻');
+  s.Apply({ type: 'playlist-move', playlistId: ids.b, parentId: ids.other }); h.emit('state', s.Snapshot()); assert.equal(h.node('now-artist').textContent, 'ホーム ＞ 作業用 ＞ サクラノ刻');
+  s.Apply({ type: 'rename', playlistId: ids.b, name: '<b>所属を改名</b>' }); h.emit('state', s.Snapshot()); assert.equal(h.node('now-artist').textContent, 'ホーム ＞ 作業用 ＞ <b>所属を改名</b>'); assert.equal(h.node('now-artist').children.length, 0); assert.match(h.node('now-artist').title, /アーティスト/);
+  const result = s.Transfer({ playlistId: ids.b, entryId: entry.id, destinationIds: [ids.other], mode: 'move' }), target = result.destinations[0];
+  h.emit('current-update', { ...h.run('current'), ...target, entry: s.Entry(target.playlistId, target.entryId) }); h.emit('state', s.Snapshot()); assert.equal(h.node('now-artist').textContent, 'ホーム ＞ 作業用'); assert.equal(h.node('position').textContent, '0:12');
+});
+test('067 only queue context matching the playing entry can change its shared-parent route', async t => {
+  const h = await Harness(t), ids = ParentTree(h), s = h.store; s.Apply({ type: 'add', playlistId: ids.b, urls: 'av999' }); s.Apply({ type: 'playlist-attach', playlistId: ids.other, ids: [ids.parent], removeOriginal: false }); h.emit('state', s.Snapshot());
+  const entry = s.Playlist(ids.b).entries[0]; TransportTrack(h, ids.b, entry.id, { scope: h.id });
+  const queue = { playlistId: ids.other, shuffle: false, next: null, timeline: { history: [], current: { id: 'another-entry', playlistId: ids.b }, upcoming: [] } };
+  h.emit('queue', queue); assert.equal(h.node('now-artist').textContent, 'ホーム ＞ EroGameSongs ＞ ケロQ・枕 ＞ サクラノ刻');
+  h.emit('queue', { ...queue, timeline: { ...queue.timeline, current: { id: entry.id, playlistId: ids.b } } }); assert.equal(h.node('now-artist').textContent, 'ホーム ＞ toneworks ＞ ケロQ・枕 ＞ サクラノ刻');
+  h.emit('current', { source: 'bilibili', playlistId: h.id, entryId: s.Playlist(h.id).entries[0].id, entry: s.Playlist(h.id).entries[0], queuePlaylistId: h.id }); assert.match(h.node('now-artist').textContent, /^ホーム ＞ EroGameSongs · 読み込み中$/);
+});
+test('067 list and transport share live exact-part video, audio and online badges independently of playback source', async t => {
+  const h = await Harness(t), s = h.store, first = s.Playlist(h.id).entries[0]; s.Apply({ type: 'add', playlistId: h.id, urls: first.url + '?p=2' }); h.emit('state', s.Snapshot());
+  const entry = s.Playlist(h.id).entries.at(-1), rowBadge = () => h.node('entries').querySelectorAll('.entry-type').find(b => b.dataset.mediaUrl === entry.url); TransportTrack(h, h.id, entry.id);
+  const show = available => h.emit('downloads', { available }); show([{ url: first.url, kind: 'video' }]); assert.equal(h.node('now-saved').textContent, 'オンライン'); assert.equal(rowBadge().textContent, 'オンライン');
+  show([{ url: entry.url, kind: 'audio' }]); assert.equal(h.node('now-saved').textContent, '音声DL済み'); assert.equal(rowBadge().textContent, '音声DL済み'); assert.match(h.node('now-saved').title, /音声のみ/); assert.match(h.node('now-saved').title, /オンラインで再生/); assert.equal(h.node('now-saved').dataset.savedKind, rowBadge().dataset.savedKind);
+  show([{ url: entry.url, kind: 'video' }, { url: entry.url, kind: 'audio' }]); assert.equal(h.node('now-saved').textContent, 'DL済み'); assert.equal(rowBadge().textContent, 'DL済み'); assert.match(h.node('now-saved').getAttribute('aria-label'), /動画と音声/);
+  show([{ url: entry.url, kind: 'video' }]); assert.equal(h.node('now-saved').textContent, 'DL済み'); assert.equal(h.node('now-saved').dataset.savedKind, 'video');
+  show([{ url: entry.url, kind: 'audio' }]); TransportTrack(h, h.id, entry.id, { offline: { kind: 'audio', token: 'saved' } }); assert.equal(h.node('now-saved').textContent, '音声DL済み'); assert.match(h.node('now-saved').title, /保存済みの音声から再生/);
+  show([]); assert.equal(h.node('now-saved').textContent, 'オンライン'); assert.equal(rowBadge().textContent, 'オンライン'); h.emit('current', null); assert.equal(h.node('now-saved').classList.contains('hidden'), true); assert.equal(h.node('now-saved').textContent, ''); assert.equal(h.node('now-saved').getAttribute('aria-label'), null);
+});
+test('067 local playback keeps its owner path and pause state and shows missing files without a DL label', async t => {
+  const h = await Harness(t), s = h.store, file = path.join(s.directory, 'song.mp3'); fs.writeFileSync(file, 'local audio'); await s.AddFiles([h.id], [file]); h.emit('state', s.Snapshot());
+  const entry = s.Playlist(h.id).entries.at(-1); TransportTrack(h, h.id, entry.id, { paused: true }); assert.match(h.node('now-artist').textContent, /^ホーム ＞ お気に入り · 一時停止$/); assert.equal(h.node('now-saved').textContent, 'オフライン'); assert.match(h.node('now-saved').title, /ローカルファイル/);
+  fs.unlinkSync(path.join(s.media, entry.fileName)); h.emit('state', s.Snapshot()); assert.equal(h.node('now-saved').textContent, 'ファイルなし'); assert.equal(h.node('toggle').getAttribute('aria-label'), '再生'); assert.equal(h.node('position').textContent, '0:12');
 });
 function ParentTree(h) {
   const s = h.store; s.Apply({ type: 'rename', playlistId: h.id, name: 'EroGameSongs' });

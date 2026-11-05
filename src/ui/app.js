@@ -6,7 +6,7 @@ const { HasPlayback, TransportState } = window.FavecusTransport;
 const api = window.favecusApp;
 const tree = window.FavecusTree;
 const expandedLists = new Set(), expandedEntryLists = new Set(), playlistDrag = { value: null };
-let allListsView = false, timelineManual = false, timelineOpen = false;
+let allListsView = false, timelineManual = false, timelineOpen = false, playingLocation = null;
 let downloadInfo = {}, savedKinds = new Map(), downloadEstimate = null, downloadPicker = null, refreshDownloadEstimate = null, downloadPanelTimer, downloadTargetCount = 0, downloadStarting = false, downloadSingle = null;
 const ViewScope = () => allListsView ? '*' : List().id;
 const PlaybackEntries = () => tree.Entries(state, ViewScope());
@@ -292,9 +292,10 @@ function UpdateDownloads(value = {}) {
   downloadInfo = { ...downloadInfo, ...value }; const job = downloadInfo.job, busy = ['running', 'cancelling'].includes(job?.status);
   if (value.available) {
     savedKinds = new Map(); for (const item of value.available) { const kinds = savedKinds.get(item.url) || new Set(); kinds.add(item.kind); savedKinds.set(item.url, kinds); }
-    for (const badge of $('entries').querySelectorAll('.entry-type')) if (badge.dataset.mediaUrl) badge.textContent = SavedLabel(badge.dataset.mediaUrl);
-    if ($('entry-download-state')) $('entry-download-state').textContent = SavedLabel($('entry-download-state').dataset.mediaUrl);
-    if ($('download-entry-saved') && downloadSingle) $('download-entry-saved').textContent = SavedLabel(downloadSingle.entryURL);
+    for (const badge of $('entries').querySelectorAll('.entry-type')) if (badge.dataset.mediaUrl) PaintSavedBadge(badge, { type: 'bilibili', url: badge.dataset.mediaUrl });
+    if ($('entry-download-state')) PaintSavedBadge($('entry-download-state'), { type: 'bilibili', url: $('entry-download-state').dataset.mediaUrl });
+    if ($('download-entry-saved') && downloadSingle) PaintSavedBadge($('download-entry-saved'), { type: 'bilibili', url: downloadSingle.entryURL });
+    if (state) UpdateTransport();
   }
   $('downloads-status').textContent = busy ? `保存中 ${job.finished} / ${job.total}件` : '動画・音声の保存';
   clearTimeout(downloadPanelTimer);
@@ -323,7 +324,22 @@ function UpdateDownloads(value = {}) {
   $('download-errors').replaceChildren(); for (const failure of job?.failures?.slice(-20) || []) $('download-errors').append(Element('p', '', `${failure.title}：[${failure.code || 'FP-DOWNLOAD-UNKNOWN'}] ${failure.message}${failure.recordId ? ` 記録ID: ${failure.recordId}` : ''}`));
   for (const warning of job?.warnings?.slice(-20) || []) $('download-errors').append(Element('p', 'form-note', `${warning.title}：[${warning.code || 'FP-DOWNLOAD-COVER'}] ${warning.message}${warning.recordId ? ` 記録ID: ${warning.recordId}` : ''}`));
 }
-function SavedLabel(url) { const kinds = savedKinds.get(url); return kinds?.has('video') ? '動画保存済み' : kinds?.has('audio') ? '音声保存済み' : 'オンライン'; }
+function SavedState(entry) {
+  if (entry.type === 'local') return entry.missing ? { label: 'ファイルなし', detail: 'ローカルファイルが見つかりません。', kind: 'missing' } : { label: 'オフライン', detail: 'PC内のローカルファイルです。', kind: 'local' };
+  const kinds = savedKinds.get(entry.url), video = kinds?.has('video'), audio = kinds?.has('audio');
+  return video ? { label: 'DL済み', detail: audio ? '動画と音声を保存済みです。' : '動画を保存済みです。', kind: audio ? 'both' : 'video' }
+    : audio ? { label: '音声DL済み', detail: '音声のみ保存済みです。動画は未保存です。', kind: 'audio' }
+    : { label: 'オンライン', detail: '動画・音声は未保存です。', kind: 'none' };
+}
+function PaintSavedBadge(badge, entry, playbackDetail = '') {
+  const value = SavedState(entry), detail = value.detail + (playbackDetail ? ` ${playbackDetail}` : '');
+  if (badge.textContent !== value.label) badge.textContent = value.label;
+  if (badge.title !== detail) badge.title = detail;
+  const label = `${value.label}：${detail}`; if (badge.getAttribute('aria-label') !== label) badge.setAttribute('aria-label', label);
+  if (badge.dataset.savedKind !== value.kind) badge.dataset.savedKind = value.kind;
+  if (entry.type === 'bilibili') { if (badge.dataset.mediaUrl !== entry.url) badge.dataset.mediaUrl = entry.url; }
+  else delete badge.dataset.mediaUrl;
+}
 function DownloadBytes(bytes) { return bytes >= 1073741824 ? `${(bytes / 1073741824).toFixed(2)} GB` : `${(bytes / 1048576).toFixed(1)} MB`; }
 function DownloadTime(seconds) { if (seconds < 60) return `${Math.ceil(seconds)}秒`; const minutes = Math.ceil(seconds / 60); return minutes < 60 ? `${minutes}分` : `${Math.floor(minutes / 60)}時間${minutes % 60}分`; }
 function DownloadEstimateText(e) {
@@ -351,7 +367,7 @@ function DownloadsDialog(target = null, back = null) {
     <div class="settings-actions"><button id="download-start" type="button" class="button primary">保存を開始</button><button id="download-stop" type="button" class="button secondary">保存を中止</button></div>
     <p id="download-progress" class="status-detail download-progress" role="status" aria-live="polite"></p><div id="download-errors" class="download-errors"></div>`, null, '保存', back);
   downloadSingle = target;
-  if (target) { $('download-entry-title').textContent = EntryTitle(single); $('download-entry-meta').textContent = `${single.videoId} / パート ${single.part}`; $('download-entry-saved').textContent = SavedLabel(single.url); }
+  if (target) { $('download-entry-title').textContent = EntryTitle(single); $('download-entry-meta').textContent = `${single.videoId} / パート ${single.part}`; PaintSavedBadge($('download-entry-saved'), single); }
   const epoch = modalEpoch; let revision = 0;
   const valid = () => modalEpoch === epoch && $('modal').open;
   const options = () => ({ playlistId: downloadPicker.get(), kind: $('download-kind').value, height: Number($('download-height').value), includeChildren: target ? false : $('download-children').checked, ...(target ? { entryId: target.entryId, entryURL: target.entryURL } : {}) });
@@ -392,7 +408,7 @@ function EntryMenu(entry, draft = undefined) {
   OpenModal('動画の編集', '<label class="field">表示する名前<input id="entry-title-input" maxlength="180"></label>' + (entry.type === 'bilibili' ? '<section class="entry-download"><p id="entry-download-state" class="status-detail"></p><button id="entry-download-button" type="button" class="button secondary">この動画のみをダウンロード</button><p class="form-note">この動画・パートの1曲を保存します。表示名の変更は「保存」で確定します。</p></section>' : '') + '<div class="settings-actions" id="entry-actions"></div><p class="form-note">上下への移動で、再生順を変更できます。</p>', () => Action({ type: 'title', playlistId: p.id, entryId: entry.id, title: $('entry-title-input').value }));
   $('entry-title-input').value = draft ?? EntryTitle(entry);
   if (entry.type === 'bilibili') {
-    $('entry-download-state').dataset.mediaUrl = entry.url; $('entry-download-state').textContent = SavedLabel(entry.url);
+    PaintSavedBadge($('entry-download-state'), entry);
     $('entry-download-button').onclick = () => {
       const value = $('entry-title-input').value, target = { playlistId: p.id, entryId: entry.id, entryURL: entry.url };
       DownloadsDialog(target, () => {
@@ -886,7 +902,7 @@ function RenderEntries() {
     info.append(Element('strong', '', EntryTitle(entry)), Element('small', '', entry.type !== 'local' ? `${EntryDuration(entry)} · ${entry.videoId} · P${entry.part || 1}` : `${EntryDuration(entry)} · このPCに保存したファイル`));
     info.dataset.durationEntry = entry.id;
     if (!entry.duration) { row.durationEntry = entry; durationObserver?.observe(row); }
-    const badge = Element('span', 'entry-type', entry.missing ? 'ファイルなし' : entry.type !== 'local' ? SavedLabel(entry.url) : 'オフライン'); if (entry.type === 'bilibili') badge.dataset.mediaUrl = entry.url; row.append(info, badge);
+    const badge = Element('span', 'entry-type'); PaintSavedBadge(badge, entry); row.append(info, badge);
     row.append(Button('•••', 'icon-button', () => EntryMenu(entry), `${EntryTitle(entry)}を編集`));
     list.append(row);
   }
@@ -957,11 +973,26 @@ function Time(seconds) {
   return n >= 3600 ? `${Math.floor(n / 3600)}:${String(Math.floor(n / 60) % 60).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}` : `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}`;
 }
 function Transport() { return TransportState({ current, playback, entries: PlaybackEntries() }); }
+function PlayingPath() {
+  const queued = queueInfo?.timeline?.current;
+  const scope = queued && queued.id === current.entryId && queued.playlistId === current.playlistId ? queueInfo.playlistId : current.queuePlaylistId || '*';
+  if (!playingLocation || playingLocation.state !== state || playingLocation.owner !== current.playlistId || playingLocation.scope !== scope) {
+    playingLocation = { state, owner: current.playlistId, scope, path: ['ホーム', ...tree.Path(state, current.playlistId, scope).map(p => p.name)].join(' ＞ ') };
+  }
+  return playingLocation.path;
+}
 function UpdateTransport() {
   const { internal, data, canStart, canSeek } = Transport();
   $('now-title').textContent = data?.title || (current?.entry ? EntryTitle(current.entry) : canStart ? List().name : '再生していません');
   $('now-title').title = $('now-title').textContent;
-  $('now-artist').textContent = data ? `${current?.offline ? '保存済みから再生' : data.artist || (data.source === 'local' ? 'ローカルファイル' : 'Bilibili')}${data.paused ? ' · 一時停止' : ''}` : internal ? '読み込み中・画面内からも再生できます' : canStart ? '▶ で最初の動画から再生' : '動画を選んで再生';
+  const path = internal ? PlayingPath() : '';
+  $('now-artist').textContent = internal ? `${path}${!data ? ' · 読み込み中' : data.paused ? ' · 一時停止' : ''}` : canStart ? '▶ で最初の動画から再生' : '動画を選んで再生';
+  $('now-artist').title = internal ? `${path}${data?.artist ? `\nアーティスト：${data.artist}` : ''}` : $('now-artist').textContent;
+  const entry = internal ? state.playlists.find(p => p.id === current.playlistId)?.entries.find(e => e.id === current.entryId) || current.entry : null;
+  $('now-saved').classList.toggle('hidden', !entry);
+  if (entry) {
+    PaintSavedBadge($('now-saved'), entry, current.offline ? `現在は保存済みの${current.offline.kind === 'audio' ? '音声' : '動画'}から再生しています。` : entry.type === 'bilibili' ? '現在はオンラインで再生しています。' : 'ローカルファイルから再生しています。');
+  } else { $('now-saved').textContent = ''; $('now-saved').title = ''; $('now-saved').removeAttribute('aria-label'); delete $('now-saved').dataset.mediaUrl; delete $('now-saved').dataset.savedKind; }
   SetIcon($('toggle'), data && !data.paused ? 'pause' : 'play');
   $('toggle').setAttribute('aria-label', data && !data.paused ? '一時停止' : '再生');
   if (!seeking) { $('position').textContent = Time(data?.position); $('progress').max = data?.duration || 1; $('progress').value = data?.position || 0; }
@@ -1085,7 +1116,7 @@ if (api) {
     else if (event.type === 'loaded') { loaded = true; RenderPlayer(); }
     else if (event.type === 'notice') Toast(event.value);
     else if (event.type === 'accounts') { accounts = event.value; UpdateAccounts(); }
-    else if (event.type === 'queue') { queueInfo = event.value; RenderNext(); }
+    else if (event.type === 'queue') { queueInfo = event.value; RenderNext(); if (state) UpdateTransport(); }
     else if (event.type === 'foreground') { const changed = foreground !== (event.value === true); foreground = event.value === true; listArtwork?.SetEnabled(foreground); BackgroundInteractive(foreground); if (!foreground) { queueDrag?.Cancel(); queueFollower?.Release(); } if (foreground) { if (changed) queueFollower?.Request(); PumpDurations(); } }
     else if (event.type === 'add-url') { if (!$('modal').open) AddURL(event.value); else Toast('追加画面が開いています。閉じてから検索画面の追加ボタンを押してください。'); }
   });
