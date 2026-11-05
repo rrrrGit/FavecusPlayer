@@ -6,6 +6,29 @@ const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
 const { EventEmitter } = require('node:events');
+const { fileURLToPath } = require('node:url');
+
+test('067 application protocol serves every local HTML dependency including home and search', async t => {
+  const h = await MainHarness(t, { netFetch: async url => new Response(fs.readFileSync(fileURLToPath(url))) });
+  const handler = h.protocols.get('favecus');
+  for (const page of ['index.html', 'mini.html', 'local.html', 'browse.html']) {
+    const html = fs.readFileSync(path.join(__dirname, '../src/ui', page), 'utf8');
+    const names = new Set([page, ...[...html.matchAll(/(?:src|href)="([^"#]+)"/g)].map(match => match[1].split('#')[0])]);
+    for (const name of names) {
+      const response = await handler(new Request(`favecus://app/${name}`));
+      assert.equal(response.status, 200, `${page} requires ${name}`);
+      const expected = path.join(__dirname, ['icon.png', 'music.png'].includes(name) ? '../build' : '../src/ui', name);
+      assert.deepEqual(Buffer.from(await response.arrayBuffer()), fs.readFileSync(expected));
+    }
+  }
+});
+
+test('067 application protocol rejects private source files and unknown hosts', async t => {
+  const h = await MainHarness(t, { netFetch: async () => assert.fail('Rejected paths must not reach net.fetch') });
+  for (const url of ['favecus://app/main.cjs', 'favecus://app/../core/store.cjs', 'favecus://other/home-view.js', 'favecus://app/missing.js']) {
+    assert.equal((await h.protocols.get('favecus')(new Request(url))).status, 404, url);
+  }
+});
 async function FlushPlayer() { await new Promise(setImmediate); await new Promise(setImmediate); }
 function SavedTrack(h, entry, content = 'media', height = 720) {
   const file = `media/${entry.videoId}-p${entry.part}/video-${require('node:crypto').randomUUID()}.mp4`, token = require('../src/core/offline-library.cjs').Key(entry.url, 'video') + '.mp4';
@@ -193,6 +216,7 @@ async function MainHarness(t, options = {}) {
   session.preconnect = value => { connections.push(value); if (options.failPreconnect) throw new Error('offline'); };
   session.fetch = async url => options.fetch ? options.fetch(url) : new Response(JSON.stringify({ code: 0, data: new URL(url).pathname.endsWith('/nav') ? { isLogin: loggedIn, mid: 1234, uname: 'user' } : options.details || { title: '動画全体', pages: [{ page: 1, part: '第1曲' }, { page: 2, part: '第2曲' }] } }));
   const electron={app,BrowserWindow:Window,WebContentsView:View,ipcMain,dialog:{showErrorBox:(_title,error)=>assert.fail(error),showOpenDialog:async()=>({canceled:!filePaths.length,filePaths}),showSaveDialog:async(_win,settings)=>{saveDialogs.push(settings);return options.saveDialog?options.saveDialog(settings):{canceled:!savePath,filePath:savePath};}},shell:{},session:{defaultSession:session,fromPartition:()=>session},protocol:{registerSchemesAsPrivileged(){},handle(name,handler){protocols.set(name,handler);}},nativeImage:{createFromDataURL:data=>({isEmpty:()=>false,getSize:()=>({width:1,height:1}),resize:()=>({toPNG:()=>Buffer.from(data.split(',')[1],'base64')})})},net:{},Menu:{setApplicationMenu(){}}};
+  electron.net.fetch = options.netFetch;
   electron.crashReporter={start:settings=>{assert.equal(windows.length,0);assert.equal(views.length,0);crashStarts.push(settings);},addExtraParameter(){}};
   const storeModule = require('../src/core/store.cjs'), offlineModule = require('../src/core/offline-library.cjs');
   class TestStore extends storeModule.Store { constructor(...args) { super(...args); activeStore = this; options.setupStore?.(this); } }
