@@ -81,4 +81,10 @@ python3 scripts/test-windows-startup.py dist/windows
 <h2>v0.6.7の工程と確認範囲</h2>
 <p>Step11では、旧版/新機能を含む全Nodeテスト、構文・UI参照・版の整合性、模擬Win32のネイティブ処理、検証用Windows EXEの構造・内包ハッシュ・起動入口を確認します。ビルドスクリプトはSetup/Patchも一緒に生成しますが、この段階では検証用です。配布用Patchの最終再生成・梱包・出力はStep12で行います。</p>
 <p>共通データ検証/共有/検索/ID計画/再生順/PNG検証は、NodeやDOMを与えないVMでも確認します。保存と実際の画像縮小、暗号学的乱数の生成などは端末側から接続します。Windows GUI・実通信・Discord実表示は模擬検証と分け、最新の結果と未確認事項をDEVELOPMENT-STATUS.mdへ集約します。旧版のrelease-validationは上書きしません。</p>
+<h2>更新用Patchの梱包</h2>
+<p>Step11で検証したソースをコミットし、変更のない作業ツリーから最終ビルドとPE/起動入口検査を行います。検証結果を揃えてから、更新用の梱包を実行します。</p>
+<pre><code class="language-sh">python3 scripts/package-release.py --windows /path/to/windows --verification /path/to/verification --output /path/to/output --profile patch --platform windows-x64
+</code></pre>
+<p>patchプロファイルは、更新用Patch、単独で読める使い方、現在版の変更内容、検証JSON、SHA256チェックサムと、それらをまとめたZIPを生成します。新規導入用SetupやソースZIPは含めません。従来の全出力は、既定のfullプロファイルで維持します。Git管理されたソースではコミット/ツリーSHAと版・変更履歴を同じ検証情報へ記録し、未コミット変更があれば停止します。Git情報のないソースZIPからも従来どおり梱包できますが、生成元SHAは「Git情報なし」となります。</p>
+<p>配布先は現在windows-x64のみです。版と変更履歴の読み取りを共通にし、将来の端末別生成もこの情報へ接続できる形にしています。スマホ版の配布物は生成しません。配布前にはZIP内の全ファイルと、別配布するPatchのハッシュが一致することを確認します。</p>
 </body></html>

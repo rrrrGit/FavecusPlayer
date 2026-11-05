@@ -12,7 +12,7 @@ Bilibiliとローカルの音楽・動画を、階層プレイリストで再生
 
 最大3曲の並列保存、再圧縮しない保存、既存の再生・ショートカット・クラッシュ対策を維持しています。スマホ専用UI・自動同期は後続バージョンの対象です。
 
-開発中のブランチです。最終Windows Patchの生成・出力はStep12で行います。更新用の予定ファイル名はFavecus-Player-0.6.7-Patch.exeです。アプリを終了し、Patchは更新対象フォルダーの外から実行して、FavecusPlayer.exe・app・runtimeがある最上位フォルダーを選びます。標準の直下はapp・downloads・runtime・FavecusPlayer.exeです。
+Windows x64向け更新用Patchの作成対象ブランチです。更新ファイル名はFavecus-Player-0.6.7-Patch.exeです。アプリを終了し、Patchは更新対象フォルダーの外から実行して、FavecusPlayer.exe・app・runtimeがある最上位フォルダーを選びます。標準の直下はapp・downloads・runtime・FavecusPlayer.exeです。
 
 - [操作ガイド](docs/GUIDE.html)
 - [開発・配布](docs/BUILD.md)
