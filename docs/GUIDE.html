@@ -1,4 +1,4 @@
-<!doctype html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self'"><title>Favecus Player · GUIDE</title><style>body{font-family:"Yu Gothic UI",system-ui,sans-serif;line-height:1.9;margin:45px auto;max-width:960px;padding:0 30px;color:#202332;background:#f8f9fc}h1,h2,h3{line-height:1.5;color:#363157}h2{margin-top:2em}table{border-collapse:collapse;width:100%;font-size:.95em}th,td{border:1px solid #c9cada;text-align:left;padding:9px 12px}th{background:#efedf9}pre{background:#eaeaf2;padding:15px;white-space:pre-wrap;overflow-wrap:anywhere}code{font-family:Consolas,monospace;font-size:.92em}a{color:#5946a9}li{margin:6px 0}blockquote{margin:20px 0;padding:5px 20px;border-left:3px solid #7969bf;background:#efedf9}img{width:160px;max-width:100%;border-radius:24px}</style></head><body><h1>Favecus Player の使い方</h1>
+<!doctype html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self'"><title>Favecus Player · GUIDE</title><style>body{font-family:"Yu Gothic UI",system-ui,sans-serif;line-height:1.9;margin:45px auto;max-width:960px;padding:0 30px;color:#202332;background:#f8f9fc}h1,h2,h3{line-height:1.5;color:#363157}h2{margin-top:2em}table{border-collapse:collapse;width:100%;font-size:.95em}th,td{border:1px solid #c9cada;text-align:left;padding:9px 12px}th{background:#efedf9}pre{background:#eaeaf2;padding:15px;white-space:pre-wrap;overflow-wrap:anywhere}code{font-family:Consolas,monospace;font-size:.92em}a{color:#5946a9}li{margin:6px 0}blockquote{margin:20px 0;padding:5px 20px;border-left:3px solid #7969bf;background:#efedf9}img{width:160px;max-width:100%;border-radius:24px}</style></head><body><h1>Favecus Player v0.6.7 の使い方</h1>
 <p>Windows x64向けの、Bilibiliと手元の動画・音楽をまとめて再生するプレイヤーです。</p>
 <h2>インストールと更新</h2>
 <h3>はじめて使うとき</h3>
@@ -149,8 +149,9 @@
 <li><strong>ステップ7：プレイリストとの対応を記録する。</strong> 元のURLと保存ファイルをdownloads/index.jsonへ記録し、再生時に見つけられるようにします。最後に不要な一時ファイルを片付けます。</li>
 </ul>
 <h3>保存先の整理</h3>
-<p>標準の階層は <strong>downloads → 親プレイリスト名 → 子プレイリスト名 → … → 曲名 → 動画・音声・サムネイル</strong> です。子だけを保存しても、所属する親からの階層を作ります。例えばAの子Bの曲はA/B/曲名へまとめます。名前の末尾に付く短い識別番号は、同名の曲や別のパートを区別するためのものです。音声と動画の両方を保存しても、同じ曲のフォルダーにまとめます。</p>
-<p>以前の平らな配置は、起動時や保存開始時に、保存一覧との対応を保って現在の親子階層へ整理します。Bだけを先に保存し、後から親Aも保存しても、Bのデータを再取得・重複保存しません。リストを移動した場合も、次の整理時に所属する階層へ移します。同じ曲が複数リストにある場合は保存ファイルを共有し、すべての所属先へコピーしません。画質を変えて再保存した場合は、新しいデータの保存と登録が成功した後に、同じ形式の古いデータを片付けます。整理できないファイルは元の場所に保持します。</p>
+<p>標準の配置は <strong>downloads → media → 動画識別子・パート → 動画・音声・サムネイル</strong> です。曲ごとのフォルダーを保ち、動画と音声は同じ曲のフォルダーを使います。同じ動画・パートを複数リストへ登録しても保存データを共用し、別のパートは別曲として管理します。曲名やプレイリスト名・所属先の変更では保存場所を動かしません。</p>
+<p>以前のプレイリスト別の保存データは、起動時などに管理情報と実体を確認して再ダウンロードせず移行します。新しい保存先と管理情報の確定後に旧ファイルを整理し、失敗した場合は元データを保護して再開します。復旧処理が終わるまで、旧フォルダーやバックアップを手動で削除しないでください。</p>
+<p>曲やプレイリストを削除しても、ほかのリストに参照が残る保存データは保持します。最後の参照がなくなったデータだけを整理し、再生・ダウンロード・出力で使用中なら終了後に再確認します。アプリが管理しないファイルを一律削除する機能ではありません。画質を変えて再保存した場合は、新しいデータの保存と登録が成功した後に、同じ形式の古いデータを片付けます。</p>
 <p><strong>index.jsonと曲のフォルダーは一緒に保管してください。</strong> エクスプローラーで曲ファイルだけを移動・改名すると、プレイヤーから見つけられなくなります。別のPCへ移す場合は、次の「プレイリストの出力と取り込み」を使うと、対応関係も一緒に移せます。</p>
 <h2>キーコンフィグ</h2>
 <p>アプリが前面にあり、通常ウィンドウが表示されているときだけ次のキーが動作します。動画側へフォーカスがある場合も共通です。最小化・背面・タスクバー埋め込み中、文字入力中、設定や確認画面では動作しません。</p>
@@ -188,7 +189,12 @@
 <p>使い方はアプリ内の別ウィンドウで開きます。外部ブラウザーは起動しません。設定やダイアログの背面にある曲名・リスト名は操作とツールチップの対象から外します。</p>
 <h2>プレイリストの出力と取り込み</h2>
 <p><strong>設定 → プレイリストの出力</strong> を開きます。</p>
-<p><strong>出力・取り込みのどちらもパスワード入力は不要です。</strong> 「ZIPで出力」で保存先を指定します。取り込みはZIPをそのまま選びます。手動展開は不要です。</p>
+<p><strong>出力・取り込みのどちらもパスワード入力は不要です。</strong> 出力は2つのボタンから選びます。</p>
+<ul>
+<li><strong>プレイリスト情報のみ出力</strong>：主にPC・スマホ間での共有用です。JSON（標準）またはZIPへ、リスト名・親子関係・並び順・曲名・動画リンク・パート番号・識別情報などを保存します。動画・音声・DLサムネイルは同梱しません。ローカル曲は登録情報を残し、実ファイル未同梱として扱います。スマホ版アプリ自体はまだ含みません。</li>
+<li><strong>DLデータを含めて出力</strong>：主にPC間での共有用です。上記の情報と、保存済みの動画・音声・サムネイル、取り込んだローカルファイルをZIPへまとめます。未保存の曲はリンクを保持し、ローカルファイルの不足は件数で案内します。</li>
+</ul>
+<p>「JSON・ZIPを取り込む」から情報のみのJSON/ZIP・DLデータ付きZIPを選びます。ZIPの手動展開は不要です。</p>
 <ol>
 <li><strong>取り込み先の親</strong> を選びます。「最上位（親なし）」なら最上位へ復元し、既存リストを選ぶとその下へ元の階層をまとめて入れます。名前を検索して位置を確認し、名前を押して選びます。</li>
 <li><strong>取り込むリスト</strong> にチェックを付けます。最初は未選択で折りたたんで表示します。矢印で子・孫を開き、名前で検索できます。検索で隠れた選択も保持します。親のチェックで子孫もまとめて選びます。</li>
@@ -196,9 +202,9 @@
 <li><strong>選択したリストを取り込む</strong> を押します。全件なら <strong>すべて取り込む</strong> を押します。検索で隠れたリストも含め、すべてを元の関係のまま取り込みます。「すべて選択」「選択を解除」でチェックだけを変更することもできます。</li>
 <li>完了後は取り込んだリストへ移動します。</li>
 </ol>
-<p>ZIPにはプレイリストとその画像、取り込んだローカルファイル、保存済みのBilibili動画・音声・サムネイルを含めます。共有用の形式なので、受け取った人はパスワードなしで内容を読み込めます。</p>
+<p>どちらの出力でも、親子関係と順序を保って取り込みます。共有用の形式なので、受け取った人はパスワードなしで内容を読み込めます。</p>
 <p>取り込み画面には、リストごとの保存済みデータ件数も表示します。<strong>選んだプレイリストとその子孫の曲に対応するメディアだけ</strong>を取り込みます。両方の形式が同梱されていれば動画と音声を復元します。未選択リストだけで使うファイルは取り込みません。同じ保存データがすでにあれば重複コピーを省きます。</p>
-<p>子だけを選んでも元の祖先を構造として残し、取り込み先の親へ接続します。例えば元がA → B → Cのとき、Cだけを保存先Dへ取り込むとD → A → B → Cになります。AとBは空の容器とし、Cの曲と子孫を取り込みます。保存済みのメディア・画像も、取り込み先から元の親子階層・曲名へ整理します。元のファイルに親子関係が残っていない場合は自動で復元できません。同名の既存リストは上書きせず、「取り込み1」などを付けた別リストとして追加します。一覧で同名の有無も確認できます。</p>
+<p>子だけを選んでも元の祖先を構造として残し、取り込み先の親へ接続します。例えば元がA → B → Cのとき、Cだけを保存先Dへ取り込むとD → A → B → Cになります。AとBは空の容器とし、Cの曲と子孫を取り込みます。保存済みのメディア・画像は、動画リンク・パート単位の共通配置へ復元します。元のファイルに親子関係が残っていない場合は自動で復元できません。同名の既存リストは上書きせず、「取り込み1」などを付けた別リストとして追加します。一覧で同名の有無も確認できます。</p>
 <p>旧JSON形式のプレイリストも選択取り込みできます。ファイル名が旧名称のままでも読み込めます。同梱mediaフォルダーはJSONの隣に置きます。</p>
 <p>パスワード付きの旧アーカイブは、この画面では取り込めません。元のプレイリストを開ける環境で、パスワード不要のZIPへ出力し直します。</p>
 <p>大きなデータにはZIP64を使用します。出力先・取り込み先の空き容量を確保してください。見つからないローカルファイルは結果に件数を表示します。ログイン情報・DiscordのID・音量・再生回数など、アプリ全体の設定は出力に含めません。</p>

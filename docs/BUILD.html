@@ -21,6 +21,7 @@ node --test --test-isolation=none --test-reporter=spec test/*.test.cjs
 <pre><code class="language-sh">python3 scripts/extract-node-msi.py /path/to/node-v24.20.0-x64.msi build-input/node.exe
 python3 scripts/build-windows.py --node build-input/node.exe --node-license docs/NODE-LICENSE.txt --output dist/windows
 python3 scripts/verify-windows.py dist/windows
+python3 scripts/test-windows-startup.py dist/windows
 </code></pre>
 <p>Node本体は、添付MSIから検証した93,381,448バイト・SHA256 <code>5c976096e04e5c2c1f091938926234cc9fbebfe9787ddd149351b3b0ecc707b5</code> に固定しています。違うバージョンへ更新する場合は抽出・検証・ピン情報も見直します。</p>
 <p>生成物はFavecusPlayer.exe、FavecusPlayerTaskbar.exe、Setup.exe、Patch.exe、SHA256SUMS.txtです。埋め込み用ヘルパーはSetup／Patchのapp/buildへ同梱します。SetupとPatchは同じアプリ・Nodeを内包し、保存先選択と既存フォルダーの扱いが異なります。通常利用者にはSetupまたはPatchの一方を渡せば足ります。FavecusPlayer.exeだけでは初回の環境を構築できません。</p>
@@ -62,7 +63,7 @@ python3 scripts/verify-windows.py dist/windows
 <p>既存の保存・持ち出し・タイトル整理・Discord・インストーラー・タスクバーの確認も通過している。これらはブラウザーやWindows実機の表示テストではない。映像停止の再現・解消、実Bilibili・Discordの確認は未実施。</p>
 <p>0.4.7ではmain-040で再読み込み後の表示モード・パート・キューの維持と、自動復旧が一度で止まることを確認した。list-artworkは表示中のみの取得、同時2件の上限、古い行への反映防止、画像の縮小、キャッシュの上限を検証する。ui-046はBILIと再生ボタンの間への配置と、画像を取得しても再生操作が起きないことを確認する。library:thumbnailは保存済みのリストID・曲IDだけを受け付ける。</p>
 <h2>0.5.0の追加事項</h2>
-<p>依存パッケージを増やさず、Node.js標準のcrypto・zlib・fsでZIPと暗号化を実装しています。JSONはリスト単位です。src/ui/library-tree.jsはメインと画面で共有します。テストには階層・アーカイブ・全リスト再生のケースを追加しました。現在の検証結果はVALIDATION-064.mdを参照してください。</p>
+<p>依存パッケージを増やさず、Node.js標準のcrypto・zlib・fsでZIPと暗号化を実装しています。JSONはリスト単位です。src/ui/library-tree.jsはメインと画面で共有します。テストには階層・アーカイブ・全リスト再生のケースを追加しました。v0.6.7の現在の検証結果はDEVELOPMENT-STATUS.md、旧版の検証はVALIDATION-064.mdを参照してください。</p>
 <h2>0.5.1の変更</h2>
 <p>旧名のフォルダーはインストーラーとdata-migration.cjsで新名へ移行します。移行用の旧名文字列だけは検出処理に残します。新規のファイル、EXE、IPC公開名、プロトコル、AppUserModelIDは新名です。</p>
 <p>FVPA0002はランダムなキーを自動生成して同梱し、出力と取り込みの入力をなくしました。秘密保護用の形式ではありません。旧FVPA0001はUIからの取り込み対象外で、旧JSONは読み込めます。</p>
@@ -76,5 +77,8 @@ python3 scripts/verify-windows.py dist/windows
 <h2>0.6.1の検証追加</h2>
 <p>fixes-061は保存専用通信・Cookieの送信先・サムネイル補完・保存データの別名解決・一覧順序・Discordの画像とリンクを確認する。main-040では破棄中の同期focusと失効frame、再試行終了後の再読み込み、保存メディアと画像のネット不要再生・Range配信を確認する。revisionは0.6.0の最上位設定からruntime/configへの移行と切り替え後の失敗復元を確認する。実機の警告文は未取得で、特定のクラッシュを再現できたとは扱わない。</p>
 <p>0.6.2の修復EXEの配置はruntime/config/Maintenance.exeです。通常の配布フォルダー直下はapp、downloads、runtime、FavecusPlayer.exeとします。</p>
-<p>release-066とui-046で階層取り込み、位置指定ドロップ、保存開始と容量推計を検証する。最新の検証範囲はVALIDATION-066.mdを参照する。</p>
+<p>release-066とui-046で階層取り込み、位置指定ドロップ、保存開始と容量推計を検証する。前版の検証範囲はVALIDATION-066.md、v0.6.7の検証はDEVELOPMENT-STATUS.mdを参照する。</p>
+<h2>v0.6.7の工程と確認範囲</h2>
+<p>Step11では、旧版/新機能を含む全Nodeテスト、構文・UI参照・版の整合性、模擬Win32のネイティブ処理、検証用Windows EXEの構造・内包ハッシュ・起動入口を確認します。ビルドスクリプトはSetup/Patchも一緒に生成しますが、この段階では検証用です。配布用Patchの最終再生成・梱包・出力はStep12で行います。</p>
+<p>共通データ検証/共有/検索/ID計画/再生順/PNG検証は、NodeやDOMを与えないVMでも確認します。保存と実際の画像縮小、暗号学的乱数の生成などは端末側から接続します。Windows GUI・実通信・Discord実表示は模擬検証と分け、最新の結果と未確認事項をDEVELOPMENT-STATUS.mdへ集約します。旧版のrelease-validationは上書きしません。</p>
 </body></html>

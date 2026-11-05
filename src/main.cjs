@@ -3,7 +3,7 @@ const { app, BrowserWindow, WebContentsView, ipcMain, dialog, shell, session, pr
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs');
-const { randomUUID } = require('node:crypto');
+const { randomUUID, randomInt } = require('node:crypto');
 const { Store, MEDIA_NAME } = require('./core/store.cjs');
 const { LocalDuration } = require('./core/media-duration.cjs');
 const { LibraryArchive } = require('./core/library-archive.cjs');
@@ -46,7 +46,7 @@ let visibleBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 let statuses = { discord: { code: 'off', text: 'Discord連携はオフです' }, taskbar: { code: 'off', text: '下向き矢印を押すと埋め込みを試します' } };
 let playCounts;
 const ShuffleWeight = entry => store?.data.settings.weightedShuffle === false ? 1 : 1 / (1 + (playCounts?.Count(entry) || 0));
-let queue = new Queue(null, ShuffleWeight);
+let queue = new Queue(null, ShuffleWeight, randomInt);
 const playbackMetadata = new Map(), metadataPending = new Map(), officialPreferred = new Set();
 let generation = 0, loadRequest = 0, lastPlayerCommand = null, nativeDiagnostics;
 let biliAccount, additionReview, biliBrowser, recovery, archive, helpWindow, offline;
@@ -432,7 +432,7 @@ async function Play(playlistId, entryId) {
 async function ShufflePlay(playlistId) {
   const entries = store.Entries(playlistId);
   if (!entries.length) throw new Error('再生する曲がありません。');
-  const nextQueue = new Queue(null, ShuffleWeight), first = nextQueue.ShuffleStart(playlistId, entries), selected = entries.find(e => e.id === first);
+  const nextQueue = new Queue(null, ShuffleWeight, randomInt), first = nextQueue.ShuffleStart(playlistId, entries), selected = entries.find(e => e.id === first);
   PlayableEntry(selected.playlistId, first);
   const settings = { shuffle: true };
   if (store.data.settings.repeat === 'one') settings.repeat = 'off';

@@ -21,6 +21,8 @@ function Legacy(t) {
   store.Apply({type:'settings',settings:{volume:.37,repeat:'all',discordEnabled:true,discordClientId:'123456789012345678'}});
   const media = `${randomUUID()}.mp3`;fs.writeFileSync(path.join(store.media,media),'original media bytes');
   const old = store.Snapshot();old.version=1;old.bridgeToken='a'.repeat(64);old.settings.bridgeEnabled=true;
+  delete old.identityVersion; delete old.videoAliases;
+  for (const p of old.playlists) for (const entry of p.entries) delete entry.mediaId;
   old.playlists[0].entries.splice(1,0,{id:randomUUID(),type:'youtube',videoId:'abcdefghijk',url:'https://www.youtube.com/watch?v=abcdefghijk',title:'old song'});
   old.playlists[0].entries.push({id:randomUUID(),type:'local',fileName:media,title:'元の曲'});
   const bytes = JSON.stringify(old,null,2);fs.writeFileSync(store.file,bytes);
@@ -40,6 +42,7 @@ test('upgrading 0.2.0 preserves playlist IDs/order/files/settings and an exact o
   const backup=fs.readdirSync(root).filter(n=>n.startsWith('library.pre-0.5.0-'));
   assert.equal(backup.length,1);assert.equal(fs.readFileSync(path.join(root,backup[0]),'utf8'),bytes);
   assert.equal(upgraded.data.version,3);assert.equal(upgraded.data.activePlaylistId,id);
+  assert.equal(upgraded.data.identityVersion,2);assert.ok(upgraded.Playlist(id).entries.every(e=>typeof e.mediaId==='string'));
   assert.deepEqual(upgraded.Playlist(id).entries.map(e=>e.id),old.playlists[0].entries.filter(e=>e.type!=='youtube').map(e=>e.id));
   assert.equal(upgraded.Playlist(id).entries[1].part,3);assert.equal(upgraded.data.settings.volume,.37);assert.equal(upgraded.data.settings.discordClientId,old.settings.discordClientId);
   assert.equal(fs.readFileSync(path.join(store.media,media),'utf8'),'original media bytes');assert.equal(upgraded.data.bridgeToken,undefined);assert.equal(upgraded.data.settings.bridgeEnabled,undefined);

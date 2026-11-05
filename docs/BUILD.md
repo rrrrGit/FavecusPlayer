@@ -34,6 +34,7 @@ WMA変換とサムネイル抽出のテストは実行環境のffmpegを使用�
 python3 scripts/extract-node-msi.py /path/to/node-v24.20.0-x64.msi build-input/node.exe
 python3 scripts/build-windows.py --node build-input/node.exe --node-license docs/NODE-LICENSE.txt --output dist/windows
 python3 scripts/verify-windows.py dist/windows
+python3 scripts/test-windows-startup.py dist/windows
 ```
 
 Node本体は、添付MSIから検証した93,381,448バイト・SHA256 `5c976096e04e5c2c1f091938926234cc9fbebfe9787ddd149351b3b0ecc707b5` に固定しています。違うバージョンへ更新する場合は抽出・検証・ピン情報も見直します。
@@ -105,7 +106,7 @@ ui-046は実rendererを模擬DOMで動かし、通常再生でも曲を先頭へ
 
 ## 0.5.0の追加事項
 
-依存パッケージを増やさず、Node.js標準のcrypto・zlib・fsでZIPと暗号化を実装しています。JSONはリスト単位です。src/ui/library-tree.jsはメインと画面で共有します。テストには階層・アーカイブ・全リスト再生のケースを追加しました。現在の検証結果はVALIDATION-064.mdを参照してください。
+依存パッケージを増やさず、Node.js標準のcrypto・zlib・fsでZIPと暗号化を実装しています。JSONはリスト単位です。src/ui/library-tree.jsはメインと画面で共有します。テストには階層・アーカイブ・全リスト再生のケースを追加しました。v0.6.7の現在の検証結果はDEVELOPMENT-STATUS.md、旧版の検証はVALIDATION-064.mdを参照してください。
 
 ## 0.5.1の変更
 
@@ -133,4 +134,10 @@ fixes-061は保存専用通信・Cookieの送信先・サムネイル補完・�
 
 0.6.2の修復EXEの配置はruntime/config/Maintenance.exeです。通常の配布フォルダー直下はapp、downloads、runtime、FavecusPlayer.exeとします。
 
-release-066とui-046で階層取り込み、位置指定ドロップ、保存開始と容量推計を検証する。最新の検証範囲はVALIDATION-066.mdを参照する。
+release-066とui-046で階層取り込み、位置指定ドロップ、保存開始と容量推計を検証する。前版の検証範囲はVALIDATION-066.md、v0.6.7の検証はDEVELOPMENT-STATUS.mdを参照する。
+
+## v0.6.7の工程と確認範囲
+
+Step11では、旧版/新機能を含む全Nodeテスト、構文・UI参照・版の整合性、模擬Win32のネイティブ処理、検証用Windows EXEの構造・内包ハッシュ・起動入口を確認します。ビルドスクリプトはSetup/Patchも一緒に生成しますが、この段階では検証用です。配布用Patchの最終再生成・梱包・出力はStep12で行います。
+
+共通データ検証/共有/検索/ID計画/再生順/PNG検証は、NodeやDOMを与えないVMでも確認します。保存と実際の画像縮小、暗号学的乱数の生成などは端末側から接続します。Windows GUI・実通信・Discord実表示は模擬検証と分け、最新の結果と未確認事項をDEVELOPMENT-STATUS.mdへ集約します。旧版のrelease-validationは上書きしません。

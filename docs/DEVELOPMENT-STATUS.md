@@ -2,7 +2,7 @@
 
 更新日：2026-11-05（日本時間）
 対象：v0.6.7 / `release/v0.6.7`
-現在地：Step10完了（全登録曲の検索・所属/DL状態・登録先からの再生）。次はStep11（全体検証・ビルド・エラー修正）。
+現在地：Step11完了（全458テスト・共通境界修正・v0.6.7版更新・Windows検証用ビルド/構造/起動入口確認）。次はStep12（最終Patch生成・出力）。
 基準コミット：`9d51bf263748cfef65c8e424a6a3e54e45d0b60f`（main / v0.6.6）。
 Step0コミット：`2d9f7c2bfba5d197bc9b4f4dd76a772d2d38fe15`。各工程の自コミットSHAはGit履歴から取得します。
 
@@ -59,7 +59,8 @@ Step0完了。Step1は変更が保存・取り込みまで広がるため、以�
 | Step8 再生バーの所属表示・DL状態表示 | 完了 | 実際の再生元の経路を表示し、動画/音声/未保存のバッジを共通化。移動・改名・保存状態の追従を確認 |
 | Step9 ホームをプレイリスト中心のUIへ変更 | 完了 | 参考画像のカード配置、開く/再生/子リストの分離、999件の分割表示と操作プレビューを確認 |
 | Step10 ホームから全登録曲を検索 | 完了 | 折り畳み/除外を問わず登録先ごとに検索、所属/DL状態、正確な登録先からの再生、解除時のホーム復元を確認 |
-| Step11〜12 | 未着手 | 下記の全工程計画に従う |
+| Step11 全体検証・ビルド・エラー修正 | 完了 | 全458テスト、共通境界修正、版/説明書更新、Windows検証用4 EXEの構造/起動入口と内包ソースの一致を確認 |
+| Step12 最終Patch生成・出力 | 未着手 | Step11完了ソースから最終生成・検証・梱包・出力 |
 
 ### Step1-1の変更・検証
 
@@ -263,6 +264,33 @@ Step0完了。Step1は変更が保存・取り込みまで広がるため、以�
 - 操作プレビュー：[FavecusPlayer_v0.6.7_Step10_preview.html](https://chatgpt.com/library?file_id=libfile_0fff826d58e48191b5e3a8509bb692f7&account_id=personal)。再生・保存状態・画像取得は模擬で、実通信・再生・ファイル変更は行いません。HTML・画像・ログはGitへ追加していません。
 - node scripts/check.cjs：114 JavaScriptファイル成功。UI参照・既知認証情報パターン・バージョン0.6.6整合性・差分を確認しました。実Electron/Windowsでの描画・再生・Bilibili実通信は未検証です。全体ビルド・版更新はStep11、最終PatchはStep12です。
 - Step10を完了しました。次はStep11：既存機能とv0.6.7追加分の全体検証、必要なエラー修正、版/説明書の更新とビルドを行います。
+
+### Step11の変更・検証
+
+- 基準コミット：`f69623ae704b05f9f84f547e985b9046d46b4301`。作業ブランチ・main・未反映変更とPrivate/読み書き権限を照合して再開しました。main・タグ・Releaseは変更していません。
+- 最初の全体検証は455件中443成功・12失敗でした。旧0.2.0データのテストが現行Storeのsnapshotから新しいidentityVersion/mediaIdを残したまま旧形式を作っていたため、当時の形式を再現するよう修正しました。元データの完全なバックアップ、登録ID/順序/ローカルファイルの保持と現行mediaIdへの移行を確認しています。実装のデータ検証は緩めていません。
+- 旧UIテストはmodal-actions、階層選択のDOMと寸法APIが不足していました。現在の実ParentPickerの名前ボタンから操作するよう更新し、追加元を隠す古い期待値を、元の位置に残して選択不可とする仕様へ合わせました。複数リストの曲選択、重複確認・取消、設定の保存/戻るの既存検証は維持しています。
+- 共通境界の検査で、library-shareがStoreを経由してファイル処理を読み込むことと、QueueのNode乱数への直接依存を検出しました。保存形式/上限/参照の検証をlibrary-data.cjs、PNG検証をplaylist-icon-data.cjsへ移し、Storeの公開関数・保存形式を維持しました。ID生成とファイル操作は端末側へ残し、Queueへmainから従来のrandomIntを注入します。共通処理単独はNode・Buffer・DOMなしでも動作します。Cloneの注入関数保持も確認しました。
+- package.json/package-lock.json/初期UI表示を0.6.7へ更新しました。README、CHANGELOG、使い方、ビルド手順を更新し、親リスト名に依存する旧保存先、常にメディア付きZIPという古い説明を、リンク/パート単位の保存と情報のみ/DL付きの出力に合わせました。HTML説明書も再生成しました。旧版の検証資料・ライセンスは保持しています。
+
+| 対象 | 主な検証 |
+| --- | --- |
+| 同一動画/av・BV/パート/形式/同時DL | media-identity、video-aliases、shared-downloads、downloads-054 |
+| 旧DL移行・中断/再開・参照/使用中の保持・最終参照削除 | offline-migration、offline-lifetime、offline-cleanup、main-040 |
+| 情報のみ/DL付き・ローカル未同梱・階層/曲順/ID復元・失敗時保持 | library-share、library-identity、import-identity、archive-050 |
+| 単曲DL・選択不可の階層・999境界・ホーム/検索/所属・操作競合 | ui-044、ui-046、tree-view-050、library-limits、home-view-067、library-search |
+| 共通処理と端末APIの境界 | common-boundaries（Node組み込み/Buffer/process/DOMを渡さないVMで実行） |
+| 更新・修復・設定/既存データ保持・再生/キューの回帰 | revision、update系、core、queue系などの全体検証 |
+
+- 最終の全Nodeテスト：458件（既存455件＋境界検証3件）、成功458・失敗0・取消0・スキップ0。node scripts/check.cjsは117 JavaScriptファイル成功。UI参照・版の整合性・既知認証情報パターン検査も成功しました。
+- 模擬Win32で、タスクバーの描画/透過/可視性/幅/DPI/再接続/プロトコル、ランチャーの保存先/修復位置/ショートカット/終了コード・診断処理を確認しました。実WindowsのExplorer/GDI/パイプ継承や画面描画の確認ではありません。
+- Step0と同じv0.6.6保存済み配布物からビルド入力を復元しました。内包ソースZIPのSHA-256 `6096a11fa7098744c0a6e3f4f96800f1ca7ecb28f9658933ff4e8bfdcf0c4af0` と配布物内5件のチェックサムを照合。抽出したWindows Nodeは93,381,448 bytes、SHA-256 `5c976096e04e5c2c1f091938926234cc9fbebfe9787ddd149351b3b0ecc707b5`、Nodeライセンスは既存ファイルと一致しました。検証専用の独立した入力ファイルを使用しています。
+- 検証用WindowsビルドでFavecusPlayer.exe、FavecusPlayerTaskbar.exe、Setup.exe、Patch.exeとSHA256SUMSを生成しました。4 EXEの版0.6.7、GUI subsystem、ASLR/NX、import/IAT、アイコン/manifest/version情報を検証しました。Setup/Patchは各120ファイルの内包ハッシュとNodeの固定ハッシュを確認し、各117ファイルを現在のソースとバイト照合しました。4 EXEすべて、模擬Win32で起動入口と48 APIの初期化から最初のCOM初期化へ到達しました。
+- 進捗記録を含む最終ソースから再ビルドし、内包ソース照合と起動入口も同じ手順で再確認しました。検証ログ・生成EXEは作業領域の `../step11-validation`、元のrelease-validationは未変更です。この工程のEXEは検証用であり、配布用Patchの最終生成・梱包・出力はStep12です。作業領域が失われた場合は、GitHubのStep11完了ソースと同じ固定入力から再検証・再生成します。
+- 実画面コードの操作プレビューを1440×900・1280×720・980×720で確認しました。検索・別所属/除外先からの模擬再生、所属リストを開く、ローカル不足、0件、ホームの階層/ページ/スクロール復元、10000登録のページ移動と入力中のキー操作を確認し、横方向のはみ出し、JavaScriptエラー、HTTPリクエストは0件です。
+- 操作プレビュー：[FavecusPlayer_v0.6.7_Step11_preview.html](https://chatgpt.com/library?file_id=libfile_4be9fc5365708191a4009e83f53ca87d&account_id=personal)。再生・保存・画像取得は模擬です。プレビュー・画像・ログ・ビルド入力/生成物はGitへ追加していません。
+- 未確認：Windows実機での起動/インストール/更新・動画表示切替・長時間再生・Bilibili実通信/ログイン/保存・Discord実表示・実際のファイルロック。上記の自動/模擬検証をこれらの成功とは扱いません。
+- Step11を完了しました。次はStep12：この完了ソースから最終Windows Patchを生成・照合し、検証結果とともに出力します。
 
 Stepごとに変更ファイルと本書を同じブランチへCommit＋Pushし、リモートSHAと内容を確認します。
 main統合・タグ・Releaseは完成後の正式Releaseチャットで行います。開発中はブランチを保持し、正式版のmain統合・Release公開と検証が完了した後に、最新のGitHub共通方針に従って対象の開発ブランチを削除します。

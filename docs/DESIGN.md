@@ -15,7 +15,7 @@
 | --- | --- |
 | 共通の構造・順序・検索 | library-tree.js / library-search.js / queue.cjs。親子グラフ・登録曲検索・再生順をUI・端末処理から分離して扱います |
 | 共通の識別 | urls.cjs / media-identity.cjs。ファイル名や画面表示から動画を同定しません |
-| 永続化 | store.cjs がNodeのファイルI/OとUUID生成を担当。既存JSONはversion 3を維持し、identityVersion 2でmediaIdとvideoAliasesを保存します。割当計画は純粋なlibrary-identity.cjsで行います |
+| 永続化 | library-data.cjsが共通検証、store.cjs がNodeのファイルI/OとUUID生成を担当。既存JSONはversion 3を維持し、identityVersion 2でmediaIdとvideoAliasesを保存します。割当計画は純粋なlibrary-identity.cjsで行います |
 | ネットワーク・実保存 | bilibili-download.cjs / download-fetch.cjs / download-transfer.cjs / offline-library.cjs がメタデータ取得、ハッシュ、保存先、カタログ、FFmpegを担当します |
 | 再生とOS連携 | main.cjs / Electron / native が担当し、共通識別からは参照しません |
 | 出力・取り込み | library-share.cjsが共有方式を検証し、library-archive.cjs / import-identity.cjsが構造とIDの衝突を処理。offline-archive.cjsがメディアを分離して配置します |
@@ -198,6 +198,14 @@ library-search.jsのIndex/PageはDOM・通信・ファイルに依存しない�
 再生はapi.play(所有リストID, 登録曲ID)へ渡します。全体再生の重複排除で別所属へ置き換えず、除外したリストも個別再生できます。所属リストを開く操作は既存OpenPlaylistへ接続し、再生を開始しません。検索中もホームの閲覧経路・カードページ・元スクロール位置とツリーの開閉集合を変更せず、解除時に復元します。件数変化で検索ページが範囲外になった場合は補正します。
 
 結果のDL状態は既存PaintSavedBadgeで一覧/編集/再生バーと共用し、downloads通知で行を作り直さず更新します。サムネイルはホームを監視する独立したListArtworkを使い、見えている行だけ既存entryThumbnailへscope=*で要求します。同時2件、背景・モーダル中の新規取得抑止、検索解除/ページ変更後の遅い応答の破棄と既存の安全なdata画像判定を利用します。動画の実再生・保存・権限判定は従来のmainへ委ねます。
+
+## 共通データ検証と端末側アダプター
+
+library-data.cjsは保存形式/階層/メディア参照/999リスト/10000登録の検証を担当し、fs・path・Nodeの乱数APIを読み込みません。必要な登録IDの生成は呼び出し側から渡します。Store.ValidateLibraryは従来の公開関数を保ち、randomUUIDを渡す薄いアダプターです。library-share.cjsはこの共通検証へ直接依存し、Storeを経由して保存処理を読み込まない構造です。検証規則と保存形式は維持します。
+
+playlist-icon-data.cjsは標準のatob/Uint8Array/DataViewで既存PNGの形式・署名・寸法を検証します。ファイル読み込みとElectronによる縮小は従来のplaylist-icon.cjs側へ残します。Queueは整数乱数の生成を注入でき、mainはNodeのrandomIntを渡すためPC版の暗号学的乱数による選択を維持します。注入なしの共通処理はMath.randomを使います。Cloneも注入された生成関数を保持します。
+
+common-boundaries.test.cjsはNode組み込みモジュール・Buffer・process・DOMを与えないVMで、構造検証・情報のみ共有・取り込みID計画・検索・キュー・PNG検証を実行します。共通モジュールが端末APIを直接読み込むと失敗します。実際の保存/取得/再生/OS連携は従来の端末側に残します。
 
 ## v0.6.6から継続する構造
 

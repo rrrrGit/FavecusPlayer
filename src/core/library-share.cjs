@@ -1,5 +1,5 @@
 'use strict';
-const { ValidateLibrary } = require('./store.cjs');
+const { ValidateLibrary } = require('./library-data.cjs');
 const { VideoAliases } = require('./library-identity.cjs');
 function ShareMode(options = {}) {
   if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(key => key !== 'mode')) throw new Error('出力方式が正しくありません。');
