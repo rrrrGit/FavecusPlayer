@@ -16,7 +16,7 @@ async function Harness(t) {
   store.Apply({ type: 'add', playlistId: id, urls: Array.from({ length: 12 }, (_, n) => `av${100 + n}`).join('\n') });
   store.Playlist(id).entries.forEach((entry, index) => entry.title = `曲${index + 1}`); store.Save();
   const review = new AdditionReview(store), nodes = new Map(), frames = [], errors = [], scrolls = [], bounds = [], calls = [], windowEvents = {};
-  let now = 0, emit, artworkObserver, timerId = 0; const timers = new Map();
+  let now = 0, emit, artworkObserver, searchObserver, timerId = 0; const timers = new Map();
   class Node {
     constructor(tag = 'div') { this.tagName = tag; this.children = []; this.events = {}; this.dataset = {}; this.style = { setProperty() {} }; this.scrollTop = 0; this.checked = false; this.disabled = false; this.open = false; this.clientHeight = 300; this.classes = new Set();
       this.classList = { add: (...values) => values.forEach(v => this.classes.add(v)), remove: (...values) => values.forEach(v => this.classes.delete(v)), contains: v => this.classes.has(v), toggle: (v, force) => { if (force ?? !this.classes.has(v)) this.classes.add(v); else this.classes.delete(v); } };
@@ -57,13 +57,13 @@ async function Harness(t) {
     entryThumbnail: async () => null, preferSaved: async value => ({ preferSaved: value }), accounts: async () => ({ bilibili: { loggedIn: true } }), onEvent: cb => emit = cb, bounds: value => bounds.push(value), action: async value => store.Apply(value),
     prepareAdd: value => { calls.push(value); return review.Prepare(value); }, commitAdd: (id, selected) => review.Commit(id, selected), cancelAdd: async id => review.Cancel(id) };
   const context = { document, window: { addEventListener: (name, fn) => windowEvents[name] = fn, favecusApp: api, FavecusQueueFollow: { QueueFollower }, FavecusListArtwork: { ListArtwork }, FavecusTransport: require('../src/ui/transport-model.js') },
-    Date: class extends Date { static now() { return now; } }, requestAnimationFrame: fn => frames.push(fn), IntersectionObserver: class { constructor(callback, options) { this.callback = callback; this.options = options; this.items = new Set(); if (options.threshold === 0) artworkObserver = this; } observe(item) { this.items.add(item); } disconnect() { this.items.clear(); } }, ResizeObserver: class { constructor() {} observe() {} }, setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, { fn, at: now + ms }); return id; }, clearTimeout: id => timers.delete(id), console: { error: e => errors.push(e) } };
+    Date: class extends Date { static now() { return now; } }, requestAnimationFrame: fn => frames.push(fn), IntersectionObserver: class { constructor(callback, options) { this.callback = callback; this.options = options; this.items = new Set(); if (options.threshold === 0 && options.root === nodes.get('entries')) artworkObserver = this; if (options.threshold === 0 && options.root === nodes.get('home')) searchObserver = this; } observe(item) { this.items.add(item); } disconnect() { this.items.clear(); } }, ResizeObserver: class { constructor() {} observe() {} }, setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, { fn, at: now + ms }); return id; }, clearTimeout: id => timers.delete(id), console: { error: e => errors.push(e) } };
   vm.createContext(context);
-  for (const file of ['library-tree.js', 'home-view.js', 'tree-view.js', 'parent-picker.js', 'playlist-reader.js', 'keybindings.js', 'queue-drag.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/ui', file), 'utf8').replace('})(globalThis)', '})(window)'), context);
+  for (const file of ['library-tree.js', 'home-view.js', 'library-search.js', 'tree-view.js', 'parent-picker.js', 'playlist-reader.js', 'keybindings.js', 'queue-drag.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/ui', file), 'utf8').replace('})(globalThis)', '})(window)'), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/ui/app.js'), 'utf8'), context); await new Promise(setImmediate);
   const flush = () => { while (frames.length) frames.shift()(); };
   flush(); assert.equal(errors.length, 0);
-  return { store, id, api, artworkObserver, nodes, scrolls, bounds, calls, html, document, surfaces, windowEvent: name => windowEvents[name]?.(), flush, run: code => vm.runInContext(code, context), emit: (type, value) => emit({ type, value }), advance: ms => now += ms,
+  return { store, id, api, artworkObserver, searchObserver, nodes, scrolls, bounds, calls, html, document, surfaces, windowEvent: name => windowEvents[name]?.(), flush, run: code => vm.runInContext(code, context), emit: (type, value) => emit({ type, value }), advance: ms => now += ms,
     play(index) { const entry = store.Playlist(id).entries[index]; emit({ type: 'current', value: { source: entry.type, playlistId: id, entryId: entry.id, entry } }); }, node: id => nodes.get(id), submit: () => vm.runInContext('PerformModal(submitModal, true)', context), tick(ms) { now += ms; for (const [id, timer] of [...timers]) if (timer.at <= now) { timers.delete(id); timer.fn(); } } };
 }
 function SingleDownloadAPI(h) {
@@ -73,6 +73,71 @@ function SingleDownloadAPI(h) {
   h.api.downloadPlaylist = async input => { started.push({ ...input }); return { job: { ...input, playlistName: '曲の保存先', status: 'running', total: 1, finished: 0, completed: 0, skipped: 0, failed: 0 } }; };
   return { started, estimates, value };
 }
+function SearchHomeFor(h, query) { h.node('home-query').value = query; h.node('home-query').events.input({ isComposing: false }); }
+test('067 home search includes excluded descendants and plays the exact membership before opening its list', async t => {
+  const h = await Harness(t), s = h.store, ids = ParentTree(h), original = s.Playlist(h.id).entries[0];
+  s.Apply({ type: 'title', playlistId: h.id, entryId: original.id, title: '目標曲' });
+  s.Apply({ type: 'add', playlistId: ids.b, urls: original.url, title: '目標曲' }); s.Apply({ type: 'playlist-properties', playlistId: ids.parent, includeInAll: false });
+  s.Apply({ type: 'select', playlistId: h.id }); h.emit('state', s.Snapshot()); h.node('all-lists').onclick(); SearchHomeFor(h, '目標曲');
+  const rows = h.node('home').querySelectorAll('.home-result'); assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map(n => n.dataset.ownerId), [h.id, ids.b]); assert.match(rows[1].querySelector('.home-result-path').textContent, /EroGameSongs ＞ ケロQ・枕 ＞ サクラノ刻$/);
+  const before = s.Snapshot(), entry = s.Playlist(ids.b).entries[0]; let played;
+  h.api.play = async (...args) => { played = args; TransportTrack(h, ids.b, entry.id); };
+  await rows[1].querySelector('.play-button').events.click(); assert.deepEqual(played, [ids.b, entry.id]); assert.deepEqual(s.Snapshot(), before);
+  assert.equal(h.run('allListsView'), true); assert.match(h.node('now-artist').textContent, /サクラノ刻/);
+  await rows[1].querySelector('.home-result-open').events.click(); assert.equal(s.data.activePlaylistId, ids.b); assert.equal(h.run('allListsView'), false);
+  assert.equal(h.node('home-search').classList.contains('hidden'), true); assert.deepEqual(played, [ids.b, entry.id]);
+});
+test('067 search results share live saved badges by exact part and preserve local file states', async t => {
+  const h = await Harness(t), s = h.store, p = s.Playlist(h.id), first = p.entries[0]; first.title = '検索用';
+  s.Apply({ type: 'add', playlistId: h.id, urls: first.url + '?p=2', title: '検索用' });
+  const second = p.entries.at(-1); p.entries.push({ ...first, id: 'search-local', type: 'local', title: '検索用ローカル', fileName: 'missing.mp3', missing: true }); h.emit('state', s.Snapshot());
+  h.node('all-lists').onclick(); SearchHomeFor(h, '検索用'); const rows = h.node('home').querySelectorAll('.home-result'); assert.equal(rows.length, 3);
+  h.emit('downloads', { available: [{ url: first.url, kind: 'video' }, { url: second.url, kind: 'audio' }] });
+  assert.deepEqual(rows.map(r => r.querySelector('.entry-type').textContent), ['DL済み', '音声DL済み', 'ファイルなし']);
+  h.emit('downloads', { available: [{ url: first.url, kind: 'audio' }, { url: first.url, kind: 'video' }] });
+  assert.equal(rows[0].querySelector('.entry-type').dataset.savedKind, 'both'); assert.equal(rows[1].querySelector('.entry-type').textContent, 'オンライン');
+  assert.equal(h.node('home-query').value, '検索用'); assert.equal(h.node('home').querySelectorAll('.home-result')[0], rows[0]);
+});
+test('067 clearing search restores the home branch, page, scroll and existing tree expansion sets', async t => {
+  const h = await Harness(t), s = h.store, template = s.Playlist(h.id);
+  for (let n = 0; n < 26; n++) s.data.playlists.push({ ...template, id: `child-${n}`, name: `子${n}`, childIds: [], entries: [] });
+  template.childIds = s.data.playlists.slice(1).map(p => p.id); s.data.rootPlaylistIds = [h.id]; h.emit('state', s.Snapshot()); h.node('all-lists').onclick();
+  await h.node('home').querySelector('.home-children').events.click(); await h.node('home').querySelector('.home-pager').children.at(-1).events.click();
+  h.run(`expandedLists.add('${h.id}'); expandedEntryLists.add('retained/path')`); const box = h.node('home'); box.scrollTop = 123;
+  SearchHomeFor(h, '曲1'); assert.equal(box.querySelectorAll('.home-card').length, 0); assert.equal(box.scrollTop, 0);
+  h.node('home-search-clear').onclick(); assert.equal(box.querySelectorAll('.home-card').length, 2); assert.equal(box.scrollTop, 123);
+  assert.equal(h.run('homePage'), 1); assert.deepEqual(Array.from(h.run('homePath')), [h.id]); assert.deepEqual(Array.from(h.run('expandedEntryLists')), ['retained/path']); assert.equal(h.run('expandedLists.has(state.activePlaylistId)'), true);
+  assert.equal(h.document.activeElement, h.node('home-query')); assert.equal(h.node('home-search-clear').disabled, true);
+});
+test('067 search pages are bounded and index refreshes after title changes and deletion without interpreting HTML', async t => {
+  const h = await Harness(t), s = h.store, p = s.Playlist(h.id);
+  p.entries = Array.from({ length: 105 }, (_, n) => ({ ...p.entries[0], id: `search-${n}`, title: '目標' + n })); h.emit('state', s.Snapshot()); h.node('all-lists').onclick(); SearchHomeFor(h, '目標');
+  const box = h.node('home'); assert.equal(box.querySelectorAll('.home-result').length, 50); const index = h.run('homeSearchIndex');
+  await box.querySelector('.home-pager').children.at(-1).events.click(); await box.querySelector('.home-pager').children.at(-1).events.click();
+  assert.equal(box.querySelectorAll('.home-result').length, 5); assert.equal(h.run('homeSearchIndex'), index);
+  p.entries[0].title = '<img src=x>目標'; p.entries = p.entries.slice(0, 1); h.emit('state', s.Snapshot());
+  assert.equal(h.run('homeSearchPage'), 0); assert.equal(box.querySelectorAll('.home-result').length, 1); assert.notEqual(h.run('homeSearchIndex'), index);
+  assert.equal(box.querySelector('.home-result-info').children[0].children.length, 0); assert.equal(box.querySelector('.home-result-info').children[0].textContent, '<img src=x>目標');
+  SearchHomeFor(h, '見つからない'); assert.equal(box.querySelectorAll('.home-result').length, 0); assert.match(box.querySelector('.home-empty').textContent, /一致する登録曲がありません/);
+});
+test('067 search thumbnails request only visible rows and stop in the background, behind a modal and after clearing', async t => {
+  const h = await Harness(t), requests = []; let resolve;
+  h.api.entryThumbnail = (...args) => { requests.push(args); return new Promise(done => resolve = done); };
+  h.node('all-lists').onclick(); SearchHomeFor(h, '曲1'); const row = h.node('home').querySelector('.home-result'), image = row.querySelector('img');
+  assert.equal(requests.length, 0); h.emit('foreground', false); h.searchObserver.callback([{ target: image, isIntersecting: true }]); await new Promise(setImmediate); assert.equal(requests.length, 0);
+  h.emit('foreground', true); await new Promise(setImmediate); assert.deepEqual(requests[0], [h.id, h.store.Playlist(h.id).entries[0].id, '*']);
+  h.node('home-search-clear').onclick(); resolve('data:image/png;base64,aWNvbg=='); await new Promise(setImmediate); assert.equal(image.src, 'music.png');
+  SearchHomeFor(h, '曲1'); const next = h.node('home').querySelector('.home-result').querySelector('img'); h.run('AddURL()');
+  h.searchObserver.callback([{ target: next, isIntersecting: true }]); await new Promise(setImmediate); assert.equal(requests.length, 1);
+  h.run('CloseModal()'); await new Promise(setImmediate); assert.equal(requests.length, 2);
+});
+test('067 search defers composition, reports playback failure and keeps the query and result visible', async t => {
+  const h = await Harness(t); h.node('all-lists').onclick(); h.node('home-query').value = '曲1'; h.node('home-query').events.input({ isComposing: true });
+  assert.equal(h.node('home').querySelectorAll('.home-result').length, 0); h.node('home-query').events.compositionend();
+  assert.equal(h.node('home').querySelectorAll('.home-result').length, 4); h.api.play = async () => { throw Error('再生できません'); };
+  await h.node('home').querySelector('.play-button').events.click(); assert.equal(h.run('allListsView'), true); assert.equal(h.node('home-query').value, '曲1'); assert.match(h.node('toast').textContent, /再生できません/);
+});
 function EditEntry(h, playlistId = h.id, index = 0) { h.run(`EntryMenu(${JSON.stringify({ ...h.store.Playlist(playlistId).entries[index], playlistId })})`); }
 test('067 single download targets the edited child and part, preserves drafts on back and start, and saves a title only on submit', async t => {
   const h = await Harness(t), s = h.store, api = SingleDownloadAPI(h);

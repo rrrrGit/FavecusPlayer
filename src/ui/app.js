@@ -8,6 +8,8 @@ const tree = window.FavecusTree;
 const expandedLists = new Set(), expandedEntryLists = new Set(), playlistDrag = { value: null };
 let allListsView = false, timelineManual = false, timelineOpen = false, playingLocation = null;
 let homePath = [], homePage = 0;
+let homeSearchState = null, homeSearchIndex = null, homeSearchPage = 0, homeSearchActive = false, homeScrollTop = 0;
+const homeSearchBadges = new Map();
 let downloadInfo = {}, savedKinds = new Map(), downloadEstimate = null, downloadPicker = null, refreshDownloadEstimate = null, downloadPanelTimer, downloadTargetCount = 0, downloadStarting = false, downloadSingle = null;
 const ViewScope = () => allListsView ? '*' : List().id;
 const PlaybackEntries = () => tree.Entries(state, ViewScope());
@@ -17,6 +19,9 @@ let durationObserver, durationPending = 0;
 const durationQueue = new Map(), durationFailures = new Set();
 const listArtwork = window.FavecusListArtwork && api?.entryThumbnail && typeof IntersectionObserver !== 'undefined' ? new window.FavecusListArtwork.ListArtwork({
   root: $('entries'), load: (playlistId, entryId) => api.entryThumbnail(playlistId, entryId, ViewScope()), observe: (callback, options) => new IntersectionObserver(callback, options)
+}) : null;
+const searchArtwork = window.FavecusListArtwork && api?.entryThumbnail && typeof IntersectionObserver !== 'undefined' ? new window.FavecusListArtwork.ListArtwork({
+  root: $('home'), load: (playlistId, entryId) => api.entryThumbnail(playlistId, entryId, '*'), observe: (callback, options) => new IntersectionObserver(callback, options)
 }) : null;
 
 function Toast(message) {
@@ -294,6 +299,7 @@ function UpdateDownloads(value = {}) {
   if (value.available) {
     savedKinds = new Map(); for (const item of value.available) { const kinds = savedKinds.get(item.url) || new Set(); kinds.add(item.kind); savedKinds.set(item.url, kinds); }
     for (const badge of $('entries').querySelectorAll('.entry-type')) if (badge.dataset.mediaUrl) PaintSavedBadge(badge, { type: 'bilibili', url: badge.dataset.mediaUrl });
+    for (const [badge, entry] of homeSearchBadges) PaintSavedBadge(badge, entry);
     if ($('entry-download-state')) PaintSavedBadge($('entry-download-state'), { type: 'bilibili', url: $('entry-download-state').dataset.mediaUrl });
     if ($('download-entry-saved') && downloadSingle) PaintSavedBadge($('download-entry-saved'), { type: 'bilibili', url: downloadSingle.entryURL });
     if (state) UpdateTransport();
@@ -918,7 +924,12 @@ async function OpenPlaylist(id) {
   state = result; allListsView = false; $('filter').value = ''; tree.ExpandTo(state, id, expandedLists); Render();
 }
 function RenderHome() {
+  searchArtwork?.Reset(); searchArtwork?.SetEnabled(false); homeSearchBadges.clear();
   if (!allListsView) return;
+  const searching = !!$('home-query').value.trim(); $('home-search-clear').disabled = !$('home-query').value;
+  if (searching && !homeSearchActive) homeScrollTop = $('home').scrollTop;
+  const restore = homeSearchActive && !searching; homeSearchActive = searching;
+  if (searching) { RenderHomeSearch(); return; }
   const view = window.FavecusHome.Render($('home'), state, {
     path: homePath, page: homePage,
     onNavigate: (path, page) => { homePath = path; homePage = page; RenderHome(); $('home').scrollTop = 0; $('home').querySelector('h1')?.focus(); },
@@ -927,6 +938,36 @@ function RenderHome() {
     onInclude: (id, value) => Run(async () => { try { await Action({ type: 'playlist-properties', playlistId: id, includeInAll: value }); } finally { RenderHome(); } })
   });
   homePath = view.path.map(p => p.id); homePage = view.page;
+  if (restore) $('home').scrollTop = homeScrollTop;
+}
+function RenderHomeSearch() {
+  if (homeSearchState !== state) { homeSearchIndex = window.FavecusSearch.Index(state); homeSearchState = state; }
+  const query = $('home-query').value, view = window.FavecusSearch.Page(homeSearchIndex, query, homeSearchPage);
+  homeSearchPage = view.page;
+  const box = $('home'), scrollTop = box.scrollTop; box.replaceChildren();
+  box.append(Element('h1', 'home-search-title', '検索結果'));
+  const summary = Element('p', 'home-search-summary', `「${query}」 · ${view.total}件の登録（同じ動画も所属リストごとに表示）`); summary.setAttribute('role', 'status'); box.append(summary);
+  const results = Element('div', 'home-results'); results.setAttribute('aria-label', '全登録曲の検索結果');
+  for (const item of view.items) {
+    const { entry, playlistId } = item, row = Element('article', 'home-result'); row.dataset.ownerId = playlistId; row.dataset.entryId = entry.id;
+    const image = Element('img', 'home-result-cover'); image.alt = ''; image.width = image.height = 56; image.src = 'music.png'; image.draggable = false;
+    searchArtwork?.Add(image, playlistId, entry.id);
+    const play = () => PlaybackAction(() => api.play(playlistId, entry.id));
+    const info = Button('', 'home-result-info', play, `${EntryTitle(entry)}を${item.playlistName}から再生`);
+    const path = Element('small', 'home-result-path', item.pathText); path.title = item.pathText;
+    info.append(Element('strong', '', EntryTitle(entry)), path, Element('small', 'home-result-source', entry.type === 'local' ? 'ローカルファイル' : `${entry.videoId} · P${entry.part || 1}`));
+    const badge = Element('span', 'entry-type home-result-saved'); PaintSavedBadge(badge, entry); homeSearchBadges.set(badge, entry);
+    row.append(image, info, badge, Button('▶ 再生', 'button play-button', play, `${EntryTitle(entry)}を再生`), Button('所属リストを開く', 'button secondary home-result-open', () => OpenPlaylist(playlistId), `${item.pathText}を開く`));
+    results.append(row);
+  }
+  if (!view.total) results.append(Element('p', 'home-empty', '一致する登録曲がありません。曲名・リスト名・動画ID・URLを変えて検索してください。'));
+  const pager = Element('div', 'home-pager'); pager.setAttribute('aria-label', '検索結果のページ');
+  const turn = page => { homeSearchPage = page; RenderHome(); box.scrollTop = 0; box.querySelector('h1')?.focus(); };
+  const previous = Button('← 前へ', 'button secondary', () => turn(view.page - 1)); previous.disabled = !view.page;
+  const next = Button('次へ →', 'button secondary', () => turn(view.page + 1)); next.disabled = view.page + 1 >= view.pages;
+  pager.append(previous, Element('span', 'home-page-status', `${view.total ? view.page * window.FavecusSearch.PAGE_SIZE + 1 : 0}–${Math.min(view.total, (view.page + 1) * window.FavecusSearch.PAGE_SIZE)} / ${view.total} 件 · ${view.page + 1} / ${view.pages} ページ`), next);
+  box.append(results, pager); box.querySelector('h1').tabIndex = -1; box.scrollTop = scrollTop;
+  searchArtwork?.SetEnabled(foreground && !$('modal').open);
 }
 function Render() {
   if (!state) return;
@@ -936,6 +977,7 @@ function Render() {
   $('all-count').title = `${state.playlists.length}リストの登録曲数（重複登録を含む）`;
   $('all-lists').setAttribute('aria-pressed', String(allListsView));
   $('home').classList.toggle('hidden', !allListsView);
+  $('home-search').classList.toggle('hidden', !allListsView);
   $('home-notice').classList.toggle('hidden', !allListsView);
   (allListsView ? $('home-notice') : $('player-area')).append($('toast'));
   $('workspace').classList.toggle('hidden', allListsView); $('bili-heading').classList.toggle('hidden', allListsView);
@@ -1050,6 +1092,7 @@ function BackgroundInteractive(enabled) {
   const blocked = $('modal').open;
   for (const node of document.querySelectorAll('.sidebar, main, .transport, .titlebar')) node.inert = blocked;
   enabled = enabled && foreground && !blocked;
+  searchArtwork?.SetEnabled(enabled && allListsView && homeSearchActive);
   for (const node of document.querySelectorAll(enabled ? '[data-saved-title]' : '.sidebar [title], main [title], .transport [title]')) {
     if (enabled) { node.title = node.dataset.savedTitle; delete node.dataset.savedTitle; }
     else { node.dataset.savedTitle = node.title; node.removeAttribute('title'); }
@@ -1087,7 +1130,11 @@ document.addEventListener('keydown', event => {
   void Run(() => api.shortcut({ scope: ViewScope(), code: event.code, ctrlKey: event.ctrlKey, altKey: event.altKey, shiftKey: event.shiftKey, metaKey: event.metaKey, repeat: event.repeat }));
 }, true);
 for (const type of ['wheel', 'pointerdown', 'keydown', 'touchmove']) $('queue-timeline').addEventListener(type, () => { timelineManual = true; }, { passive: true });
-$('all-lists').onclick = () => { allListsView = true; homePath = []; homePage = 0; $('filter').value = ''; Render(); };
+$('all-lists').onclick = () => { allListsView = true; homePath = []; homePage = 0; homeSearchActive = false; $('home-query').value = ''; $('filter').value = ''; Render(); };
+function SearchHome() { homeSearchPage = 0; RenderHome(); if (homeSearchActive) $('home').scrollTop = 0; }
+$('home-query').addEventListener('input', event => { if (!event.isComposing) SearchHome(); });
+$('home-query').addEventListener('compositionend', SearchHome);
+$('home-search-clear').onclick = () => { $('home-query').value = ''; SearchHome(); $('home-query').focus(); };
 $('sort-lists').onclick = SortLists;
 $('downloads-status').onclick = () => DownloadsDialog();
 $('download-mini-cancel').onclick = () => Run(async () => UpdateDownloads(await api.cancelDownload()));

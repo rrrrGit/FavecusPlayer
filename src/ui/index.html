@@ -15,6 +15,7 @@
   <script src="list-artwork.js" defer></script>
   <script src="library-tree.js" defer></script>
   <script src="home-view.js" defer></script>
+  <script src="library-search.js" defer></script>
   <script src="tree-view.js" defer></script>
   <script src="parent-picker.js" defer></script>
   <script src="app.js" defer></script>
@@ -35,6 +36,7 @@
   </aside>
   <main>
     <header class="topbar"><span id="breadcrumb">マイライブラリ <b>/</b> Bilibili</span><button id="discord-status" class="connection"><span>⚙ 設定</span><span class="status-divider">·</span><span class="status-dot"></span><span id="discord-label">Discord 未設定</span></button></header>
+    <div id="home-search" class="home-search hidden"><label for="home-query">全登録曲を検索</label><input id="home-query" type="search" maxlength="200" placeholder="曲名・リスト名・動画ID・URLで検索" aria-label="全プレイリストの登録曲を検索" aria-controls="home"><button id="home-search-clear" class="button secondary" type="button" disabled>検索を解除</button></div>
     <section id="home" class="home hidden" aria-label="ホーム"></section>
     <div id="home-notice" class="hidden"></div>
     <section id="bili-heading" class="heading">
