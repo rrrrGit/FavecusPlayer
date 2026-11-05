@@ -7,6 +7,7 @@ const api = window.favecusApp;
 const tree = window.FavecusTree;
 const expandedLists = new Set(), expandedEntryLists = new Set(), playlistDrag = { value: null };
 let allListsView = false, timelineManual = false, timelineOpen = false, playingLocation = null;
+let homePath = [], homePage = 0;
 let downloadInfo = {}, savedKinds = new Map(), downloadEstimate = null, downloadPicker = null, refreshDownloadEstimate = null, downloadPanelTimer, downloadTargetCount = 0, downloadStarting = false, downloadSingle = null;
 const ViewScope = () => allListsView ? '*' : List().id;
 const PlaybackEntries = () => tree.Entries(state, ViewScope());
@@ -811,7 +812,7 @@ function UpdateCurrentRows() {
 }
 const queueFollower = window.FavecusQueueFollow ? new window.FavecusQueueFollow.QueueFollower({
   now: () => Date.now(), schedule: callback => requestAnimationFrame(callback), foreground: () => foreground,
-  allowed: () => !!PlayingRow() && !$('modal').open && !dragged && !playlistDrag.value,
+  allowed: () => !allListsView && !!PlayingRow() && !$('modal').open && !dragged && !playlistDrag.value,
   align: () => {
     const list = $('entries'), row = PlayingRow();
     if (!row) return;
@@ -879,9 +880,10 @@ function MakePlaylistRow(item) {
 }
 function RenderEntries() {
   queueDrag?.Cancel();
-  const filter = $('filter').value.toLowerCase().trim(), items = DisplayRows(filter);
+  const filter = $('filter').value.toLowerCase().trim(), items = allListsView ? [] : DisplayRows(filter);
   listArtwork?.Reset(); listArtwork?.SetEnabled(foreground); durationObserver?.disconnect(); durationQueue.clear();
   const list = $('entries'), scrollTop = list.scrollTop; list.replaceChildren(); entryRows.clear(); playlistRows.clear(); playlistExpandButtons.clear(); highlightedRow = null;
+  if (allListsView) return;
   if (!items.length) {
     const empty = Element('div', 'empty-list'); empty.append(Element('strong', '', '＋'), Element('span', '', filter ? '一致する動画がありません。' : '動画を追加すると、ここに再生リストが表示されます。')); list.append(empty);
   }
@@ -911,6 +913,21 @@ function RenderEntries() {
   UpdateCurrentRows();
   $('play-all').disabled = PlaybackEntries().length === 0;
 }
+async function OpenPlaylist(id) {
+  const result = await api.action({ type: 'select', playlistId: id });
+  state = result; allListsView = false; $('filter').value = ''; tree.ExpandTo(state, id, expandedLists); Render();
+}
+function RenderHome() {
+  if (!allListsView) return;
+  const view = window.FavecusHome.Render($('home'), state, {
+    path: homePath, page: homePage,
+    onNavigate: (path, page) => { homePath = path; homePage = page; RenderHome(); $('home').scrollTop = 0; $('home').querySelector('h1')?.focus(); },
+    onOpen: id => Run(() => OpenPlaylist(id)), onPlay: id => PlaybackAction(() => api.play(id)),
+    onSort: SortLists, onCreate: NewList,
+    onInclude: (id, value) => Run(async () => { try { await Action({ type: 'playlist-properties', playlistId: id, includeInAll: value }); } finally { RenderHome(); } })
+  });
+  homePath = view.path.map(p => p.id); homePage = view.page;
+}
 function Render() {
   if (!state) return;
   document.body.style.setProperty('--sidebar-width', `${state.settings.sidebarWidth || 218}px`);
@@ -918,6 +935,10 @@ function Render() {
   $('all-count').textContent = `${state.playlists.reduce((n, p) => n + p.entries.length, 0)}曲`;
   $('all-count').title = `${state.playlists.length}リストの登録曲数（重複登録を含む）`;
   $('all-lists').setAttribute('aria-pressed', String(allListsView));
+  $('home').classList.toggle('hidden', !allListsView);
+  $('home-notice').classList.toggle('hidden', !allListsView);
+  (allListsView ? $('home-notice') : $('player-area')).append($('toast'));
+  $('workspace').classList.toggle('hidden', allListsView); $('bili-heading').classList.toggle('hidden', allListsView);
   const p = List(), count = PlaybackEntries().length;
   const parentId = allListsView ? null : tree.Parent(state, p.id);
   $('playlist-up').classList.toggle('hidden', !parentId);
@@ -935,13 +956,13 @@ function Render() {
   $('repeat').classList.toggle('enabled', state.settings.repeat !== 'off');
   $('breadcrumb').textContent = 'マイライブラリ / プレイリスト';
   SyncVolume(state.settings.volume);
-  RenderEntries(); RenderPlayer(); RenderNext(); UpdateStatus(); UpdateAccounts(); BackgroundInteractive(foreground);
+  RenderEntries(); RenderHome(); RenderPlayer(); RenderNext(); UpdateStatus(); UpdateAccounts(); BackgroundInteractive(foreground);
 }
 function HasView() { return HasPlayback(current); }
 function SendBounds() {
   if (!api?.bounds) return;
   const b = $('player-slot').getBoundingClientRect();
-  api.bounds({ x: b.x, y: b.y, width: b.width, height: b.height, modalOpen: !!$('modal').open, visible: HasView() && !state?.settings.thumbnailMode && !$('modal').open });
+  api.bounds({ x: b.x, y: b.y, width: b.width, height: b.height, modalOpen: !!$('modal').open, visible: !allListsView && HasView() && !state?.settings.thumbnailMode && !$('modal').open });
 }
 async function SelectDisplayMode(mode) {
   if (!['song', 'video'].includes(mode) || !state) return;
@@ -1066,7 +1087,7 @@ document.addEventListener('keydown', event => {
   void Run(() => api.shortcut({ scope: ViewScope(), code: event.code, ctrlKey: event.ctrlKey, altKey: event.altKey, shiftKey: event.shiftKey, metaKey: event.metaKey, repeat: event.repeat }));
 }, true);
 for (const type of ['wheel', 'pointerdown', 'keydown', 'touchmove']) $('queue-timeline').addEventListener(type, () => { timelineManual = true; }, { passive: true });
-$('all-lists').onclick = () => { allListsView = true; $('filter').value = ''; Render(); };
+$('all-lists').onclick = () => { allListsView = true; homePath = []; homePage = 0; $('filter').value = ''; Render(); };
 $('sort-lists').onclick = SortLists;
 $('downloads-status').onclick = () => DownloadsDialog();
 $('download-mini-cancel').onclick = () => Run(async () => UpdateDownloads(await api.cancelDownload()));

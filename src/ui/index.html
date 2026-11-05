@@ -14,6 +14,7 @@
   <script src="queue-drag.js" defer></script>
   <script src="list-artwork.js" defer></script>
   <script src="library-tree.js" defer></script>
+  <script src="home-view.js" defer></script>
   <script src="tree-view.js" defer></script>
   <script src="parent-picker.js" defer></script>
   <script src="app.js" defer></script>
@@ -34,12 +35,14 @@
   </aside>
   <main>
     <header class="topbar"><span id="breadcrumb">マイライブラリ <b>/</b> Bilibili</span><button id="discord-status" class="connection"><span>⚙ 設定</span><span class="status-divider">·</span><span class="status-dot"></span><span id="discord-label">Discord 未設定</span></button></header>
+    <section id="home" class="home hidden" aria-label="ホーム"></section>
+    <div id="home-notice" class="hidden"></div>
     <section id="bili-heading" class="heading">
       <div><div class="eyebrow">YOUR PERSONAL PLAYLIST</div><div class="title-line"><h1 id="list-title">お気に入り</h1><button id="list-menu" class="icon-button" aria-label="プレイリストの編集">•••</button><button id="new-child-list" class="icon-button" type="button" aria-label="このプレイリストの子を作成" title="このプレイリストの子を作成">＋</button></div><p><span id="entry-count">0 本</span><span class="separator">·</span>選んだ動画を、選んだ順番で。</p></div>
       <div class="heading-actions"><button id="browse-bilibili" class="button secondary" disabled title="設定・連携からBilibiliにログインしてください">bilibiliから検索して追加</button><button id="add-files" class="button secondary">ファイル追加</button><button id="add-existing" class="button secondary">既存のプレイリストから追加</button><button id="add-url" class="button primary">＋ URLから追加</button></div>
     </section>
-    <div class="workspace">
-    <section class="player-area">
+    <div id="workspace" class="workspace">
+    <section id="player-area" class="player-area">
       <div class="player-top"><span id="player-label"><span class="tiny-dot"></span> PLAYER</span><div id="view-actions" class="hidden"><div class="mode-switch" role="group" aria-label="再生画面の表示"><button id="mode-song" type="button" aria-pressed="false" title="サムネイルと音声で再生">曲</button><button id="mode-video" type="button" aria-pressed="true" title="動画を表示して再生">動画</button></div><button id="page-mode" class="text-button">公式ページ表示</button><button id="reload" class="text-button" title="表示モードを保って再生画面を作り直します">再読み込み</button><button id="open-official" class="text-button">ブラウザーで開く ↗</button></div></div>
       <div id="player-slot" class="player-slot">
         <div id="thumbnail-panel" class="thumbnail-panel hidden"><img id="thumbnail-image" src="music.png" alt="再生中の曲のサムネイル"><strong id="thumbnail-title"></strong><p id="thumbnail-note"></p></div>

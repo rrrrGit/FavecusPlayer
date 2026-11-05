@@ -59,7 +59,7 @@ async function Harness(t) {
   const context = { document, window: { addEventListener: (name, fn) => windowEvents[name] = fn, favecusApp: api, FavecusQueueFollow: { QueueFollower }, FavecusListArtwork: { ListArtwork }, FavecusTransport: require('../src/ui/transport-model.js') },
     Date: class extends Date { static now() { return now; } }, requestAnimationFrame: fn => frames.push(fn), IntersectionObserver: class { constructor(callback, options) { this.callback = callback; this.options = options; this.items = new Set(); if (options.threshold === 0) artworkObserver = this; } observe(item) { this.items.add(item); } disconnect() { this.items.clear(); } }, ResizeObserver: class { constructor() {} observe() {} }, setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, { fn, at: now + ms }); return id; }, clearTimeout: id => timers.delete(id), console: { error: e => errors.push(e) } };
   vm.createContext(context);
-  for (const file of ['library-tree.js', 'tree-view.js', 'parent-picker.js', 'playlist-reader.js', 'keybindings.js', 'queue-drag.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/ui', file), 'utf8').replace('})(globalThis)', '})(window)'), context);
+  for (const file of ['library-tree.js', 'home-view.js', 'tree-view.js', 'parent-picker.js', 'playlist-reader.js', 'keybindings.js', 'queue-drag.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/ui', file), 'utf8').replace('})(globalThis)', '})(window)'), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/ui/app.js'), 'utf8'), context); await new Promise(setImmediate);
   const flush = () => { while (frames.length) frames.shift()(); };
   flush(); assert.equal(errors.length, 0);
@@ -249,13 +249,66 @@ test('expanded songs keep their real owner for edits, ordering and parent playba
   h.node('filter').value = '展開中に編集'; h.node('filter').events.input();
   assert.equal(list.children[0].dataset.playlistId, child); assert.equal(list.querySelectorAll('.entry').length, 1);
 });
-test('expanded all-playlist duplicates resolve to the existing deduplicated playback queue', async t => {
+test('all-playlist entry actions retain the existing deduplicated playback queue', async t => {
   const h = await Harness(t), s = h.store, original = s.Playlist(h.id).entries[0];
   s.Apply({ type: 'create', name: '同じ曲を持つリスト' }); const other = s.data.activePlaylistId;
-  s.Apply({ type: 'add', playlistId: other, urls: original.url }); h.emit('state', s.Snapshot()); h.run('allListsView = true; Render();');
-  const list = h.node('entries'); await list.children[1].children[1].events.click();
+  s.Apply({ type: 'add', playlistId: other, urls: original.url }); h.emit('state', s.Snapshot()); h.node('all-lists').onclick();
   let selected; h.api.play = async (...args) => selected = args;
-  await list.children[2].children[2].events.click(); assert.deepEqual(selected, ['*', original.id]);
+  await h.run(`PlayEntry(${JSON.stringify({ ...s.Playlist(other).entries[0], playlistId: other })})`);
+  assert.deepEqual(selected, ['*', original.id]);
+});
+test('067 home card opening and playback are separate and native video stays hidden on home', async t => {
+  const h = await Harness(t), original = h.store.Snapshot(); let played;
+  h.api.play = async id => { played = id; h.play(0); };
+  h.node('all-lists').onclick();
+  await h.node('home').querySelector('.play-button').events.click(); h.flush();
+  assert.equal(played, h.id); assert.equal(h.run('allListsView'), true); assert.deepEqual(h.store.Snapshot(), original);
+  assert.equal(h.node('workspace').classList.contains('hidden'), true); assert.equal(h.bounds.at(-1).visible, false);
+  assert.equal(h.node('now-title').textContent, '曲1');
+  await h.node('home').querySelector('.home-card-open').events.click(); h.flush();
+  assert.equal(h.run('allListsView'), false); assert.equal(h.node('workspace').classList.contains('hidden'), false); assert.equal(h.bounds.at(-1).visible, true);
+  assert.equal(played, h.id); assert.equal(h.node('entries').querySelectorAll('.entry').length, 12);
+  h.node('all-lists').onclick(); h.flush(); assert.equal(h.bounds.at(-1).visible, false); assert.equal(h.node('now-title').textContent, '曲1');
+});
+test('067 home renders at most 24 cards, reaches all 999 roots and clamps a removed page', async t => {
+  const h = await Harness(t), template = h.store.Playlist(h.id);
+  h.store.data.playlists = Array.from({ length: 999 }, (_, n) => ({ ...template, id: `home-${n}`, name: `リスト${n}`, entries: [], childIds: [] }));
+  h.store.data.rootPlaylistIds = h.store.data.playlists.map(p => p.id); h.store.data.activePlaylistId = 'home-0';
+  h.emit('state', h.store.Snapshot()); h.node('all-lists').onclick();
+  const box = h.node('home'), visited = [];
+  for (let n = 0; n < 42; n++) {
+    const cards = box.querySelectorAll('.home-card'); assert.ok(cards.length <= 24); assert.equal(box.querySelectorAll('img').length, cards.length);
+    visited.push(...cards.map(p => p.dataset.playlistId));
+    const next = box.querySelector('.home-pager').children.at(-1); assert.equal(next.disabled, n === 41);
+    if (n < 41) await next.events.click();
+  }
+  assert.deepEqual(visited, h.store.data.rootPlaylistIds); assert.equal(h.node('entries').children.length, 0);
+  h.store.data.playlists = h.store.data.playlists.slice(0, 2); h.store.data.rootPlaylistIds = ['home-0', 'home-1']; h.emit('state', h.store.Snapshot());
+  assert.equal(h.run('homePage'), 0); assert.equal(box.querySelectorAll('.home-card').length, 2);
+  h.store.data.playlists = Array.from({ length: 999 }, (_, n) => ({ ...template, id: `home-${n}`, name: `階層${n}`, entries: [], childIds: n < 998 ? [`home-${n + 1}`] : [] }));
+  h.store.data.rootPlaylistIds = ['home-0']; h.emit('state', h.store.Snapshot());
+  h.run('homePath = state.playlists.map(p => p.id); RenderHome()');
+  assert.equal(box.querySelector('.home-path').querySelectorAll('button').length, 4); assert.equal(box.querySelectorAll('.home-card').length, 0);
+});
+test('067 home shared paths and breadcrumbs survive rename, restore after moving away and recover from a moved branch', async t => {
+  const h = await Harness(t), s = h.store, ids = ParentTree(h);
+  s.Apply({ type: 'playlist-attach', playlistId: ids.other, ids: [ids.parent], removeOriginal: false }); h.emit('state', s.Snapshot()); h.node('all-lists').onclick();
+  const box = h.node('home'); await box.querySelectorAll('.home-children').at(-1).events.click();
+  await box.querySelector('.home-children').events.click();
+  assert.deepEqual(Array.from(h.run('homePath')), [ids.other, ids.parent]);
+  s.Apply({ type: 'rename', playlistId: ids.parent, name: '<b>共有の親</b>' }); h.emit('state', s.Snapshot());
+  assert.equal(box.querySelector('h1').textContent, '<b>共有の親</b>'); assert.equal(box.querySelector('h1').children.length, 0);
+  await box.querySelector('.home-path').children[2].events.click(); assert.deepEqual(Array.from(h.run('homePath')), [ids.other]);
+  s.Apply({ type: 'playlist-move', playlistId: ids.parent, parentId: h.id }); h.emit('state', s.Snapshot());
+  assert.equal(box.querySelectorAll('.home-card').length, 0); assert.match(box.querySelector('.home-empty').textContent, /子プレイリストはありません/);
+});
+test('067 home failures retain the visible page and restore eligibility from confirmed state', async t => {
+  const h = await Harness(t); h.node('all-lists').onclick(); const before = h.store.Snapshot();
+  h.api.action = async () => { throw Error('保存できません'); };
+  await h.node('home').querySelector('.home-card-open').events.click();
+  assert.equal(h.run('allListsView'), true); assert.match(h.node('toast').textContent, /保存できません/); assert.equal(h.node('toast').parentElement.id, 'home-notice');
+  const check = h.node('home').querySelector('input'); check.checked = false; await check.onchange();
+  assert.equal(h.node('home').querySelector('input').checked, true); assert.deepEqual(h.store.Snapshot(), before);
 });
 test('067 transfer retains the disabled source and lets its children expand and be selected, while export actions use explicit modes without a password', async t => {
   const h = await Harness(t), s = h.store;
@@ -466,10 +519,18 @@ test('060 collapsed descendants remain searchable and clearing a query restores 
  assert.equal(h.node('entries').querySelectorAll('.entry').length,12);h.node('filter').value='探して';h.node('filter').events.input();assert.equal(h.node('entries').querySelectorAll('.entry').length,1);assert.equal(h.node('entries').querySelectorAll('.playlist-entry').length,2);
  h.node('filter').value='';h.node('filter').events.input();assert.equal(h.node('entries').querySelectorAll('.entry').length,12);
 });
-test('065 all-list display starts with roots, expands children without playback and counts all registered entries',async t=>{
- const h=await Harness(t),s=h.store;s.Apply({type:'create',name:'子',parentId:h.id});const child=s.data.activePlaylistId;s.Apply({type:'add',playlistId:child,urls:'av777'});s.Apply({type:'playlist-properties',playlistId:child,includeInAll:false});h.emit('state',s.Snapshot());let plays=0;h.api.play=()=>plays++;h.node('all-lists').onclick();
- assert.equal(h.node('entries').querySelectorAll('.playlist-entry').length,1);await h.node('entries').children[0].children[1].events.click();assert.equal(h.node('entries').querySelectorAll('.playlist-entry').length,2);assert.equal(plays,0);assert.equal(h.node('all-count').textContent,'13曲');assert.equal(s.Entries('*').length,12);
- h.run('SortLists()');h.node('playlist-sort').value='name';await h.submit();assert.equal(s.data.settings.playlistSort,'name');
+test('067 home starts with root cards, navigates children without playback and preserves all-play eligibility', async t => {
+  const h = await Harness(t), s = h.store;
+  s.Apply({ type: 'create', name: '子', parentId: h.id }); const child = s.data.activePlaylistId;
+  s.Apply({ type: 'add', playlistId: child, urls: 'av777' }); s.Apply({ type: 'playlist-properties', playlistId: child, includeInAll: false });
+  h.emit('state', s.Snapshot()); let plays = 0; h.api.play = () => plays++; h.node('all-lists').onclick();
+  assert.equal(h.node('entries').children.length, 0); assert.deepEqual(h.node('home').querySelectorAll('.home-card').map(n => n.dataset.playlistId), [h.id]);
+  assert.match(h.node('home').querySelector('.home-card-count').textContent, /13 曲/);
+  await h.node('home').querySelector('.home-children').events.click();
+  assert.deepEqual(h.node('home').querySelectorAll('.home-card').map(n => n.dataset.playlistId), [child]);
+  assert.equal(plays, 0); assert.equal(s.data.activePlaylistId, child); assert.equal(h.node('all-count').textContent, '13曲'); assert.equal(s.Entries('*').length, 12);
+  const check = h.node('home').querySelector('input'); assert.equal(check.checked, false); check.checked = true; await check.onchange(); assert.equal(s.Entries('*').length, 13);
+  h.run('SortLists()'); h.node('playlist-sort').value = 'name'; await h.submit(); assert.equal(s.data.settings.playlistSort, 'name');
 });
 test('060 destination-name search preserves hidden checked lists and lets users inspect descendant songs',async t=>{
  const h=await Harness(t),s=h.store;s.Apply({type:'create',name:'親A'});const parent=s.data.activePlaylistId;s.Apply({type:'create',name:'目標リスト',parentId:parent});const child=s.data.activePlaylistId;s.Apply({type:'add',playlistId:child,urls:'av567',title:'目標の曲'});s.Apply({type:'select',playlistId:h.id});h.emit('state',s.Snapshot());h.run('AddURL()');
@@ -502,21 +563,19 @@ test('060 key configuration saves changed keys and shortcut capture ignores moda
  h.emit('foreground',false);press();assert.equal(calls.length,1);h.emit('foreground',true);h.run('Settings()');press();assert.equal(calls.length,1);
 });
 
-test('061 all-list UI follows parent order, shows empty excluded lists and finds ancestors of matching descendants', async t => {
+test('067 home follows parent order, opens an excluded child and retains list filtering', async t => {
   const h = await Harness(t), s = h.store;
   s.Apply({ type: 'create', name: '子' }); const child = s.data.activePlaylistId;
   s.Apply({ type: 'create', name: '親' }); const parent = s.data.activePlaylistId;
   s.Playlist(parent).childIds = [child]; s.data.rootPlaylistIds = [h.id, parent]; s.Playlist(child).includeInAll = false;
   s.Apply({ type: 'add', playlistId: child, urls: 'av888', title: '目標曲' });
   h.emit('state', s.Snapshot()); h.node('all-lists').onclick();
-  assert.deepEqual(h.node('entries').querySelectorAll('.playlist-entry').map(row => row.dataset.playlistId), [h.id, parent]);
-  await h.node('entries').querySelectorAll('.playlist-entry')[1].children[1].events.click();
-  assert.deepEqual(h.node('entries').querySelectorAll('.playlist-entry').map(row => row.dataset.playlistId), [h.id, parent, child]);
-  assert.match(h.node('entry-count').textContent, /3 リスト/); assert.match(h.node('entry-count').textContent, /13 曲/);
-  assert.equal(h.node('entries').querySelectorAll('.playlist-entry')[2].style.marginLeft, '18px');
-  h.node('filter').value = '目標曲'; h.node('filter').events.input();
-  assert.deepEqual(h.node('entries').querySelectorAll('.playlist-entry').map(row => row.dataset.playlistId), [parent, child]);
-  assert.equal(h.node('entries').querySelectorAll('.entry').length, 1);
+  assert.deepEqual(h.node('home').querySelectorAll('.home-card').map(n => n.dataset.playlistId), [h.id, parent]);
+  await h.node('home').querySelector('.home-children').events.click();
+  const card = h.node('home').querySelector('.home-card'); assert.equal(card.dataset.playlistId, child);
+  await card.querySelector('.home-card-open').events.click();
+  assert.equal(s.data.activePlaylistId, child); assert.equal(h.node('home').classList.contains('hidden'), true);
+  h.node('filter').value = '目標曲'; h.node('filter').events.input(); assert.equal(h.node('entries').querySelectorAll('.entry').length, 1);
 });
 
 test('062 download target search, estimates and child options drive the actual saved selection', async t => {
