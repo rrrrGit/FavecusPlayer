@@ -2,7 +2,7 @@
 
 更新日：2026-11-05（日本時間）
 対象：v0.6.7 / `release/v0.6.7`
-現在地：Step12実施中（最終生成・梱包手順の準備完了）。Step11完了ソースのアプリ処理を維持し、コミット済みソースからPatchを生成・検証・出力します。
+現在地：Step12完了（v0.6.7最終Patch・資料の生成/検証/出力済み）。開発工程は全12ステップ完了。main統合・タグ・正式Release公開は別の正式Release工程へ引き継ぎます。
 基準コミット：`9d51bf263748cfef65c8e424a6a3e54e45d0b60f`（main / v0.6.6）。
 Step0コミット：`2d9f7c2bfba5d197bc9b4f4dd76a772d2d38fe15`。各工程の自コミットSHAはGit履歴から取得します。
 
@@ -60,7 +60,7 @@ Step0完了。Step1は変更が保存・取り込みまで広がるため、以�
 | Step9 ホームをプレイリスト中心のUIへ変更 | 完了 | 参考画像のカード配置、開く/再生/子リストの分離、999件の分割表示と操作プレビューを確認 |
 | Step10 ホームから全登録曲を検索 | 完了 | 折り畳み/除外を問わず登録先ごとに検索、所属/DL状態、正確な登録先からの再生、解除時のホーム復元を確認 |
 | Step11 全体検証・ビルド・エラー修正 | 完了 | 全458テスト、共通境界修正、版/説明書更新、Windows検証用4 EXEの構造/起動入口と内包ソースの一致を確認 |
-| Step12 最終Patch生成・出力 | 実施中 | Windows用Patchの梱包/生成元記録を準備。コミット済みソースから最終生成・検査・出力 |
+| Step12 最終Patch生成・出力 | 完了 | 生成元SHAを固定して最終ビルド/梱包/ハッシュ照合。Patchと更新内容・検証結果を出力済み |
 
 ### Step1-1の変更・検証
 
@@ -292,13 +292,30 @@ Step0完了。Step1は変更が保存・取り込みまで広がるため、以�
 - 未確認：Windows実機での起動/インストール/更新・動画表示切替・長時間再生・Bilibili実通信/ログイン/保存・Discord実表示・実際のファイルロック。上記の自動/模擬検証をこれらの成功とは扱いません。
 - Step11を完了しました。次はStep12：この完了ソースから最終Windows Patchを生成・照合し、検証結果とともに出力します。
 
-### Step12の準備と実施
+### Step12の変更・検証・出力
 
 - 基準コミット：`92676ddcdab79f905fac487691a59e35a480ecb1`。最新の作業ブランチ・main・未反映変更とPrivate/権限を確認しました。Step11で検証したアプリ処理・保存形式・設定保持・旧配置移行の動作は変更しません。
 - package-release.pyへpatch/fullプロファイルとwindows-x64の配布先指定を追加しました。版はpackage.json、更新内容は同じ版のCHANGELOGから読み、生成元コミット/ツリーSHAと検証情報を記録します。Git上に未コミット変更があれば停止し、Git情報のないソースZIPからの従来の梱包にも対応します。
 - patchプロファイルは更新用EXE、単独HTMLガイド、更新内容TXT、検証JSON、チェックサム、同梱ZIPを出力します。Setup・ソースZIPを重複同梱しません。fullプロファイルの従来の出力を保持します。バイナリと通常ログはGitへ追加しません。
-- この準備を保存したコミットのソースから最終ビルド/PE検査/模擬起動入口検査と梱包を行います。Step11の全458テスト・117構文検査と固定Node/ライセンスを再利用し、生成EXE・ZIP・別配布Patchの版とハッシュ、生成元と照合します。
-- 生成・保存後のファイルリンクと最終結果は、この節に追記します。main統合・タグ・正式Release公開・ブランチ削除は別の正式Release作業で行います。
+- 最終生成元：[160752c1d3f7b2a948b921b6da4806c3beb0b61e](https://github.com/rrrrGit/FavecusPlayer/commit/160752c1d3f7b2a948b921b6da4806c3beb0b61e)、ツリー `d2760b5ce5d4d7ca68066ec9dcd480ba67f00660`。このコミットで作業ツリーを固定して再ビルド・検査・梱包しました。出力後のこの記録追加は文書のみのコミットとし、生成元を変更しません。
+- アプリ/インストーラー処理はStep11から未変更で、全458テスト成功・失敗0/スキップ0の検証を引き継いでいます。最終ソースの117 JavaScript構文とUI参照/版/既知認証情報パターンを再検査し、固定Node/ライセンスも照合しました。ビルドに新規依存を追加していません。
+- 4 EXEのPE構造・版0.6.7・模擬起動入口を再検証しました。Patch/Setup内包の各120ファイルのハッシュと現ソースのバイト一致を確認し、Patch内の116ソースを生成元Gitコミットと直接照合しました。bootstrap Nodeの固定ハッシュ、アプリの版、ユーザーデータ/設定ファイルを同梱していないことも確認しました。
+- patchプロファイルのZIPはPatch/ガイド/更新内容/検証JSON/チェックサムの5ファイルだけを同梱し、全5件を別配布ファイルのハッシュと照合しました。古い検証ハッシュでの梱包は失敗し、EXEを出力しないことを確認しました。fullプロファイルのSetup/ソース/画像/一式ZIPの互換出力も検証しましたが、今回の配布対象は更新用Patch一式です。
+- 単独HTMLガイドをブラウザーで開き、内蔵のタスクバー/Discord説明への参照、リンク先の存在、横方向のはみ出しを確認しました。JavaScriptエラー・HTTPリクエスト・未解決アンカーは0件です。
+- 下記6ファイルの保存に成功し、保存後も元のサイズとSHA-256が変わっていないことを確認しました。ZIP内のSHA256SUMSは同梱する4ファイルを対象とし、ZIP自身のSHA-256はこの記録に残します。
+| 出力 | サイズ（bytes） | SHA-256 |
+| --- | ---: | --- |
+| [Favecus-Player-0.6.7-Patch.exe](https://chatgpt.com/library?file_id=libfile_95fb6dfaf7a08191b3bb315ae819381a&account_id=personal) | 35421674 | `c02ad91cd9e39ec1f469a724759366d8de8ce99b333b22c86cd7e47e33a290ed` |
+| [FavecusPlayer_v0.6.7_Patch.zip](https://chatgpt.com/library?file_id=libfile_923717953f8c8191a60cc775253330b4&account_id=personal) | 35239297 | `98a749844ff26fd8f0383d30956e6872db97d5b7a703c00ad03592777fe6f83a` |
+| [Favecus-Player-0.6.7-Guide.html](https://chatgpt.com/library?file_id=libfile_05ee7844baa081919d37721736583c61&account_id=personal) | 126630 | `dda72f43470008fc421fc89cba506e6aefdc9ff9ad013f91b8061fdb92a70db1` |
+| [Favecus-Player-0.6.7-Release-Notes.txt](https://chatgpt.com/library?file_id=libfile_7913f95846808191818a6d0bca3010b0&account_id=personal) | 1839 | `cef9fae228128cc633fb8cf22eb67fcb2d539df202529e8be6b5b9c5b509ebbd` |
+| [Favecus-Player-0.6.7-Validation.json](https://chatgpt.com/library?file_id=libfile_fcd954a3d0688191b0a57add9bf1f239&account_id=personal) | 21961 | `9095b3b30f3f8653512417c1b7209de74ac2851e1204200d999fc358140299c6` |
+| [Favecus-Player-0.6.7-SHA256SUMS.txt](https://chatgpt.com/library?file_id=libfile_5639256f0aac819188691d32091268b3&account_id=personal) | 432 | `a3cdc99fa7db13bb00a98481e0938b96928af4165bc58d79f6ea484e30bf6798` |
+
+- 更新はアプリ終了後、Patchを対象フォルダーの外から実行し、FavecusPlayer.exe・app・runtimeがある最上位フォルダーを選びます。設定・プレイリスト・DLデータを保持し、保存配置の移行は更新後のアプリが管理情報から実行する既存仕様です。
+- 未確認：実Windowsでのインストール/更新/再生、Bilibili実通信、Discord実表示。生成物の構造検査・模擬Win32/HTML検証をこれらの成功とは扱いません。
+- GitHubへは梱包手順とこの結果記録だけを反映し、バイナリ/通常ログは追加していません。main統合・タグ・正式Release公開・開発ブランチ削除は別の正式Release作業で行います。
+- Step12完了。v0.6.7の開発全12工程を終了しました。
 
 Stepごとに変更ファイルと本書を同じブランチへCommit＋Pushし、リモートSHAと内容を確認します。
 main統合・タグ・Releaseは完成後の正式Releaseチャットで行います。開発中はブランチを保持し、正式版のmain統合・Release公開と検証が完了した後に、最新のGitHub共通方針に従って対象の開発ブランチを削除します。
