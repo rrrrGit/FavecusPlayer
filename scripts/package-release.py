@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import tempfile
 import zipfile
 
@@ -42,9 +43,16 @@ def main():
     parser.add_argument('--windows', type=Path, required=True)
     parser.add_argument('--verification', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--profile', choices=('full', 'patch'), default='full')
+    parser.add_argument('--platform', choices=('windows-x64',), default='windows-x64')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     version = json.loads((ROOT / 'package.json').read_text())['version']
+    source_commit = source_tree = None
+    if (ROOT / '.git').exists():
+        assert not subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=all'], cwd=ROOT).strip(), 'Commit the release source before packaging'
+        source_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+        source_tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], cwd=ROOT, text=True).strip()
     pe = json.loads((args.verification / 'pe-verification.json').read_text())
     expected = {'FavecusPlayer.exe', 'FavecusPlayerTaskbar.exe', 'Patch.exe', 'Setup.exe'}
     assert {item['file'] for item in pe} == expected
@@ -63,7 +71,7 @@ def main():
     assert audit['version'] == version and audit['status'] == 'pass'
 
     outputs = {}
-    for kind in ('Patch', 'Setup'):
+    for kind in (('Patch',) if args.profile == 'patch' else ('Patch', 'Setup')):
         outputs[kind.lower()] = args.output / f'Favecus-Player-{version}-{kind}.exe'
         copy_verified(args.windows / f'{kind}.exe', outputs[kind.lower()])
 
@@ -85,33 +93,59 @@ def main():
     files = sorted(p for p in ROOT.rglob('*') if p.is_file() and not excluded.intersection(p.relative_to(ROOT).parts))
     validation = {
         'version': version, 'created': datetime.now(timezone.utc).isoformat(),
+        'platform': args.platform, 'profile': args.profile, 'sourceCommit': source_commit, 'sourceTree': source_tree,
         'nodeTests': tests, 'javascriptSyntax': syntax, 'uiResources': audit,
         'sourceFiles': len(files), 'windowsPE': pe, 'windowsEntryMock': startup,
         'nativeMock': (args.verification / 'native-tests.txt').read_text().strip(),
-        'windowsRealGUI': 'not tested', 'browserVisualReview': 'not tested',
+        'windowsRealGUI': 'not tested', 'browserVisualReview': 'See docs/DEVELOPMENT-STATUS.md; packaging does not perform GUI testing',
         'bilibiliDiscordLive': 'not tested',
         'guideStandaloneLinks': 'pass',
         'sourceHashes': {p.relative_to(ROOT).as_posix(): sha(p) for p in files},
     }
-    outputs['source'] = args.output / f'Favecus-Player-{version}-source.zip'
-    with zipfile.ZipFile(outputs['source'], 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
-        for file in files:
-            archive.write(file, 'favecus-player/' + file.relative_to(ROOT).as_posix())
-        archive.writestr('favecus-player/release-validation/completion.json', json.dumps(validation, ensure_ascii=False, indent=2) + '\n')
-        for name in ('node-tests.txt', 'syntax.txt', 'native-tests.txt', 'pe-verification.json', 'windows-entry-test.txt', 'ui-resource-audit.json'):
-            archive.write(args.verification / name, 'favecus-player/release-validation/' + name)
-    with zipfile.ZipFile(outputs['source']) as archive:
-        assert archive.testzip() is None
-        for name, value in validation['sourceHashes'].items():
-            assert hashlib.sha256(archive.read('favecus-player/' + name)).hexdigest() == value
+    if args.profile == 'full':
+        outputs['source'] = args.output / f'Favecus-Player-{version}-source.zip'
+        with zipfile.ZipFile(outputs['source'], 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+            for file in files:
+                archive.write(file, 'favecus-player/' + file.relative_to(ROOT).as_posix())
+            archive.writestr('favecus-player/release-validation/completion.json', json.dumps(validation, ensure_ascii=False, indent=2) + '\n')
+            for name in ('node-tests.txt', 'syntax.txt', 'native-tests.txt', 'pe-verification.json', 'windows-entry-test.txt', 'ui-resource-audit.json'):
+                archive.write(args.verification / name, 'favecus-player/release-validation/' + name)
+        with zipfile.ZipFile(outputs['source']) as archive:
+            assert archive.testzip() is None
+            for name, value in validation['sourceHashes'].items():
+                assert hashlib.sha256(archive.read('favecus-player/' + name)).hexdigest() == value
 
-    outputs['icon'] = args.output / 'favecus_player_music.png'
-    copy_verified(ROOT / 'docs/favecus_player_music.png', outputs['icon'])
+    if args.profile == 'full':
+        outputs['icon'] = args.output / 'favecus_player_music.png'
+        copy_verified(ROOT / 'docs/favecus_player_music.png', outputs['icon'])
+    changelog = (ROOT / 'docs/CHANGELOG.md').read_text()
+    heading = f'# {version}\n'
+    assert changelog.startswith(heading), 'Changelog version mismatch'
+    changes = changelog.split('\n# ', 1)[0]
+    changes = changes.replace('最終Windows Patchの生成・出力はStep12で行います。', '').strip()
+    notes = f'''{changes}
+
+対象：{args.platform}
+生成元コミット：{source_commit or 'Git情報なし（ソースアーカイブからの生成）'}
+生成元ツリー：{source_tree or 'Git情報なし'}
+
+更新方法：アプリを終了し、Patch.exeを更新先の外から実行して、FavecusPlayer.exe・app・runtimeがある最上位フォルダーを選びます。
+設定・プレイリスト・DLデータは保持し、旧保存配置の移行は更新後のアプリが管理情報を確認して行います。
+
+検証：Nodeテスト {tests['pass']}/{tests['tests']} 成功、失敗 {tests['fail']}、スキップ {tests['skipped']}。{syntax}
+Windows EXEの構造・内包ハッシュ・模擬Win32の起動入口・ネイティブ処理を確認しています。
+未確認：Windows実機でのインストール/更新/再生、Bilibili実通信、Discord実表示。
+'''
+    outputs['notes'] = args.output / f'Favecus-Player-{version}-Release-Notes.txt'
+    outputs['notes'].write_text(notes, encoding='utf-8')
+    outputs['validation'] = args.output / f'Favecus-Player-{version}-Validation.json'
+    outputs['validation'].write_text(json.dumps(validation, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     relative_paths = {kind: ('guide' if kind == 'icon' else kind) + '/' + file.name for kind, file in outputs.items()}
     checksums = args.output / f'Favecus-Player-{version}-SHA256SUMS.txt'
     checksums.write_text(''.join(f'{sha(file)}  {relative_paths[kind]}\n' for kind, file in outputs.items()))
-    bundle = args.output / f'FavecusPlayer_v{version}.zip'
-    prefix = f'FavecusPlayer_v{version}/'
+    label = f'FavecusPlayer_v{version}' + ('_Patch' if args.profile == 'patch' else '')
+    bundle = args.output / f'{label}.zip'
+    prefix = f'{label}/'
     with tempfile.TemporaryDirectory(prefix='favecus-release-') as temporary:
         staged_bundle = Path(temporary) / bundle.name
         with staged_bundle.open('w+b', buffering=0) as stream:
@@ -126,8 +160,9 @@ def main():
         for kind, file in outputs.items():
             assert hashlib.sha256(archive.read(prefix + relative_paths[kind])).hexdigest() == sha(file)
     outputs['bundle'] = bundle
+    outputs['checksums'] = checksums
     records = [{'kind': kind, 'name': file.name, 'path': str(file.resolve()), 'bytes': file.stat().st_size, 'sha256': sha(file)} for kind, file in outputs.items()]
-    result = {'version': version, 'status': 'complete', 'nodeTests': tests, 'sourceFiles': len(files), 'outputs': records}
+    result = {'version': version, 'status': 'complete', 'platform': args.platform, 'profile': args.profile, 'sourceCommit': source_commit, 'sourceTree': source_tree, 'nodeTests': tests, 'sourceFiles': len(files), 'outputs': records}
     (args.verification / 'completion.json').write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

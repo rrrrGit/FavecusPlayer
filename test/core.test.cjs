@@ -13,6 +13,21 @@ const { EncodeFrame, FrameDecoder, DiscordPresence, BuildActivity } = require('.
 const { ParseRange, MediaResponse } = require('../src/core/files.cjs');
 
 function Temp(t) { const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'favecus-test-')); t.after(() => fs.rmSync(directory, { recursive: true, force: true })); return directory; }
+test('media response releases short-lived requests exactly once on HEAD, invalid range and missing data', async t => {
+  const file = path.join(Temp(t), 'media.mp4'); fs.writeFileSync(file, 'media');
+  for (const [name, options, status] of [[file, { method: 'HEAD' }, 200], [file, { headers: { Range: 'bytes=99-' } }, 416], [file + '.missing', {}, 404]]) {
+    let releases = 0; const response = await MediaResponse(new Request('http://example.test', options), name, () => releases++); assert.equal(response.status, status); assert.equal(releases, 1);
+  }
+});
+test('media response releases a stream when consumed or cancelled and on an already-aborted request', { timeout: 3000 }, async t => {
+  const file = path.join(Temp(t), 'media.mp4'); fs.writeFileSync(file, Buffer.alloc(1024 * 1024));
+  for (const action of ['read', 'cancel', 'abort']) {
+    let releases = 0, complete; const released = new Promise(resolve => complete = resolve), controller = new AbortController(); if (action === 'abort') controller.abort();
+    const response = await MediaResponse(new Request('http://example.test', { signal: controller.signal }), file, () => { releases++; complete(); });
+    if (action === 'read') await response.arrayBuffer(); else if (action === 'cancel') await response.body.cancel(); else await assert.rejects(response.arrayBuffer());
+    await released; assert.equal(releases, 1, action);
+  }
+});
 
 test('Bilibili URL preserves the selected part and removes tracking', () => {
   const entry = ParseBilibili('https://www.bilibili.com/video/BV1B7411m7LV/?p=3&spm_id_from=abc');
@@ -68,7 +83,7 @@ test('export and import carry media bytes and keep account/Discord keys out', as
   const raw = fs.readFileSync(manifest,'utf8'); assert.ok(!raw.includes('bridgeToken')); assert.ok(!raw.includes('settings'));
   const second = new Store(path.join(root, 'second')); const result = await second.Import(manifest);
   assert.equal(result.missing,0); assert.equal(second.data.playlists.length,2);
-  const added = second.Playlist(second.data.activePlaylistId); assert.notEqual(added.id,id);
+  const added = second.Playlist(second.data.activePlaylistId); assert.equal(added.id,id);
   assert.equal(fs.readFileSync(path.join(second.media,added.entries[0].fileName),'utf8'),'test media bytes');
   assert.equal(added.entries[1].videoId,'BV1B7411m7LV');
 });

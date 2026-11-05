@@ -1,15 +1,14 @@
 'use strict';
 
-const { randomInt } = require('node:crypto');
 class Queue {
-  constructor(random = null, weight = null) { this.random = random; this.weight = weight; this.Clear(); }
+  constructor(random = null, weight = null, randomIndex = null) { this.random = random; this.randomIndex = randomIndex; this.weight = weight; this.Clear(); }
   get ids() { return this.cycles[this.cycleIndex]?.ids || []; }
   Clone() {
     const copy = new Queue(this.random);
     Object.assign(copy, this, { available: [...this.available], history: [...this.history], catalog: new Map(this.catalog), cycles: this.cycles.map(c => ({ ...c, ids: [...c.ids], seen: new Set(c.seen) })) });
     return copy;
   }
-  Index(max) { return this.random ? Math.floor(this.random() * max) : randomInt(max); }
+  Index(max) { return this.random ? Math.floor(this.random() * max) : this.randomIndex ? this.randomIndex(max) : Math.floor(Math.random() * max); }
   Shuffled(ids) {
     if (this.weight) return ids.map(id => ({ id, rank: -Math.log((this.Index(2147483646) + 1) / 2147483647) / Math.max(1e-12, Number(this.weight(this.catalog.get(id))) || 1) })).sort((a, b) => a.rank - b.rank).map(x => x.id);
     const result = [...ids];

@@ -6,8 +6,11 @@ const { HasPlayback, TransportState } = window.FavecusTransport;
 const api = window.favecusApp;
 const tree = window.FavecusTree;
 const expandedLists = new Set(), expandedEntryLists = new Set(), playlistDrag = { value: null };
-let allListsView = false, timelineManual = false, timelineOpen = false;
-let downloadInfo = {}, savedKinds = new Map(), downloadEstimate = null, downloadPicker = null, refreshDownloadEstimate = null, downloadPanelTimer, downloadTargetCount = 0, downloadStarting = false;
+let allListsView = false, timelineManual = false, timelineOpen = false, playingLocation = null;
+let homePath = [], homePage = 0;
+let homeSearchState = null, homeSearchIndex = null, homeSearchPage = 0, homeSearchActive = false, homeScrollTop = 0;
+const homeSearchBadges = new Map();
+let downloadInfo = {}, savedKinds = new Map(), downloadEstimate = null, downloadPicker = null, refreshDownloadEstimate = null, downloadPanelTimer, downloadTargetCount = 0, downloadStarting = false, downloadSingle = null;
 const ViewScope = () => allListsView ? '*' : List().id;
 const PlaybackEntries = () => tree.Entries(state, ViewScope());
 const entryRows = new Map(), playlistRows = new Map(), playlistExpandButtons = new Map();
@@ -16,6 +19,9 @@ let durationObserver, durationPending = 0;
 const durationQueue = new Map(), durationFailures = new Set();
 const listArtwork = window.FavecusListArtwork && api?.entryThumbnail && typeof IntersectionObserver !== 'undefined' ? new window.FavecusListArtwork.ListArtwork({
   root: $('entries'), load: (playlistId, entryId) => api.entryThumbnail(playlistId, entryId, ViewScope()), observe: (callback, options) => new IntersectionObserver(callback, options)
+}) : null;
+const searchArtwork = window.FavecusListArtwork && api?.entryThumbnail && typeof IntersectionObserver !== 'undefined' ? new window.FavecusListArtwork.ListArtwork({
+  root: $('home'), load: (playlistId, entryId) => api.entryThumbnail(playlistId, entryId, '*'), observe: (callback, options) => new IntersectionObserver(callback, options)
 }) : null;
 
 function Toast(message) {
@@ -37,7 +43,7 @@ function Button(label, className, handler, ariaLabel) {
 async function Action(action) { const result = await api.action(action); state = result; Render(); return result; }
 function OpenModal(title, content, submit, submitLabel = '保存', back = null) {
   queueDrag?.Cancel(); CloseExistingPopup();
-  CancelModalTask(); $('modal-cancel').textContent = '閉じる';
+  CancelModalTask(); $('modal-actions').replaceChildren(); $('modal-cancel').textContent = '閉じる';
   modalEpoch++; $('modal-submit').disabled = false; $('modal-notice').classList.add('hidden');
   $('modal-title').textContent = title; $('modal-body').innerHTML = content;
   $('modal-submit').textContent = submitLabel; $('modal-submit').classList.toggle('hidden', !submit);
@@ -62,7 +68,8 @@ function AddDestinations({ exclude = [], initialIds = null } = {}) {
   const excluded = () => typeof exclude === 'function' ? exclude() : exclude;
   const activeId = List().id, selected = new Set(initialIds || (excluded().includes(activeId) ? [] : [activeId])), box = Element('fieldset', 'add-destinations');
   box.append(Element('legend', '', '追加先のプレイリスト（複数選択可）'));
-  const choices = Element('div', 'destination-choices'), expanded = new Set(); let picker;
+  const choices = Element('div', 'destination-choices'), expanded = new Set(), revealed = new Set(); let picker;
+  for (const id of selected) tree.ExpandTo(state, id, expanded);
   const search = Element('input', 'destination-search'), trackSearch = Element('input', 'destination-track-search'), results = Element('div', 'destination-results');
   search.type = trackSearch.type = 'search'; search.placeholder = '追加先のプレイリスト名を検索'; trackSearch.placeholder = '選択した追加先の曲を検索（子も含む）';
   search.setAttribute('aria-label', search.placeholder); trackSearch.setAttribute('aria-label', trackSearch.placeholder);
@@ -72,10 +79,13 @@ function AddDestinations({ exclude = [], initialIds = null } = {}) {
     results.append(Element('p', 'form-note', `${matches.length}件${matches.length > 100 ? '（先頭100件を表示）' : ''}${!ids.length ? ' · 追加先にチェックしてください' : ''}`));
     for (const { p, e } of matches.slice(0, 100)) { const row = Element('p', 'destination-result'); row.append(Element('strong', '', EntryTitle(e)), Element('small', '', tree.Path(state, p.id).map(p => p.name).join('/'))); results.append(row); }
   };
-  const render = () => { picker = window.FavecusTreeView(choices, state, { checkboxes: true, expanded, selected, query: search.value, hidden: id => excluded().includes(id), onChange: inspect }); inspect(); };
+  const render = () => {
+    for (const id of excluded()) if (!revealed.has(id)) { tree.ExpandTo(state, id, expanded); revealed.add(id); }
+    picker = window.FavecusTreeView(choices, state, { checkboxes: true, expanded, selected, query: search.value, disabled: id => excluded().includes(id), onChange: inspect }); inspect();
+  };
   search.oninput = () => { picker?.get(); render(); }; trackSearch.oninput = inspect;
   const create = Button('＋ 新規プレイリストを作成', 'button secondary destination-create', () => CreateNestedPlaylist(id => { picker.get(); selected.add(id); tree.ExpandTo(state, id, expanded); render(); }));
-  box.append(search, choices, create, Element('small', 'form-note', 'チェックしたリストだけに追加します。検索で隠れた選択も保持します。'), trackSearch, results);
+  box.append(search, choices, create, Element('small', 'form-note', 'チェックしたリストだけに追加します。追加元は表示したまま選択不可にします。検索で隠れた選択も保持します。'), trackSearch, results);
   $('modal-body').append(box); render();
   const get = () => {
     const ids = picker.get().filter(id => !excluded().includes(id));
@@ -196,21 +206,19 @@ function AddLocalFiles() {
   destinations = AddDestinations();
 }
 function ExistingTracks() {
-  const selected = new Map(); let destinations;
+  const selected = new Map(); let destinations, sourcePicker;
   OpenModal('既存のプレイリストから追加', `<p class="form-note">曲を選んで、下の追加先にまとめて追加できます。元のリストにも残ります。</p>
-    <label class="field">追加元のプレイリスト<select id="existing-source"></select></label>
+    <div class="field"><span>追加元のプレイリスト</span><div id="existing-source"></div></div><p class="form-note">選択したリスト直属の曲を表示します。子リストは矢印で開いて選べます。「ライブラリ全体」ではすべての曲を表示します。</p>
     <label class="field">曲を検索<input id="existing-filter" type="search" placeholder="曲名・動画番号"></label>
     <div class="selection-tools"><button id="existing-all" type="button" class="button secondary">表示中の曲をすべて選択</button><button id="existing-none" type="button" class="button secondary">選択をすべて解除</button><span id="existing-count" role="status"></span></div>
     <div id="existing-tracks" class="favorite-list"></div><button id="existing-move" type="button" class="button secondary">既存のプレイリストから移動</button>`, () => AddSelected({ type: 'add-existing', entries: [...selected.values()] }, destinations()), '選択した曲を追加');
-  const all = Element('option', '', 'ライブラリ全体'); all.value = ''; $('existing-source').append(all);
-  for (const p of state.playlists) { const option = Element('option', '', `${p.name}（${p.entries.length}曲）`); option.value = p.id; $('existing-source').append(option); }
-  $('existing-source').value = state.playlists.find(p => p.id !== List().id && p.entries.length)?.id || '';
-  destinations = AddDestinations({ exclude: () => [...new Set([$ ('existing-source').value, ...[...selected.values()].map(e => e.playlistId)].filter(Boolean))] });
+  $('modal-actions').append($('existing-move'));
+  destinations = AddDestinations({ exclude: () => [...new Set([sourcePicker?.get(), ...[...selected.values()].map(e => e.playlistId)].filter(Boolean))] });
   $('existing-move').onclick = () => PerformModal(async () => { const result = await api.moveTracks({ entries: [...selected.values()], destinationIds: destinations() }); state = result.state; Render(); Toast(`${result.moved}曲を移動しました。`); }, true);
   let visible = [];
   const updateCount = () => { destinations.refresh(); $('existing-count').textContent = `${selected.size}曲を選択中`; $('modal-submit').disabled = !selected.size; if ($('existing-move')) $('existing-move').disabled = !selected.size; };
   const render = () => {
-    const filter = $('existing-filter').value.trim().toLowerCase(), source = $('existing-source').value, seen = new Set(); visible = [];
+    const filter = $('existing-filter').value.trim().toLowerCase(), source = sourcePicker?.get(), seen = new Set(); visible = [];
     $('existing-tracks').replaceChildren();
     for (const p of state.playlists) if (!source || source === p.id) for (const entry of p.entries) {
       const key = `${p.id}:${entry.id}`;
@@ -224,7 +232,8 @@ function ExistingTracks() {
     if (!visible.length) $('existing-tracks').append(Element('p', 'form-note', '追加できる曲がありません。追加元や検索条件を変更してください。'));
     updateCount();
   };
-  $('existing-source').onchange = render; $('existing-filter').oninput = render;
+  sourcePicker = window.FavecusParentPicker($('existing-source'), state, { selected: state.playlists.find(p => p.id !== List().id && p.entries.length)?.id || null, rootLabel: 'ライブラリ全体', label: '追加元のプレイリストを検索', onChange: render });
+  $('existing-filter').oninput = render;
   $('existing-all').onclick = () => { for (const { key, ref } of visible) selected.set(key, ref); render(); };
   $('existing-none').onclick = () => { selected.clear(); render(); }; render();
 }
@@ -244,15 +253,15 @@ function ExistingMenu() {
   existingPopup.style.top = `${bounds.bottom + 6}px`; existingPopup.style.left = `${Math.max(8, Math.min(bounds.left, window.innerWidth - 300))}px`;
 }
 function AttachPlaylists() {
-  const parent = List(); let picker;
-  OpenModal('プレイリスト単位で取り込む', '<p class="form-note">参照として子に登録します。同じリストの曲を編集すると、参照している場所にも反映されます。</p><div id="attach-lists" class="destination-choices"></div><label class="check-row"><input id="attach-remove" type="checkbox">取り込み元のプレイリストを削除する（この親へ移動）</label>', async () => {
+  const parent = List(), expanded = new Set(); tree.ExpandTo(state, parent.id, expanded); let picker;
+  OpenModal('プレイリスト単位で取り込む', '<p class="form-note">参照として子に登録します。同じリストの曲を編集すると、参照している場所にも反映されます。自分自身や循環につながるリストは選択不可です。矢印で子を開けます。</p><div id="attach-lists" class="destination-choices"></div><label class="check-row"><input id="attach-remove" type="checkbox">取り込み元のプレイリストを削除する（この親へ移動）</label>', async () => {
     await Action({ type: 'playlist-attach', playlistId: parent.id, ids: picker.get(), removeOriginal: $('attach-remove').checked });
   }, '取り込む');
-  picker = window.FavecusTreeView($('attach-lists'), state, { checkboxes: true, disabled: id => !tree.CanParent(state, id, parent.id) });
+  picker = window.FavecusTreeView($('attach-lists'), state, { checkboxes: true, expanded, disabled: id => !tree.CanParent(state, id, parent.id) });
 }
 function MovePlaylist(id) {
   let picker;
-  OpenModal('プレイリストを移動', '<div class="field"><span>新しい親プレイリスト</span><div id="move-parent"></div></div><p class="form-note">「最上位（親なし）」を選ぶと独立したリストに戻します。移動すると以前の親・最上位からの参照は外れます。</p><button id="move-new-parent" type="button" class="button secondary">新しい親プレイリストを作成する</button>', () => Action({ type: 'playlist-move', playlistId: id, parentId: picker.get() }), '移動する');
+  OpenModal('プレイリストを移動', '<div class="field"><span>新しい親プレイリスト</span><div id="move-parent"></div></div><p class="form-note">「最上位（親なし）」を選ぶと独立したリストに戻します。移動すると以前の親・最上位からの参照は外れます。自分自身と子孫は表示したまま選択不可にします。</p><button id="move-new-parent" type="button" class="button secondary">新しい親プレイリストを作成する</button>', () => Action({ type: 'playlist-move', playlistId: id, parentId: picker.get() }), '移動する');
   picker = window.FavecusParentPicker($('move-parent'), state, { excludeId: id });
   $('move-new-parent').onclick = () => CreateNestedPlaylist(async parentId => { await Action({ type: 'playlist-move', playlistId: id, parentId }); CloseModal(); }, id);
 }
@@ -289,7 +298,11 @@ function UpdateDownloads(value = {}) {
   downloadInfo = { ...downloadInfo, ...value }; const job = downloadInfo.job, busy = ['running', 'cancelling'].includes(job?.status);
   if (value.available) {
     savedKinds = new Map(); for (const item of value.available) { const kinds = savedKinds.get(item.url) || new Set(); kinds.add(item.kind); savedKinds.set(item.url, kinds); }
-    for (const badge of $('entries').querySelectorAll('.entry-type')) if (badge.dataset.mediaUrl) badge.textContent = SavedLabel(badge.dataset.mediaUrl);
+    for (const badge of $('entries').querySelectorAll('.entry-type')) if (badge.dataset.mediaUrl) PaintSavedBadge(badge, { type: 'bilibili', url: badge.dataset.mediaUrl });
+    for (const [badge, entry] of homeSearchBadges) PaintSavedBadge(badge, entry);
+    if ($('entry-download-state')) PaintSavedBadge($('entry-download-state'), { type: 'bilibili', url: $('entry-download-state').dataset.mediaUrl });
+    if ($('download-entry-saved') && downloadSingle) PaintSavedBadge($('download-entry-saved'), { type: 'bilibili', url: downloadSingle.entryURL });
+    if (state) UpdateTransport();
   }
   $('downloads-status').textContent = busy ? `保存中 ${job.finished} / ${job.total}件` : '動画・音声の保存';
   clearTimeout(downloadPanelTimer);
@@ -305,20 +318,35 @@ function UpdateDownloads(value = {}) {
   }
   if (!$('download-start')) return;
   $('download-path').textContent = downloadInfo.directory || '標準の保存先';
-  for (const id of ['download-kind', 'download-children', 'download-directory', 'download-list-picker', 'download-recalculate']) $(id).disabled = busy || downloadStarting;
+  for (const id of ['download-kind', 'download-children', 'download-directory', 'download-list-picker', 'download-recalculate']) if ($(id)) $(id).disabled = busy || downloadStarting;
   $('download-start').disabled = busy || downloadStarting || !downloadTargetCount;
   $('download-height').disabled = busy || downloadStarting || $('download-kind').value === 'audio'; $('download-stop').disabled = !busy || job?.status === 'cancelling';
   const states = { running: '保存中', cancelling: '中止しています', cancelled: '中止', completed: '完了', partial: '一部を保存できませんでした', failed: '中断' };
   $('download-progress').textContent = job ? `${job.playlistName}：${states[job.status]} · ${job.finished} / ${job.total}件\n保存 ${job.completed}件 · 保存済み ${job.skipped}件 · 失敗 ${job.failed}件\n${job.phase ? `${job.phase}：${job.title}` : job.message || ''}${job.phase === 'ダウンロード中' ? `\n${(job.bytes / 1048576).toFixed(1)} MB${job.totalBytes ? ` / ${(job.totalBytes / 1048576).toFixed(1)} MB` : ''}` : ''}` : downloadInfo.warning || '形式を選んで「保存を開始」を押してください。';
   if (job) $('download-progress').textContent += `\n全体の取得量：${DownloadBytes(job.downloadedBytes || 0)}${job.estimate && (!job.estimate.unknown || job.estimate.projected) ? ` / 約${DownloadBytes(job.estimate.downloadBytes)}` : ''} · 経過 ${DownloadTime(job.elapsedSeconds || 0)} · 残り ${job.remainingSeconds == null ? '計測中' : `約${DownloadTime(job.remainingSeconds)}`}`;
   if (job?.active?.length) $('download-progress').textContent += `\n${job.active.map(a => `${a.phase}：${a.title}`).join('\n')}`;
-  if (!downloadEstimate && value?.estimateProgress?.playlistId === downloadPicker?.get()) $('download-estimate').textContent = `容量を確認中 ${value.estimateProgress.checked} / ${value.estimateProgress.total}件…`;
-  if (busy && job.estimate && job.playlistId === downloadPicker?.get()) $('download-estimate').textContent = DownloadEstimateText(job.estimate);
+  if (!downloadEstimate && value?.estimateProgress?.playlistId === downloadPicker?.get() && (value.estimateProgress.entryId || null) === (downloadSingle?.entryId || null)) $('download-estimate').textContent = `容量を確認中 ${value.estimateProgress.checked} / ${value.estimateProgress.total}件…`;
+  if (busy && job.estimate && DownloadJobMatches(job)) $('download-estimate').textContent = DownloadEstimateText(job.estimate);
   if (wasBusy && !busy) void refreshDownloadEstimate?.();
   $('download-errors').replaceChildren(); for (const failure of job?.failures?.slice(-20) || []) $('download-errors').append(Element('p', '', `${failure.title}：[${failure.code || 'FP-DOWNLOAD-UNKNOWN'}] ${failure.message}${failure.recordId ? ` 記録ID: ${failure.recordId}` : ''}`));
   for (const warning of job?.warnings?.slice(-20) || []) $('download-errors').append(Element('p', 'form-note', `${warning.title}：[${warning.code || 'FP-DOWNLOAD-COVER'}] ${warning.message}${warning.recordId ? ` 記録ID: ${warning.recordId}` : ''}`));
 }
-function SavedLabel(url) { const kinds = savedKinds.get(url); return kinds?.has('video') ? '動画保存済み' : kinds?.has('audio') ? '音声保存済み' : 'オンライン'; }
+function SavedState(entry) {
+  if (entry.type === 'local') return entry.missing ? { label: 'ファイルなし', detail: 'ローカルファイルが見つかりません。', kind: 'missing' } : { label: 'オフライン', detail: 'PC内のローカルファイルです。', kind: 'local' };
+  const kinds = savedKinds.get(entry.url), video = kinds?.has('video'), audio = kinds?.has('audio');
+  return video ? { label: 'DL済み', detail: audio ? '動画と音声を保存済みです。' : '動画を保存済みです。', kind: audio ? 'both' : 'video' }
+    : audio ? { label: '音声DL済み', detail: '音声のみ保存済みです。動画は未保存です。', kind: 'audio' }
+    : { label: 'オンライン', detail: '動画・音声は未保存です。', kind: 'none' };
+}
+function PaintSavedBadge(badge, entry, playbackDetail = '') {
+  const value = SavedState(entry), detail = value.detail + (playbackDetail ? ` ${playbackDetail}` : '');
+  if (badge.textContent !== value.label) badge.textContent = value.label;
+  if (badge.title !== detail) badge.title = detail;
+  const label = `${value.label}：${detail}`; if (badge.getAttribute('aria-label') !== label) badge.setAttribute('aria-label', label);
+  if (badge.dataset.savedKind !== value.kind) badge.dataset.savedKind = value.kind;
+  if (entry.type === 'bilibili') { if (badge.dataset.mediaUrl !== entry.url) badge.dataset.mediaUrl = entry.url; }
+  else delete badge.dataset.mediaUrl;
+}
 function DownloadBytes(bytes) { return bytes >= 1073741824 ? `${(bytes / 1073741824).toFixed(2)} GB` : `${(bytes / 1048576).toFixed(1)} MB`; }
 function DownloadTime(seconds) { if (seconds < 60) return `${Math.ceil(seconds)}秒`; const minutes = Math.ceil(seconds / 60); return minutes < 60 ? `${minutes}分` : `${Math.floor(minutes / 60)}時間${minutes % 60}分`; }
 function DownloadEstimateText(e) {
@@ -328,47 +356,52 @@ function DownloadEstimateText(e) {
     + (e.freeBytes != null && e.requiredBytes > e.freeBytes ? '\n空き容量が不足する見込みです。保存先を変更してください。' : '')
     + (e.failures?.length ? `\n${e.failures.map(f => `${f.title}：[${f.code || 'FP-DOWNLOAD-METADATA'}] ${f.message}`).join('\n')}` : '');
 }
-function DownloadsDialog() {
-  const list = List(); if (!list) return;
+function DownloadEntry(target) { return state.playlists.find(p => p.id === target.playlistId)?.entries.find(e => e.id === target.entryId && e.type === 'bilibili' && e.url === target.entryURL); }
+function DownloadJobMatches(job) { return job.playlistId === downloadPicker?.get() && (job.entryId || null) === (downloadSingle?.entryId || null) && job.kind === $('download-kind').value && (job.kind === 'audio' || job.height === Number($('download-height').value)); }
+function DownloadsDialog(target = null, back = null) {
+  const list = target ? state.playlists.find(p => p.id === target.playlistId) : List(), single = target && DownloadEntry(target);
+  if (!list || target && !single) { Toast('保存対象が変更されました。動画の編集を開き直してください。'); return; }
   downloadEstimate = null; downloadTargetCount = 0;
-  OpenModal('プレイリストの動画・音声を保存', `<fieldset id="download-list-picker" class="download-picker"></fieldset>
+  OpenModal(target ? 'この動画のみをダウンロード' : 'プレイリストの動画・音声を保存', `${target ? '<section class="download-target"><p class="form-note">保存対象（1曲）</p><strong id="download-entry-title"></strong><p id="download-entry-meta" class="form-note"></p><p id="download-entry-saved" class="status-detail"></p></section><p class="form-note">表示名の変更はここでは保存しません。「戻る」で編集画面へ戻れます。</p>' : '<fieldset id="download-list-picker" class="download-picker"></fieldset>'}
     <label class="field">保存形式<select id="download-kind"><option value="video">動画（MP4）</option><option value="audio">音声のみ（M4A）</option></select></label>
     <label class="field">動画の画質<select id="download-height"><option value="720">標準：720p（画質と容量のバランス）</option><option value="360">小さめ：360p</option><option value="1080">高画質：1080p</option></select></label>
     <p class="form-note">配信済みのH.264・AACを再圧縮せず保存します。音声は原則192 kbps以下の最良候補を選びます。配信内容により指定画質と異なる場合があります。</p>
-    <label class="check-row"><input id="download-children" type="checkbox">子プレイリストも含める</label>
+    ${target ? '' : '<label class="check-row"><input id="download-children" type="checkbox">子プレイリストも含める</label>'}
     <p id="download-count" class="form-note"></p><p class="form-note">保存先</p><p id="download-path" class="download-path"></p>
     <div class="settings-actions"><button id="download-directory" type="button" class="button secondary">保存先を変更</button><button id="download-open" type="button" class="button secondary">保存先を開く</button></div>
     <p class="form-note">最大3曲を同時に保存します。容量の確認が途中でも開始でき、保存しながら容量と残り時間を更新します。この画面を閉じても保存は続き、左下に進捗を表示します。保存済み・オンラインの再生優先は、設定の「再生・表示」で選べます。</p>
     <p id="download-estimate" class="form-note download-estimate" role="status" aria-live="polite"></p><button id="download-recalculate" type="button" class="button secondary">容量・時間を再計算</button>
     <div class="settings-actions"><button id="download-start" type="button" class="button primary">保存を開始</button><button id="download-stop" type="button" class="button secondary">保存を中止</button></div>
-    <p id="download-progress" class="status-detail download-progress" role="status" aria-live="polite"></p><div id="download-errors" class="download-errors"></div>`, null);
+    <p id="download-progress" class="status-detail download-progress" role="status" aria-live="polite"></p><div id="download-errors" class="download-errors"></div>`, null, '保存', back);
+  downloadSingle = target;
+  if (target) { $('download-entry-title').textContent = EntryTitle(single); $('download-entry-meta').textContent = `${single.videoId} / パート ${single.part}`; PaintSavedBadge($('download-entry-saved'), single); }
   const epoch = modalEpoch; let revision = 0;
   const valid = () => modalEpoch === epoch && $('modal').open;
-  const options = () => ({ playlistId: downloadPicker.get(), kind: $('download-kind').value, height: Number($('download-height').value), includeChildren: $('download-children').checked });
+  const options = () => ({ playlistId: downloadPicker.get(), kind: $('download-kind').value, height: Number($('download-height').value), includeChildren: target ? false : $('download-children').checked, ...(target ? { entryId: target.entryId, entryURL: target.entryURL } : {}) });
   const recalculate = async () => {
     const nonce = ++revision; downloadEstimate = null;
     if (!valid()) return;
-    const input = options(), selected = state.playlists.find(p => p.id === input.playlistId), entries = selected ? (input.includeChildren ? tree.Entries(state, selected.id) : selected.entries) : [];
+    const input = options(), selected = state.playlists.find(p => p.id === input.playlistId), entries = target ? (DownloadEntry(target) ? [DownloadEntry(target)] : []) : selected ? (input.includeChildren ? tree.Entries(state, selected.id) : selected.entries) : [];
     const count = new Set(entries.filter(e => e.type === 'bilibili').map(e => e.url)).size;
     downloadTargetCount = count;
-    $('download-count').textContent = `保存対象 ${count}件（同じURLは1回・ローカルファイルは対象外）`; UpdateDownloads();
-    if (['running', 'cancelling'].includes(downloadInfo.job?.status)) { if (downloadInfo.job.estimate) $('download-estimate').textContent = DownloadEstimateText(downloadInfo.job.estimate); return; }
+    $('download-count').textContent = target ? count ? 'この動画・パートの1曲だけを保存します。' : '対象の曲が移動・削除されました。編集画面を開き直してください。' : `保存対象 ${count}件（同じURLは1回・ローカルファイルは対象外）`; UpdateDownloads();
+    if (['running', 'cancelling'].includes(downloadInfo.job?.status)) { $('download-estimate').textContent = downloadInfo.job.estimate && DownloadJobMatches(downloadInfo.job) ? DownloadEstimateText(downloadInfo.job.estimate) : '別の保存処理が進行中です。終了後に容量を確認します。'; return; }
     if (!count) { $('download-estimate').textContent = '保存対象のBilibili動画がありません。'; return; }
     $('download-estimate').textContent = '容量・時間を確認しています…';
     try { const result = await api.estimateDownload(input); if (!valid() || nonce !== revision) return; downloadEstimate = result; $('download-estimate').textContent = DownloadEstimateText(result); }
     catch (error) { if (valid() && nonce === revision) $('download-estimate').textContent = `見積もりを取得できませんでした。${error.message}`; }
     finally { if (valid() && nonce === revision) UpdateDownloads(); }
   };
-  downloadPicker = window.FavecusParentPicker($('download-list-picker'), state, { selected: downloadInfo.job?.status === 'running' ? downloadInfo.job.playlistId : list.id, allowRoot: false, label: '保存するプレイリストを検索', onChange: () => { void recalculate(); } });
-  $('download-kind').value = 'video'; $('download-height').value = '720'; $('download-children').checked = true;
+  downloadPicker = target ? { get: () => target.playlistId } : window.FavecusParentPicker($('download-list-picker'), state, { selected: downloadInfo.job?.status === 'running' ? downloadInfo.job.playlistId : list.id, allowRoot: false, label: '保存するプレイリストを検索', onChange: () => { void recalculate(); } });
+  $('download-kind').value = 'video'; $('download-height').value = '720'; if ($('download-children')) $('download-children').checked = true;
   refreshDownloadEstimate = recalculate;
-  cancelModal = () => { revision++; downloadEstimate = null; downloadPicker = null; refreshDownloadEstimate = null; return api.cancelDownloadEstimate(); };
-  for (const id of ['download-children', 'download-kind', 'download-height']) $(id).onchange = () => { void recalculate(); };
+  cancelModal = () => { revision++; downloadEstimate = null; downloadPicker = null; downloadSingle = null; refreshDownloadEstimate = null; return api.cancelDownloadEstimate(); };
+  for (const id of ['download-children', 'download-kind', 'download-height']) if ($(id)) $(id).onchange = () => { void recalculate(); };
   $('download-recalculate').onclick = () => { void recalculate(); };
   $('download-start').onclick = () => Run(async () => {
     if (!downloadTargetCount || downloadStarting || ['running', 'cancelling'].includes(downloadInfo.job?.status)) return;
     const input = { ...options(), ...(downloadEstimate ? { estimateId: downloadEstimate.id } : {}) }; revision++; downloadEstimate = null; downloadStarting = true; UpdateDownloads();
-    try { const result = await api.downloadPlaylist(input); UpdateDownloads(result); if (valid()) CloseModal(); }
+    try { const result = await api.downloadPlaylist(input); UpdateDownloads(result); if (valid()) { if (back) back(); else CloseModal(); } }
     finally { downloadStarting = false; if (valid()) UpdateDownloads(); }
   });
   $('download-stop').onclick = () => Run(async () => UpdateDownloads(await api.cancelDownload()));
@@ -377,10 +410,21 @@ function DownloadsDialog() {
   UpdateDownloads(); void recalculate(); void Run(async () => { const value = await api.downloads(); if (valid() && !downloadStarting) UpdateDownloads(value); });
 }
 
-function EntryMenu(entry) {
+function EntryMenu(entry, draft = undefined) {
   const p = state.playlists.find(p => p.id === entry.playlistId) || List();
-  OpenModal('動画の編集', '<label class="field">表示する名前<input id="entry-title-input" maxlength="180"></label><div class="settings-actions" id="entry-actions"></div><p class="form-note">上下への移動で、再生順を変更できます。</p>', () => Action({ type: 'title', playlistId: p.id, entryId: entry.id, title: $('entry-title-input').value }));
-  $('entry-title-input').value = EntryTitle(entry);
+  OpenModal('動画の編集', '<label class="field">表示する名前<input id="entry-title-input" maxlength="180"></label>' + (entry.type === 'bilibili' ? '<section class="entry-download"><p id="entry-download-state" class="status-detail"></p><button id="entry-download-button" type="button" class="button secondary">この動画のみをダウンロード</button><p class="form-note">この動画・パートの1曲を保存します。表示名の変更は「保存」で確定します。</p></section>' : '') + '<div class="settings-actions" id="entry-actions"></div><p class="form-note">上下への移動で、再生順を変更できます。</p>', () => Action({ type: 'title', playlistId: p.id, entryId: entry.id, title: $('entry-title-input').value }));
+  $('entry-title-input').value = draft ?? EntryTitle(entry);
+  if (entry.type === 'bilibili') {
+    PaintSavedBadge($('entry-download-state'), entry);
+    $('entry-download-button').onclick = () => {
+      const value = $('entry-title-input').value, target = { playlistId: p.id, entryId: entry.id, entryURL: entry.url };
+      DownloadsDialog(target, () => {
+        const latest = DownloadEntry(target);
+        if (!latest) { CloseModal(); Toast('対象の曲が変更されました。編集画面を開き直してください。'); return; }
+        EntryMenu({ ...latest, playlistId: p.id }, value);
+      });
+    };
+  }
   const index = p.entries.findIndex(e => e.id === entry.id);
   for (const [label, direction] of [['↑ 上へ', -1], ['↓ 下へ', 1]]) {
     const b = Button(label, 'button secondary', async () => { await Action({ type: 'move', playlistId: p.id, entryId: entry.id, direction }); CloseModal(); });
@@ -698,21 +742,36 @@ function PlaylistURL(prefill = {}) {
   if (prefill.url) { $('playlist-source-url').value = prefill.url; void browser.Search(prefill.url); }
 }
 function Transfer() {
-  OpenModal('プレイリストの出力・取り込み', `<p class="form-note">プレイリスト・ローカルファイル・保存済みの動画と音声・サムネイルをZIPにまとめます。出力・取り込みにパスワードは不要です。ログイン情報とアプリ設定は含みません。</p>
-    <div class="settings-actions"><button type="button" id="export-button" class="button primary">ZIPで出力</button><button type="button" id="import-button" class="button secondary">ZIP・旧JSONを取り込む</button></div>`, null, '保存', Settings);
-  const epoch = modalEpoch;
-  $('export-button').onclick = () => Run(async () => {
-    $('export-button').disabled = true;
-    try { const result = await api.exportLibrary(); if (epoch === modalEpoch && result) Toast(`ZIPを出力しました。${result.downloaded ? `保存済み動画・音声 ${result.downloaded}件を同梱しました。` : ''}${result.missing ? `見つからないローカルファイル：${result.missing}件。` : ''}`); }
-    finally { if (epoch === modalEpoch) $('export-button').disabled = false; }
+  OpenModal('プレイリストの出力・取り込み', `<p class="form-note">ライブラリ内のすべてのプレイリストを、親子関係と並び順を保って出力します。ログイン情報とアプリ設定は含みません。パスワードは不要です。</p>
+    <div class="share-options"><section class="share-option"><h3>プレイリスト情報のみ</h3><p class="share-purpose">主な用途：PC・スマホ間で情報を共有</p><p class="form-note">リスト名、親子関係、並び順、曲名、動画リンク、パート番号などを含めます。動画・音声ファイルとDLサムネイルは含めません。</p><button type="button" id="export-information" class="button primary">プレイリスト情報のみ出力</button><p class="form-note">JSON（標準）またはZIP。ローカル曲は登録情報のみです。</p></section>
+    <section class="share-option"><h3>DLデータ付き</h3><p class="share-purpose">主な用途：PC間で情報と保存データを共有</p><p class="form-note">上記の情報と、保存済みの動画・音声・サムネイルをZIPにまとめます。ローカルファイルも同梱します。</p><button type="button" id="export-media" class="button primary">DLデータを含めて出力</button><p class="form-note">未保存の曲はリンク情報を保持します。ローカルファイルの不足は完了時に件数を案内します。</p></section></div>
+    <p class="form-note">取り込みでは、取り込むリストと取り込み先の親を選べます。情報のみのJSON・ZIP、DLデータ付きZIP、旧形式に対応します。</p><button type="button" id="import-button" class="button secondary">JSON・ZIPを取り込む</button><p id="share-status" class="status-detail" role="status" aria-live="polite"></p>`, null, '保存', Settings);
+  const epoch = modalEpoch; let busy = false;
+  const valid = () => epoch === modalEpoch && $('modal').open;
+  const controls = () => { if (valid()) for (const id of ['export-information', 'export-media', 'import-button']) $(id).disabled = busy; };
+  const perform = task => Run(async () => {
+    if (busy) return;
+    busy = true; controls();
+    try { await task(); }
+    catch (error) { if (valid()) $('share-status').textContent = `処理を完了できませんでした。${error.message}`; throw error; }
+    finally { busy = false; controls(); }
   });
-  $('import-button').onclick = () => Run(async () => {
-    $('import-button').disabled = true;
-    try {
-      const result = await api.importLibrary(); if (!result) return;
-      if (epoch !== modalEpoch || !$('modal').open) { await api.cancelImport(result.id); return; }
-      ImportSelection(result);
-    } finally { if (epoch === modalEpoch) $('import-button').disabled = false; }
+  const output = mode => perform(async () => {
+    $('share-status').textContent = '出力先を選んでください。ファイルを作成しています…';
+    const result = await api.exportLibrary({ mode }); if (!valid()) return;
+    if (!result) { $('share-status').textContent = '出力をキャンセルしました。'; return; }
+    const format = result.file?.toLowerCase().endsWith('.json') ? 'JSON' : 'ZIP';
+    const message = mode === 'information' ? `プレイリスト情報を${format}で出力しました。${result.omitted ? `ローカルファイル ${result.omitted}件は含めていません。` : ''}`
+      : `DLデータ付きZIPを出力しました。保存済み動画・音声 ${result.downloaded || 0}件を同梱しました。${result.missing ? `見つからないローカルファイル：${result.missing}件。` : ''}`;
+    $('share-status').textContent = message; Toast(message);
+  });
+  $('export-information').onclick = () => output('information'); $('export-media').onclick = () => output('media');
+  $('import-button').onclick = () => perform(async () => {
+    $('share-status').textContent = '取り込むファイルを選んでください。内容を確認しています…';
+    const result = await api.importLibrary();
+    if (!result) { if (valid()) $('share-status').textContent = '取り込みをキャンセルしました。'; return; }
+    if (!valid()) { await api.cancelImport(result.id); return; }
+    ImportSelection(result);
   });
 }
 function ImportSelection(plan) {
@@ -725,10 +784,11 @@ function ImportSelection(plan) {
     try {
       const result = await api.commitImport(plan.id, ids, { parentId: destination.get() });
       cancelModal = null; state = result.state; allListsView = false; tree.ExpandTo(state, state.activePlaylistId, expandedLists); Render();
-      Toast(`${result.imported}リストを親子関係を保って取り込みました。${result.ancestors ? `祖先 ${result.ancestors}リストは階層を保つために追加しました。` : ''}${result.downloaded ? `保存済み動画・音声 ${result.downloaded}件を復元しました。` : ''}${result.missing ? `ファイル不足：${result.missing}件。` : ''}`);
+      Toast(`${result.imported}リストを親子関係を保って取り込みました。${result.ancestors ? `祖先 ${result.ancestors}リストは階層を保つために追加しました。` : ''}${result.downloaded ? `保存済み動画・音声 ${result.downloaded}件を復元しました。` : ''}${result.missing ? `ファイル不足：${result.missing}件。` : ''}${result.omitted ? `ローカル曲 ${result.omitted}件は登録情報のみ取り込みました。` : ''}`);
     } finally { importing = false; if ($('archive-import-all')) $('archive-import-all').disabled = false; }
   };
-  OpenModal('取り込むプレイリストを選択', '<p class="form-note">親を選ぶと子孫もまとめて取り込みます。子だけを選んでも元の祖先を構造として残します。未選択の祖先の曲や、無関係な兄弟は取り込みません。同名リストは別名で追加します。</p><div class="field"><span>取り込み先の親プレイリスト</span><div id="archive-parent"></div></div><label class="field">取り込むリストを検索<input id="archive-search" type="search" placeholder="プレイリスト名を検索"></label><div class="settings-actions"><button id="archive-select-all" type="button" class="button secondary">すべて選択</button><button id="archive-select-none" type="button" class="button secondary">選択を解除</button><button id="archive-import-all" type="button" class="button primary">すべて取り込む</button></div><p id="archive-selection-summary" class="form-note" role="status"></p><div id="archive-lists" class="archive-lists"></div>', () => commit(picker.get()), '選択したリストを取り込む');
+  OpenModal('取り込むプレイリストを選択', '<p id="archive-content-summary" class="form-note"></p><p class="form-note">親を選ぶと子孫もまとめて取り込みます。子だけを選んでも元の祖先を構造として残します。未選択の祖先の曲や、無関係な兄弟は取り込みません。同名リストは別名で追加します。</p><div class="field"><span>取り込み先の親プレイリスト</span><div id="archive-parent"></div></div><label class="field">取り込むリストを検索<input id="archive-search" type="search" placeholder="プレイリスト名を検索"></label><div class="settings-actions"><button id="archive-select-all" type="button" class="button secondary">すべて選択</button><button id="archive-select-none" type="button" class="button secondary">選択を解除</button><button id="archive-import-all" type="button" class="button primary">すべて取り込む</button></div><p id="archive-selection-summary" class="form-note" role="status"></p><div id="archive-lists" class="archive-lists"></div>', () => commit(picker.get()), '選択したリストを取り込む');
+  $('archive-content-summary').textContent = plan.mode === 'information' ? '情報のみ：動画・音声ファイルとDLサムネイルは含まれていません。ローカル曲は登録情報のみです。' : plan.mode === 'media' ? 'DLデータ付き：同梱された動画・音声・サムネイルとローカルファイルを復元します。' : '既存形式のプレイリストを取り込みます。';
   cancelModal = () => api.cancelImport(plan.id);
   destination = window.FavecusParentPicker($('archive-parent'), state, { selected: null, label: '取り込み先の親を検索' });
   const summary = () => {
@@ -758,7 +818,7 @@ function UpdateCurrentRows() {
 }
 const queueFollower = window.FavecusQueueFollow ? new window.FavecusQueueFollow.QueueFollower({
   now: () => Date.now(), schedule: callback => requestAnimationFrame(callback), foreground: () => foreground,
-  allowed: () => !!PlayingRow() && !$('modal').open && !dragged && !playlistDrag.value,
+  allowed: () => !allListsView && !!PlayingRow() && !$('modal').open && !dragged && !playlistDrag.value,
   align: () => {
     const list = $('entries'), row = PlayingRow();
     if (!row) return;
@@ -826,9 +886,10 @@ function MakePlaylistRow(item) {
 }
 function RenderEntries() {
   queueDrag?.Cancel();
-  const filter = $('filter').value.toLowerCase().trim(), items = DisplayRows(filter);
+  const filter = $('filter').value.toLowerCase().trim(), items = allListsView ? [] : DisplayRows(filter);
   listArtwork?.Reset(); listArtwork?.SetEnabled(foreground); durationObserver?.disconnect(); durationQueue.clear();
   const list = $('entries'), scrollTop = list.scrollTop; list.replaceChildren(); entryRows.clear(); playlistRows.clear(); playlistExpandButtons.clear(); highlightedRow = null;
+  if (allListsView) return;
   if (!items.length) {
     const empty = Element('div', 'empty-list'); empty.append(Element('strong', '', '＋'), Element('span', '', filter ? '一致する動画がありません。' : '動画を追加すると、ここに再生リストが表示されます。')); list.append(empty);
   }
@@ -849,7 +910,7 @@ function RenderEntries() {
     info.append(Element('strong', '', EntryTitle(entry)), Element('small', '', entry.type !== 'local' ? `${EntryDuration(entry)} · ${entry.videoId} · P${entry.part || 1}` : `${EntryDuration(entry)} · このPCに保存したファイル`));
     info.dataset.durationEntry = entry.id;
     if (!entry.duration) { row.durationEntry = entry; durationObserver?.observe(row); }
-    const badge = Element('span', 'entry-type', entry.missing ? 'ファイルなし' : entry.type !== 'local' ? SavedLabel(entry.url) : 'オフライン'); if (entry.type === 'bilibili') badge.dataset.mediaUrl = entry.url; row.append(info, badge);
+    const badge = Element('span', 'entry-type'); PaintSavedBadge(badge, entry); row.append(info, badge);
     row.append(Button('•••', 'icon-button', () => EntryMenu(entry), `${EntryTitle(entry)}を編集`));
     list.append(row);
   }
@@ -858,6 +919,56 @@ function RenderEntries() {
   UpdateCurrentRows();
   $('play-all').disabled = PlaybackEntries().length === 0;
 }
+async function OpenPlaylist(id) {
+  const result = await api.action({ type: 'select', playlistId: id });
+  state = result; allListsView = false; $('filter').value = ''; tree.ExpandTo(state, id, expandedLists); Render();
+}
+function RenderHome() {
+  searchArtwork?.Reset(); searchArtwork?.SetEnabled(false); homeSearchBadges.clear();
+  if (!allListsView) return;
+  const searching = !!$('home-query').value.trim(); $('home-search-clear').disabled = !$('home-query').value;
+  if (searching && !homeSearchActive) homeScrollTop = $('home').scrollTop;
+  const restore = homeSearchActive && !searching; homeSearchActive = searching;
+  if (searching) { RenderHomeSearch(); return; }
+  const view = window.FavecusHome.Render($('home'), state, {
+    path: homePath, page: homePage,
+    onNavigate: (path, page) => { homePath = path; homePage = page; RenderHome(); $('home').scrollTop = 0; $('home').querySelector('h1')?.focus(); },
+    onOpen: id => Run(() => OpenPlaylist(id)), onPlay: id => PlaybackAction(() => api.play(id)),
+    onSort: SortLists, onCreate: NewList,
+    onInclude: (id, value) => Run(async () => { try { await Action({ type: 'playlist-properties', playlistId: id, includeInAll: value }); } finally { RenderHome(); } })
+  });
+  homePath = view.path.map(p => p.id); homePage = view.page;
+  if (restore) $('home').scrollTop = homeScrollTop;
+}
+function RenderHomeSearch() {
+  if (homeSearchState !== state) { homeSearchIndex = window.FavecusSearch.Index(state); homeSearchState = state; }
+  const query = $('home-query').value, view = window.FavecusSearch.Page(homeSearchIndex, query, homeSearchPage);
+  homeSearchPage = view.page;
+  const box = $('home'), scrollTop = box.scrollTop; box.replaceChildren();
+  box.append(Element('h1', 'home-search-title', '検索結果'));
+  const summary = Element('p', 'home-search-summary', `「${query}」 · ${view.total}件の登録（同じ動画も所属リストごとに表示）`); summary.setAttribute('role', 'status'); box.append(summary);
+  const results = Element('div', 'home-results'); results.setAttribute('aria-label', '全登録曲の検索結果');
+  for (const item of view.items) {
+    const { entry, playlistId } = item, row = Element('article', 'home-result'); row.dataset.ownerId = playlistId; row.dataset.entryId = entry.id;
+    const image = Element('img', 'home-result-cover'); image.alt = ''; image.width = image.height = 56; image.src = 'music.png'; image.draggable = false;
+    searchArtwork?.Add(image, playlistId, entry.id);
+    const play = () => PlaybackAction(() => api.play(playlistId, entry.id));
+    const info = Button('', 'home-result-info', play, `${EntryTitle(entry)}を${item.playlistName}から再生`);
+    const path = Element('small', 'home-result-path', item.pathText); path.title = item.pathText;
+    info.append(Element('strong', '', EntryTitle(entry)), path, Element('small', 'home-result-source', entry.type === 'local' ? 'ローカルファイル' : `${entry.videoId} · P${entry.part || 1}`));
+    const badge = Element('span', 'entry-type home-result-saved'); PaintSavedBadge(badge, entry); homeSearchBadges.set(badge, entry);
+    row.append(image, info, badge, Button('▶ 再生', 'button play-button', play, `${EntryTitle(entry)}を再生`), Button('所属リストを開く', 'button secondary home-result-open', () => OpenPlaylist(playlistId), `${item.pathText}を開く`));
+    results.append(row);
+  }
+  if (!view.total) results.append(Element('p', 'home-empty', '一致する登録曲がありません。曲名・リスト名・動画ID・URLを変えて検索してください。'));
+  const pager = Element('div', 'home-pager'); pager.setAttribute('aria-label', '検索結果のページ');
+  const turn = page => { homeSearchPage = page; RenderHome(); box.scrollTop = 0; box.querySelector('h1')?.focus(); };
+  const previous = Button('← 前へ', 'button secondary', () => turn(view.page - 1)); previous.disabled = !view.page;
+  const next = Button('次へ →', 'button secondary', () => turn(view.page + 1)); next.disabled = view.page + 1 >= view.pages;
+  pager.append(previous, Element('span', 'home-page-status', `${view.total ? view.page * window.FavecusSearch.PAGE_SIZE + 1 : 0}–${Math.min(view.total, (view.page + 1) * window.FavecusSearch.PAGE_SIZE)} / ${view.total} 件 · ${view.page + 1} / ${view.pages} ページ`), next);
+  box.append(results, pager); box.querySelector('h1').tabIndex = -1; box.scrollTop = scrollTop;
+  searchArtwork?.SetEnabled(foreground && !$('modal').open);
+}
 function Render() {
   if (!state) return;
   document.body.style.setProperty('--sidebar-width', `${state.settings.sidebarWidth || 218}px`);
@@ -865,6 +976,11 @@ function Render() {
   $('all-count').textContent = `${state.playlists.reduce((n, p) => n + p.entries.length, 0)}曲`;
   $('all-count').title = `${state.playlists.length}リストの登録曲数（重複登録を含む）`;
   $('all-lists').setAttribute('aria-pressed', String(allListsView));
+  $('home').classList.toggle('hidden', !allListsView);
+  $('home-search').classList.toggle('hidden', !allListsView);
+  $('home-notice').classList.toggle('hidden', !allListsView);
+  (allListsView ? $('home-notice') : $('player-area')).append($('toast'));
+  $('workspace').classList.toggle('hidden', allListsView); $('bili-heading').classList.toggle('hidden', allListsView);
   const p = List(), count = PlaybackEntries().length;
   const parentId = allListsView ? null : tree.Parent(state, p.id);
   $('playlist-up').classList.toggle('hidden', !parentId);
@@ -882,13 +998,13 @@ function Render() {
   $('repeat').classList.toggle('enabled', state.settings.repeat !== 'off');
   $('breadcrumb').textContent = 'マイライブラリ / プレイリスト';
   SyncVolume(state.settings.volume);
-  RenderEntries(); RenderPlayer(); RenderNext(); UpdateStatus(); UpdateAccounts(); BackgroundInteractive(foreground);
+  RenderEntries(); RenderHome(); RenderPlayer(); RenderNext(); UpdateStatus(); UpdateAccounts(); BackgroundInteractive(foreground);
 }
 function HasView() { return HasPlayback(current); }
 function SendBounds() {
   if (!api?.bounds) return;
   const b = $('player-slot').getBoundingClientRect();
-  api.bounds({ x: b.x, y: b.y, width: b.width, height: b.height, modalOpen: !!$('modal').open, visible: HasView() && !state?.settings.thumbnailMode && !$('modal').open });
+  api.bounds({ x: b.x, y: b.y, width: b.width, height: b.height, modalOpen: !!$('modal').open, visible: !allListsView && HasView() && !state?.settings.thumbnailMode && !$('modal').open });
 }
 async function SelectDisplayMode(mode) {
   if (!['song', 'video'].includes(mode) || !state) return;
@@ -920,11 +1036,26 @@ function Time(seconds) {
   return n >= 3600 ? `${Math.floor(n / 3600)}:${String(Math.floor(n / 60) % 60).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}` : `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}`;
 }
 function Transport() { return TransportState({ current, playback, entries: PlaybackEntries() }); }
+function PlayingPath() {
+  const queued = queueInfo?.timeline?.current;
+  const scope = queued && queued.id === current.entryId && queued.playlistId === current.playlistId ? queueInfo.playlistId : current.queuePlaylistId || '*';
+  if (!playingLocation || playingLocation.state !== state || playingLocation.owner !== current.playlistId || playingLocation.scope !== scope) {
+    playingLocation = { state, owner: current.playlistId, scope, path: ['ホーム', ...tree.Path(state, current.playlistId, scope).map(p => p.name)].join(' ＞ ') };
+  }
+  return playingLocation.path;
+}
 function UpdateTransport() {
   const { internal, data, canStart, canSeek } = Transport();
   $('now-title').textContent = data?.title || (current?.entry ? EntryTitle(current.entry) : canStart ? List().name : '再生していません');
   $('now-title').title = $('now-title').textContent;
-  $('now-artist').textContent = data ? `${current?.offline ? '保存済みから再生' : data.artist || (data.source === 'local' ? 'ローカルファイル' : 'Bilibili')}${data.paused ? ' · 一時停止' : ''}` : internal ? '読み込み中・画面内からも再生できます' : canStart ? '▶ で最初の動画から再生' : '動画を選んで再生';
+  const path = internal ? PlayingPath() : '';
+  $('now-artist').textContent = internal ? `${path}${!data ? ' · 読み込み中' : data.paused ? ' · 一時停止' : ''}` : canStart ? '▶ で最初の動画から再生' : '動画を選んで再生';
+  $('now-artist').title = internal ? `${path}${data?.artist ? `\nアーティスト：${data.artist}` : ''}` : $('now-artist').textContent;
+  const entry = internal ? state.playlists.find(p => p.id === current.playlistId)?.entries.find(e => e.id === current.entryId) || current.entry : null;
+  $('now-saved').classList.toggle('hidden', !entry);
+  if (entry) {
+    PaintSavedBadge($('now-saved'), entry, current.offline ? `現在は保存済みの${current.offline.kind === 'audio' ? '音声' : '動画'}から再生しています。` : entry.type === 'bilibili' ? '現在はオンラインで再生しています。' : 'ローカルファイルから再生しています。');
+  } else { $('now-saved').textContent = ''; $('now-saved').title = ''; $('now-saved').removeAttribute('aria-label'); delete $('now-saved').dataset.mediaUrl; delete $('now-saved').dataset.savedKind; }
   SetIcon($('toggle'), data && !data.paused ? 'pause' : 'play');
   $('toggle').setAttribute('aria-label', data && !data.paused ? '一時停止' : '再生');
   if (!seeking) { $('position').textContent = Time(data?.position); $('progress').max = data?.duration || 1; $('progress').value = data?.position || 0; }
@@ -961,6 +1092,7 @@ function BackgroundInteractive(enabled) {
   const blocked = $('modal').open;
   for (const node of document.querySelectorAll('.sidebar, main, .transport, .titlebar')) node.inert = blocked;
   enabled = enabled && foreground && !blocked;
+  searchArtwork?.SetEnabled(enabled && allListsView && homeSearchActive);
   for (const node of document.querySelectorAll(enabled ? '[data-saved-title]' : '.sidebar [title], main [title], .transport [title]')) {
     if (enabled) { node.title = node.dataset.savedTitle; delete node.dataset.savedTitle; }
     else { node.dataset.savedTitle = node.title; node.removeAttribute('title'); }
@@ -998,9 +1130,13 @@ document.addEventListener('keydown', event => {
   void Run(() => api.shortcut({ scope: ViewScope(), code: event.code, ctrlKey: event.ctrlKey, altKey: event.altKey, shiftKey: event.shiftKey, metaKey: event.metaKey, repeat: event.repeat }));
 }, true);
 for (const type of ['wheel', 'pointerdown', 'keydown', 'touchmove']) $('queue-timeline').addEventListener(type, () => { timelineManual = true; }, { passive: true });
-$('all-lists').onclick = () => { allListsView = true; $('filter').value = ''; Render(); };
+$('all-lists').onclick = () => { allListsView = true; homePath = []; homePage = 0; homeSearchActive = false; $('home-query').value = ''; $('filter').value = ''; Render(); };
+function SearchHome() { homeSearchPage = 0; RenderHome(); if (homeSearchActive) $('home').scrollTop = 0; }
+$('home-query').addEventListener('input', event => { if (!event.isComposing) SearchHome(); });
+$('home-query').addEventListener('compositionend', SearchHome);
+$('home-search-clear').onclick = () => { $('home-query').value = ''; SearchHome(); $('home-query').focus(); };
 $('sort-lists').onclick = SortLists;
-$('downloads-status').onclick = DownloadsDialog;
+$('downloads-status').onclick = () => DownloadsDialog();
 $('download-mini-cancel').onclick = () => Run(async () => UpdateDownloads(await api.cancelDownload()));
 $('playlist-up').onclick = () => Run(async () => {
   const parentId = allListsView ? null : tree.Parent(state, List().id); if (!parentId) return;
@@ -1035,7 +1171,7 @@ $('mode-song').onclick = () => Run(() => SelectDisplayMode('song'));
 $('mode-video').onclick = () => Run(() => SelectDisplayMode('video'));
 if (api) {
   api.onEvent(event => {
-    if (event.type === 'state') { state = event.value; Render(); }
+    if (event.type === 'state') { state = event.value; Render(); if (downloadSingle && (!DownloadEntry(downloadSingle) || !downloadTargetCount)) void refreshDownloadEstimate?.(); }
     else if (event.type === 'current') { current = event.value; loaded = false; playback = null; thumbnail = null; seeking = false; UpdateCurrentRows(); queueFollower?.Request(); RenderPlayer(); RenderNext(); }
     else if (event.type === 'current-update') { current = event.value; Render(); }
     else if (event.type === 'downloads') UpdateDownloads(event.value);
@@ -1048,7 +1184,7 @@ if (api) {
     else if (event.type === 'loaded') { loaded = true; RenderPlayer(); }
     else if (event.type === 'notice') Toast(event.value);
     else if (event.type === 'accounts') { accounts = event.value; UpdateAccounts(); }
-    else if (event.type === 'queue') { queueInfo = event.value; RenderNext(); }
+    else if (event.type === 'queue') { queueInfo = event.value; RenderNext(); if (state) UpdateTransport(); }
     else if (event.type === 'foreground') { const changed = foreground !== (event.value === true); foreground = event.value === true; listArtwork?.SetEnabled(foreground); BackgroundInteractive(foreground); if (!foreground) { queueDrag?.Cancel(); queueFollower?.Release(); } if (foreground) { if (changed) queueFollower?.Request(); PumpDurations(); } }
     else if (event.type === 'add-url') { if (!$('modal').open) AddURL(event.value); else Toast('追加画面が開いています。閉じてから検索画面の追加ボタンを押してください。'); }
   });

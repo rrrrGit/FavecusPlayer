@@ -1,8 +1,7 @@
 'use strict';
-const { ParseBilibili } = require('./urls.cjs');
+const { MediaKey } = require('./media-identity.cjs');
 const TAGS = /^(?:双语字幕|雙語字幕|中日双语字幕|中日雙語字幕|中文字幕|日文字幕|中日字幕)\s*/;
 const NOISE = new Set(['双语字幕', '雙語字幕', '中文字幕', '日文字幕', '中日字幕', '字幕', 'off', 'vocal', 'instrumental', 'lyrics', 'official', 'mv', 'pv', 'bgm', 'cover', '完整版', '高音质']);
-function MediaKey(entry) { return entry.type === 'local' ? `local:${entry.fileName}` : `bilibili:${ParseBilibili(entry.url).url}`; }
 function NameShape(value) {
   let title = String(value || '').normalize('NFKC').toLowerCase().trim();
   const full = title.replace(/[\p{P}\p{S}\s]+/gu, '');
@@ -21,15 +20,15 @@ function CompareNames(a, b) {
   return null;
 }
 class DuplicateIndex {
-  constructor(entries = []) { this.media = new Map(); this.full = new Map(); this.names = new Map(); this.words = new Map(); for (const entry of entries) this.Add(entry); }
+  constructor(entries = [], keyOf = MediaKey) { this.keyOf = keyOf; this.media = new Map(); this.full = new Map(); this.names = new Map(); this.words = new Map(); for (const entry of entries) this.Add(entry); }
   Put(index, key, value) { if (!key) return; if (!index.has(key)) index.set(key, []); index.get(key).push(value); }
   Add(entry, origin = '既存の曲') {
     const record = { entry, origin, name: NameShape(entry.title) };
-    this.Put(this.media, MediaKey(entry), record); this.Put(this.full, record.name.full, record); this.Put(this.names, record.name.key, record);
+    this.Put(this.media, this.keyOf(entry), record); this.Put(this.full, record.name.full, record); this.Put(this.names, record.name.key, record);
     for (const word of record.name.words) if (word.length >= 2) this.Put(this.words, word, record);
   }
   Find(entry) {
-    const exact = this.media.get(MediaKey(entry));
+    const exact = this.media.get(this.keyOf(entry));
     if (exact?.length) return { reason: entry.type === 'local' ? '同じ取り込み済みファイル' : 'URLとパートが一致', matches: exact.slice(0, 3) };
     const name = NameShape(entry.title), candidates = new Set([...(this.full.get(name.full) || []), ...(this.names.get(name.key) || [])]);
     for (const word of name.words) for (const record of this.words.get(word) || []) candidates.add(record);

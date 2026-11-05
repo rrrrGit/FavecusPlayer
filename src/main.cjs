@@ -3,9 +3,11 @@ const { app, BrowserWindow, WebContentsView, ipcMain, dialog, shell, session, pr
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs');
+const { randomUUID, randomInt } = require('node:crypto');
 const { Store, MEDIA_NAME } = require('./core/store.cjs');
 const { LocalDuration } = require('./core/media-duration.cjs');
 const { LibraryArchive } = require('./core/library-archive.cjs');
+const { ShareMode } = require('./core/library-share.cjs');
 const { Queue } = require('./core/queue.cjs');
 const { PlayCounts } = require('./core/play-counts.cjs');
 const { ReadIcon } = require('./core/playlist-icon.cjs');
@@ -20,6 +22,7 @@ const { PlayerRecovery } = require('./core/player-recovery.cjs');
 const { StartCrashDiagnostics } = require('./core/crash-diagnostics.cjs');
 const { MediaChannel } = require('./core/media-channel.cjs');
 const { PlayerURL, ParseBilibili, IsAllowedRemote, MEDIA_EXTENSIONS } = require('./core/urls.cjs');
+const { SameVideo } = require('./core/media-identity.cjs');
 const { DiscordPresence, BuildActivity } = require('./core/discord.cjs');
 const { NormalizeMedia } = require('./core/playback.cjs');
 const { MiniPlayer } = require('./core/mini-player.cjs');
@@ -43,7 +46,7 @@ let visibleBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 let statuses = { discord: { code: 'off', text: 'Discord連携はオフです' }, taskbar: { code: 'off', text: '下向き矢印を押すと埋め込みを試します' } };
 let playCounts;
 const ShuffleWeight = entry => store?.data.settings.weightedShuffle === false ? 1 : 1 / (1 + (playCounts?.Count(entry) || 0));
-let queue = new Queue(null, ShuffleWeight);
+let queue = new Queue(null, ShuffleWeight, randomInt);
 const playbackMetadata = new Map(), metadataPending = new Map(), officialPreferred = new Set();
 let generation = 0, loadRequest = 0, lastPlayerCommand = null, nativeDiagnostics;
 let biliAccount, additionReview, biliBrowser, recovery, archive, helpWindow, offline;
@@ -130,7 +133,7 @@ function RefreshVideo() {
   if (!remoteView?.navigationReady || !wc || wc.isDestroyed() || store?.data.settings.thumbnailMode) return;
   wc.invalidate?.(); SendToPlayer('media:command', { type: 'refresh-display' });
 }
-const retiredPlayers = new Map(); let quitting = false;
+const retiredPlayers = new Map(), playbackRoutes = new Map(); let quitting = false;
 function DisposePlayer(view) {
   const retired = retiredPlayers.get(view);
   if (!retired || retired.closing) return;
@@ -140,7 +143,7 @@ function DisposePlayer(view) {
   try { if (wc && !wc.isDestroyed()) wc.close({ waitForBeforeUnload: false }); }
   catch (error) { retired.closing = false; PlayerDiagnostic('close-failed', { message: error.message }); }
   // close中にview.webContentsが消えるため、取得済みの参照だけを使う。
-  if (!wc || wc.isDestroyed()) retiredPlayers.delete(view);
+  if (!wc || wc.isDestroyed()) { view.releaseOffline?.(); retiredPlayers.delete(view); }
 }
 function CloseView() {
   generation++; viewVisible = false; recovery?.Cancel();
@@ -248,8 +251,8 @@ function SecureSession(partition) {
 function MatchesCurrentURL(raw) {
   if (!current?.entry || current.entry.type !== 'bilibili') return false;
   try {
-    const video = ParseBilibili(raw), entry = current.entry, data = playbackMetadata.get(entry.videoId);
-    return video.part === (entry.part || 1) && [entry.videoId, data?.bvid, data?.aid ? `av${data.aid}` : null].includes(video.videoId);
+    const entry = current.entry;
+    return SameVideo(entry, raw, playbackMetadata.get(entry.videoId));
   } catch { return false; }
 }
 function MakeView(source, forceNew = false, officialPlayer = false) {
@@ -277,7 +280,8 @@ function MakeView(source, forceNew = false, officialPlayer = false) {
   });
   mediaChannels.set(wc, channel);
   wc.once('destroyed', () => {
-    if (retiredPlayers.get(view)?.closing) retiredPlayers.delete(view);
+    view.releaseOffline?.();
+    retiredPlayers.delete(view);
     if (remoteView !== view) return;
     view.navigationReady = false; viewVisible = false;
     if (quitting) return;
@@ -330,10 +334,15 @@ function PlayableEntry(playlistId, entryId) {
   if (entry.type === 'local' && !fs.existsSync(path.join(store.media, entry.fileName))) throw new Error('動画ファイルが見つかりません。「ファイル追加」で再登録してください。');
   return entry;
 }
+function RememberVideo(entry, details) {
+  try { if (store.RememberVideo(entry, details)) { Emit('state', store.Snapshot()); if (offline) Emit('downloads', offline.Snapshot()); } }
+  catch (error) { Notify(`動画の対応情報を保存できません: ${error.message}`); }
+}
 function WarmMetadata(entry) {
   if (entry?.type !== 'bilibili' || playbackMetadata.has(entry.videoId)) return Promise.resolve(playbackMetadata.get(entry?.videoId));
   if (!metadataPending.has(entry.videoId) && metadataPending.size >= 2) return Promise.resolve(null);
   if (!metadataPending.has(entry.videoId)) metadataPending.set(entry.videoId, biliAccount.Details(entry.videoId).then(details => {
+    RememberVideo(entry, details);
     if (playbackMetadata.size >= 200) playbackMetadata.delete(playbackMetadata.keys().next().value);
     playbackMetadata.set(entry.videoId, details); if (current?.entry.videoId === entry.videoId) UpdatePresence(); return details;
   }).catch(() => null).finally(() => metadataPending.delete(entry.videoId)));
@@ -352,13 +361,20 @@ async function LoadEntry(playlistId, entryId, pageMode = false, { allowRecovery 
   const source = saved ? 'local' : entry.type;
   const details = playbackMetadata.get(entry.videoId);
   officialPlayer = source === 'bilibili' && !pageMode && (officialPlayer ?? (officialPreferred.has(entry.videoId) || officialPreferred.has(`season:${details?.ugc_season?.id}`)));
-  const view = MakeView(source, forceNew || pageMode, officialPlayer), gen = generation; view.resume = resume;
+  const release = saved ? offline.Pin(saved) : null; let view;
+  try { view = MakeView(source, forceNew || pageMode || !!saved || !!remoteView?.offlineRoute, officialPlayer); }
+  catch (error) { release?.(); throw error; }
+  if (saved) {
+    const id = randomUUID(); view.offlineRoute = id; playbackRoutes.set(id, { record: saved });
+    view.releaseOffline = () => { playbackRoutes.delete(id); release(); };
+  }
+  const gen = generation; view.resume = resume;
   if (!preserveCount) playCounts?.Begin(entry);
   current = { source, queuePlaylistId: queue.playlistId, playlistId, entryId, entry: structuredClone(entry), pageMode, officialPlayer, recoveryAttempt, offline: saved ? { token: saved.token, kind: saved.kind, height: saved.height } : null };
   PlayerDiagnostic('track-change', { source, saved: !!saved });
   playback = null; thumbnail = null; UpdatePresence(); UpdateForeground(); Emit('current', current); void LoadThumbnail(); backgroundMode?.Refresh();
   recovery?.Begin(gen, source === 'bilibili' && !pageMode && allowRecovery);
-  const url = saved ? `favecus://app/local.html?offline=${saved.token}` : entry.type === 'local' ? `favecus://app/local.html?media=${entry.fileName}` : pageMode ? entry.url : officialPlayer ? `${entry.url}${entry.url.includes('?') ? '&' : '?'}autoplay=1` : PlayerURL(entry, details);
+  const url = saved ? `favecus://app/local.html?offline=${saved.token}&playback=${view.offlineRoute}` : entry.type === 'local' ? `favecus://app/local.html?media=${entry.fileName}` : pageMode ? entry.url : officialPlayer ? `${entry.url}${entry.url.includes('?') ? '&' : '?'}autoplay=1` : PlayerURL(entry, details);
   view.requestedURL = url;
   if (source === 'bilibili') { void WarmMetadata(entry); const upcoming = queue.Timeline(store.data.settings.repeat).upcoming.slice(0, 2); for (const id of upcoming) void WarmMetadata(queue.catalog.get(id)); }
   PlayerDiagnostic('navigation-start'); nativeDiagnostics?.Annotate({ operation: 'load-url' });
@@ -416,7 +432,7 @@ async function Play(playlistId, entryId) {
 async function ShufflePlay(playlistId) {
   const entries = store.Entries(playlistId);
   if (!entries.length) throw new Error('再生する曲がありません。');
-  const nextQueue = new Queue(null, ShuffleWeight), first = nextQueue.ShuffleStart(playlistId, entries), selected = entries.find(e => e.id === first);
+  const nextQueue = new Queue(null, ShuffleWeight, randomInt), first = nextQueue.ShuffleStart(playlistId, entries), selected = entries.find(e => e.id === first);
   PlayableEntry(selected.playlistId, first);
   const settings = { shuffle: true };
   if (store.data.settings.repeat === 'one') settings.repeat = 'off';
@@ -466,11 +482,14 @@ async function Command(command, value) {
 
 async function Start() {
   const ffmpeg = process.env.FAVECUS_INSTALL_ROOT ? path.join(process.env.FAVECUS_INSTALL_ROOT, 'runtime', 'ffmpeg', 'ffmpeg.exe') : app.isPackaged ? path.join(process.resourcesPath, 'ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg') : path.join(app.getAppPath(), 'runtime', 'ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
-  store = new Store(app.getPath('userData'), { convertWma: (source, destination) => ConvertWma(ffmpeg, source, destination) });
+  store = new Store(app.getPath('userData'), { committed: () => offline?.ScheduleCleanup(), convertWma: (source, destination) => ConvertWma(ffmpeg, source, destination) });
 
   protocol.handle('favecus', async request => {
     const url = new URL(request.url);
-    if (url.host === 'offline') { const token = url.pathname.slice(1), saved = current?.offline?.token === token ? offline?.File(token) : null; return saved ? MediaResponse(request, saved.path) : new Response(null, { status: 403 }); }
+    if (url.host === 'offline') {
+      const token = url.pathname.slice(1), saved = playbackRoutes.get(url.searchParams.get('playback'))?.record;
+      return saved?.token === token ? MediaResponse(request, saved.path, offline.Pin(saved)) : new Response(null, { status: 403 });
+    }
     if (url.host === 'media') {
       const name = url.pathname.slice(1);
       if (!MEDIA_NAME.test(name) || !store.data.playlists.some(p => p.entries.some(e => e.type === 'local' && e.fileName === name))) return new Response(null, { status: 403 });
@@ -487,11 +506,12 @@ async function Start() {
     try { biliSession.preconnect({ url, numSockets: 1 }); } catch {}
   }
   biliAccount = new BilibiliAccount((...args) => biliSession.fetch(...args));
-  offline = new OfflineLibrary({ directory: path.join(process.env.FAVECUS_INSTALL_ROOT || (app.isPackaged ? path.dirname(app.getPath('exe')) : app.getAppPath()), 'downloads'), previousDirectories: process.env.FAVECUS_INSTALL_ROOT ? PreviousInstallRoots(process.env.FAVECUS_INSTALL_ROOT).map(p => path.join(p, 'downloads')) : [], settingsFile: path.join(app.getPath('userData'), 'download-settings.json'), fetch: DownloadFetch(biliSession), ffmpeg, libraryData: () => store.data, diagnostic: DownloadDiagnosticLog, changed: value => Emit('downloads', value) });
+  offline = new OfflineLibrary({ directory: path.join(process.env.FAVECUS_INSTALL_ROOT || (app.isPackaged ? path.dirname(app.getPath('exe')) : app.getAppPath()), 'downloads'), previousDirectories: process.env.FAVECUS_INSTALL_ROOT ? PreviousInstallRoots(process.env.FAVECUS_INSTALL_ROOT).map(p => path.join(p, 'downloads')) : [], settingsFile: path.join(app.getPath('userData'), 'download-settings.json'), fetch: DownloadFetch(biliSession), ffmpeg, libraryData: () => store.data, referenceData: () => store.SavedData(), identify: RememberVideo, diagnostic: DownloadDiagnosticLog, changed: value => Emit('downloads', value) });
   await offline.Organize(); archive = new LibraryArchive(store, offline);
   playCounts = new PlayCounts(path.join(app.getPath('userData'), 'play-counts.json'), Notify);
   additionReview = new AdditionReview(store, { resolveTitle: async entry => {
     const data = await biliAccount.Details(entry.videoId);
+    RememberVideo(entry, data);
     const page = data?.pages?.find(p => p.page === entry.part) || data?.pages?.[entry.part - 1];
     return data?.pages?.length > 1 ? page?.part || data?.title : data?.title;
   } });
@@ -545,8 +565,14 @@ async function Start() {
   Handle('downloads:state', () => offline.Snapshot());
   const downloadTarget = options => {
     if (!options || typeof options.includeChildren !== 'boolean') throw new Error('保存対象を指定してください。');
-    const list = store.Playlist(options.playlistId);
-    return { entries: options.includeChildren ? store.Entries(list.id) : list.entries.map(e => ({ ...e, playlistId: list.id })), options: { kind: options.kind, height: options.height, playlistId: list.id, playlistName: list.name, estimateId: options.estimateId } };
+    const list = store.Playlist(options.playlistId), selected = { kind: options.kind, height: options.height, playlistId: list.id, playlistName: list.name, estimateId: options.estimateId };
+    if (Object.hasOwn(options, 'entryId') || Object.hasOwn(options, 'entryURL')) {
+      if (options.includeChildren || typeof options.entryId !== 'string' || typeof options.entryURL !== 'string') throw new Error('保存する1曲を指定してください。');
+      const entry = store.Entry(list.id, options.entryId);
+      if (entry.type !== 'bilibili' || ParseBilibili(options.entryURL).url !== entry.url) throw new Error('保存対象が変更されました。動画の編集を開き直してください。');
+      return { entries: [{ ...entry, playlistId: list.id }], options: { ...selected, entryId: entry.id, entryURL: entry.url } };
+    }
+    return { entries: options.includeChildren ? store.Entries(list.id) : list.entries.map(e => ({ ...e, playlistId: list.id })), options: selected };
   };
   Handle('downloads:estimate', options => { const target = downloadTarget(options); return offline.Estimate(target.entries, target.options); });
   Handle('downloads:estimate-cancel', () => offline.CancelEstimate());
@@ -619,12 +645,20 @@ async function Start() {
     if (moved) { Object.assign(current, moved.destinations[0]); current.entry = structuredClone(store.Entry(current.playlistId, current.entryId)); if (thumbnail) thumbnail.entryId = current.entryId; Emit('current-update', current); }
     SyncPlayingQueue(); Emit('state', result.state); return result;
   });
-  Handle('library:export', async () => {
-    const result = await dialog.showSaveDialog(win, { title: 'プレイリストをZIPで出力', defaultPath: `FavecusPlayer-playlists-${new Date().toISOString().slice(0, 10)}.zip`, filters: [{ name: 'ZIPアーカイブ', extensions: ['zip'] }] });
-    return result.canceled ? null : archive.Export(result.filePath);
+  let exporting = false;
+  Handle('library:export', async (options = {}) => {
+    const mode = ShareMode(options), information = mode === 'information';
+    if (exporting) throw new Error('別の出力処理が進行中です。完了後にもう一度お試しください。');
+    exporting = true;
+    try {
+      const result = await dialog.showSaveDialog(win, { title: information ? 'プレイリスト情報のみ出力' : 'DLデータを含めて出力',
+        defaultPath: `FavecusPlayer-playlists-${information ? 'information' : 'media'}-${new Date().toISOString().slice(0, 10)}.${information ? 'json' : 'zip'}`,
+        filters: information ? [{ name: 'プレイリスト情報（JSON）', extensions: ['json'] }, { name: 'ZIPアーカイブ', extensions: ['zip'] }] : [{ name: 'ZIPアーカイブ', extensions: ['zip'] }] });
+      return result.canceled ? null : await archive.Export(result.filePath, undefined, { mode });
+    } finally { exporting = false; }
   });
   Handle('library:import', async () => {
-    const result = await dialog.showOpenDialog(win, { title: 'プレイリストのZIPを選択', properties: ['openFile'], filters: [{ name: 'Favecus Playerのプレイリスト', extensions: ['zip', 'json'] }] });
+    const result = await dialog.showOpenDialog(win, { title: 'プレイリストのJSON・ZIPを選択', properties: ['openFile'], filters: [{ name: 'Favecus Playerのプレイリスト', extensions: ['zip', 'json'] }] });
     return result.canceled ? null : archive.Prepare(result.filePaths[0]);
   });
   Handle('library:import-commit', async (id, ids, options) => { const result = await archive.Commit(id, ids, options); SyncPlayingQueue(); Emit('state', result.state); return result; });
@@ -720,5 +754,5 @@ app.on('before-quit', () => {
   quitting = true; loadRequest++; offline?.CancelEstimate();
   offline?.Cancel();
   if (volumeSaveTimer) { clearTimeout(volumeSaveTimer); volumeSaveTimer = null; try { store?.Save(); } catch {} }
-  biliBrowser?.Destroy(); backgroundMode?.Dispose(); mini?.Destroy(); mini = null; presence?.Stop(); CloseView(); for (const view of retiredPlayers.keys()) DisposePlayer(view);
+  biliBrowser?.Destroy(); backgroundMode?.Dispose(); mini?.Destroy(); mini = null; presence?.Stop(); CloseView(); for (const view of retiredPlayers.keys()) DisposePlayer(view); offline?.cleanup.Dispose();
 });

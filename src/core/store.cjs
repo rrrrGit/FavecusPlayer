@@ -10,13 +10,13 @@ const { ParseBilibili, ParseVideo, ShareTitle, MEDIA_EXTENSIONS } = require('./u
 const { ReadJSON, ExportJSON } = require('./library-json.cjs');
 const { ValidateTitleWords, TitleCleaner } = require('./title-cleanup.cjs');
 const { Repository, DriveURL } = require('./releases.cjs');
-const MAX_ENTRIES = 10000;
+const { VideoIdentity } = require('./media-identity.cjs');
+const { IDENTITY_SCHEMA_VERSION, MEDIA_ID, IdentityError, ValidateIdentityVersion, PlanMediaIds, VideoAliases, LibraryMediaKey } = require('./library-identity.cjs');
+const LibraryData = require('./library-data.cjs');
+const { MAX_PLAYLISTS, MAX_ENTRIES, MEDIA_NAME, CleanText, ValidatePlaylistCount } = LibraryData;
 const MAX_JSON = 32 * 1024 * 1024;
-const ID = /^[a-f0-9-]{36}$/;
-const MEDIA_NAME = /^[a-f0-9-]{36}\.[a-z0-9]{2,5}$/;
 const DEFAULT_SETTINGS = { releaseRepository: '', discordThumbnailSize: 'small', weightedShuffle: true, discordThumbnail: true, discordVideoLink: true, discordEnabled: false, discordClientId: '', discordImageKey: 'favecus_player_music', hideWhenPaused: true, thumbnailMode: false, autoThumbnailEnabled: true, autoThumbnailMinutes: 5, taskbarEmbed: true, taskbarWidth: 500, taskbarOffset: 0, repeat: 'off', shuffle: false, volume: 1, sidebarWidth: 218 };
 
-function CleanText(value, max = 180) { return String(value || '').replace(/[\x00-\x1f\x7f]/g, ' ').trim().slice(0, max); }
 function NewPlaylist(name = 'お気に入り') { return { id: randomUUID(), name: CleanText(name, 60) || '無題のリスト', icon: '', entries: [], childIds: [], createdAt: new Date().toISOString(), lastAddedAt: '', includeInAll: true }; }
 function Defaults() {
   const first = NewPlaylist();
@@ -44,35 +44,7 @@ function ValidateSettings(input) {
   if (s.discordEnabled && !s.discordClientId) throw new Error('DiscordのApplication IDを入力してください。');
   return s;
 }
-function ValidateLibrary(input, freshIds = false) {
-  if (!input || ![1, 2, 3].includes(input.version) || !Array.isArray(input.playlists) || input.playlists.length > 100 || input.playlists.length < 1) throw new Error('対応していない再生リストファイルです。');
-  let total = 0;
-  const seen = new Set();
-  const identifier = value => {
-    const id = !freshIds && ID.test(value || '') ? value : randomUUID();
-    if (seen.has(id)) throw new Error('再生リスト内の識別番号が重複しています。');
-    seen.add(id); return id;
-  };
-  const remap = new Map();
-  const lists = input.playlists.map(p => {
-    if (!p || !Array.isArray(p.entries) || (total += p.entries.length) > MAX_ENTRIES) throw new Error('再生リストが大きすぎるか、形式が正しくありません。');
-    if (input.version === 3 && (!ID.test(p.id || '') || !Array.isArray(p.childIds))) throw new Error('階層の識別情報が正しくありません。');
-    const id = identifier(p.id); remap.set(p.id, id);
-    const timestamp = value => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : '';
-    return { id, childIds: [], icon: ValidateIcon(p.icon), name: CleanText(p.name, 60) || '無題のリスト', createdAt: timestamp(p.createdAt), lastAddedAt: timestamp(p.lastAddedAt), includeInAll: p.includeInAll !== false, entries: p.entries.filter(e => !(input.version === 1 && e?.type === 'youtube')).map(e => {
-      if (!e || !['bilibili', 'local'].includes(e.type)) throw new Error('不明な種類の動画が含まれています。');
-      const base = { id: identifier(e.id), title: CleanText(e.title), addedAt: CleanText(e.addedAt, 40), ...(Number.isFinite(e.duration) && e.duration > 0 ? { duration: Math.min(e.duration, 604800) } : {}) };
-      if (e.type === 'bilibili') return { ...base, ...ParseBilibili(e.url) };
-      if (!MEDIA_NAME.test(e.fileName || '') || !MEDIA_EXTENSIONS.has(path.extname(e.fileName))) throw new Error('動画ファイルの参照先が正しくありません。');
-      return { ...base, type: 'local', fileName: e.fileName };
-    }) };
-  });
-  if (input.version === 3) {
-    Tree.ValidateGraph(input.playlists, input.rootPlaylistIds);
-    input.playlists.forEach((p, i) => { lists[i].childIds = p.childIds.map(id => remap.get(id)); });
-  }
-  return lists;
-}
+function ValidateLibrary(input, freshIds = false) { return LibraryData.ValidateLibrary(input, freshIds, randomUUID); }
 
 class Store {
   constructor(directory, options = {}) {
@@ -92,6 +64,7 @@ class Store {
       try {
         if (fs.statSync(candidate).size > MAX_JSON) throw new Error('size');
         const value = ReadJSON(fs.readFileSync(candidate));
+        ValidateIdentityVersion(value);
         const playlists = ValidateLibrary(value);
         const activePlaylistId = playlists.some(p => p.id === value.activePlaylistId) ? value.activePlaylistId : playlists[0].id;
         const settings = ValidateSettings(value.settings);
@@ -106,8 +79,14 @@ class Store {
           catch (error) { error.migrationBackupFailed = true; throw error; }
           if (value.playlists.some(p => p.entries.some(e => e?.type === 'youtube'))) this.warning += ' YouTubeの項目を一覧から外しました。変更前のリストはアプリのデータフォルダーに library.pre-0.5.0 として保存しています。';
         }
-        return { version: 3, playlists, rootPlaylistIds: value.version === 3 ? value.rootPlaylistIds : playlists.map(p => p.id), activePlaylistId, settings };
+        if (value.version === 3 && (!Object.hasOwn(value, 'identityVersion') || value.identityVersion === 1)) {
+          const backup = path.join(this.directory, `library.pre-0.6.7-${Date.now()}-${randomUUID().slice(0, 8)}.json`);
+          try { fs.copyFileSync(candidate, backup, fs.constants.COPYFILE_EXCL); }
+          catch (error) { error.migrationBackupFailed = true; throw error; }
+        }
+        return { version: 3, ...(Object.hasOwn(value, 'identityVersion') ? { identityVersion: value.identityVersion } : {}), ...(value.identityVersion === 2 ? { videoAliases: VideoAliases(value.videoAliases) } : {}), playlists, rootPlaylistIds: value.version === 3 ? value.rootPlaylistIds : playlists.map(p => p.id), activePlaylistId, settings };
       } catch (error) {
+        if (error.identityDataInvalid || error.playlistLimitExceeded) throw error;
         if (error.migrationBackupFailed) throw new Error('更新前のバックアップを保存できません。空き容量とデータフォルダーの書き込み権限を確認してください。保存データは変更していません。');
         this.warning = '保存ファイルを読み込めませんでした。元のファイルは damaged として残しています。';
         fs.copyFileSync(candidate, `${candidate}.damaged-${Date.now()}`);
@@ -116,11 +95,33 @@ class Store {
     return Defaults();
   }
   Save() {
-    const temp = `${this.file}.tmp`;
-    fs.writeFileSync(temp, JSON.stringify(this.data, null, 2), { mode: 0o600 });
-    // 置換前の正常な内容を保持し、途中終了で本体が空になることを防ぐ。
-    if (fs.existsSync(this.file) && (!this.warning || this.recovered)) fs.copyFileSync(this.file, `${this.file}.bak`);
-    fs.renameSync(temp, this.file);
+    ValidatePlaylistCount(this.data.playlists.length);
+    ValidateIdentityVersion(this.data);
+    const videoAliases = VideoAliases(this.data.videoAliases);
+    const assignments = PlanMediaIds(this.data.playlists, randomUUID, LibraryMediaKey(videoAliases));
+    const next = { ...this.data, identityVersion: IDENTITY_SCHEMA_VERSION, videoAliases, playlists: this.data.playlists.map(p => ({ ...p, entries: p.entries.map(e => ({ ...e, mediaId: assignments.get(e) })) })) };
+    const encoded = JSON.stringify(next, null, 2);
+    const temp = `${this.file}.${randomUUID()}.tmp`;
+    try {
+      fs.writeFileSync(temp, encoded, { mode: 0o600, flag: 'wx' });
+      // 置換前の正常な内容を保持し、途中終了で本体が空になることを防ぐ。
+      if (fs.existsSync(this.file) && (!this.warning || this.recovered)) fs.copyFileSync(this.file, `${this.file}.bak`);
+      fs.renameSync(temp, this.file);
+    } finally { try { fs.rmSync(temp, { force: true }); } catch {} }
+    this.data.identityVersion = IDENTITY_SCHEMA_VERSION;
+    this.data.videoAliases = videoAliases;
+    for (const [entry, mediaId] of assignments) entry.mediaId = mediaId;
+    this.committedJSON = encoded; this.committedData = JSON.parse(encoded); this.referenceCache = null;
+    try { this.options.committed?.(); } catch {}
+  }
+  SavedData() {
+    try {
+      const signature = () => { const s = fs.statSync(this.file, { bigint: true }); return [s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs].join(':'); };
+      const stamp = signature();
+      if (this.referenceCache === stamp) return this.committedData;
+      if (fs.readFileSync(this.file, 'utf8') !== this.committedJSON || signature() !== stamp) return null;
+      this.referenceCache = stamp; return this.committedData;
+    } catch { return null; }
   }
   Snapshot() {
     const result = structuredClone(this.data);
@@ -138,9 +139,28 @@ class Store {
     return result;
   }
   CleanTitle(value) { return TitleCleaner(this.data.settings.titleCleanupWords)(value); }
+  IdentityKey() { return LibraryMediaKey(this.data.videoAliases); }
+  RememberVideo(entry, details) {
+    const media = VideoIdentity(entry, details);
+    if (!media.verified) return false;
+    const record = { aid: media.aliases.map(url => ParseBilibili(url).videoId).find(id => id.startsWith('av')).slice(2), bvid: media.videoId };
+    if ((this.data.videoAliases || []).some(r => r.aid === record.aid && r.bvid === record.bvid)) return false;
+    const aliases = VideoAliases([...(this.data.videoAliases || []), record]);
+    if (aliases.length === (this.data.videoAliases || []).length) return false;
+    PlanMediaIds(this.data.playlists, randomUUID, this.IdentityKey());
+    const before = this.data, next = structuredClone(before), keyOf = LibraryMediaKey(aliases), winners = new Map();
+    for (const p of next.playlists) for (const e of p.entries) {
+      const key = keyOf(e);
+      if (!winners.has(key)) winners.set(key, e.mediaId);
+      e.mediaId = winners.get(key);
+    }
+    next.videoAliases = aliases;
+    try { this.data = next; this.Save(); } catch (error) { this.data = before; throw error; }
+    return true;
+  }
   Targets(destinationIds) {
     const ids = typeof destinationIds === 'string' ? [destinationIds] : destinationIds;
-    if (!Array.isArray(ids) || !ids.length || ids.length > 100) throw new Error('追加先のプレイリストにチェックしてください。');
+    if (!Array.isArray(ids) || !ids.length || ids.length > MAX_PLAYLISTS) throw new Error('追加先のプレイリストにチェックしてください。');
     return [...new Set(ids)].map(id => this.Playlist(id));
   }
   InputItems(action) {
@@ -161,7 +181,7 @@ class Store {
   }
   AddItems(destinationIds, items) {
     const targets = this.Targets(destinationIds), cleanTitle = TitleCleaner(this.data.settings.titleCleanupWords);
-    const key = e => e.type === 'local' ? `local:${e.fileName}` : `bilibili:${ParseBilibili(e.url).url}`;
+    const key = this.IdentityKey();
     const unique = new Map();
     for (const item of items) { const id = key(item); if (!unique.has(id)) unique.set(id, item); }
     const additions = targets.map(p => {
@@ -188,7 +208,7 @@ class Store {
     if (!action || typeof action !== 'object') throw new Error('操作が正しくありません。');
     const p = action.playlistId ? this.Playlist(action.playlistId) : null;
     if (action.type === 'create') {
-      if (this.data.playlists.length >= 100) throw new Error('再生リストは100個までです。');
+      ValidatePlaylistCount(this.data.playlists.length + 1);
       const parent = action.parentId ? this.Playlist(action.parentId) : null;
       const created = NewPlaylist(action.name); this.data.playlists.push(created);
       (parent ? parent.childIds : this.data.rootPlaylistIds).push(created.id);
@@ -212,7 +232,7 @@ class Store {
     } else if (action.type === 'playlist-move' && p) {
       this.Parent(p.id, action.parentId || null, true);
     } else if (action.type === 'playlist-attach' && p) {
-      if (!Array.isArray(action.ids) || !action.ids.length || action.ids.length > 100) throw new Error('取り込むプレイリストを選んでください。');
+      if (!Array.isArray(action.ids) || !action.ids.length || action.ids.length > MAX_PLAYLISTS) throw new Error('取り込むプレイリストを選んでください。');
       const ids = [...new Set(action.ids)], descendants = new Set(ids.flatMap(id => Tree.RawWalk(this.data, [id]).slice(1).map(child => child.id)));
       for (const id of ids.filter(id => !descendants.has(id))) this.Parent(id, p.id, action.removeOriginal === true);
     } else if (action.type === 'playlist-reorder' && p) {
@@ -285,22 +305,23 @@ class Store {
     }
   }
   Transfer({ playlistId, entryId, destinationIds, mode, targetId, after = false } = {}) {
-    if (!['copy', 'move'].includes(mode) || !Array.isArray(destinationIds) || !destinationIds.length || destinationIds.length > 99) throw new Error('移動・追加先のプレイリストを選んでください。');
+    if (!['copy', 'move'].includes(mode) || !Array.isArray(destinationIds) || !destinationIds.length || destinationIds.length > MAX_PLAYLISTS - 1) throw new Error('移動・追加先のプレイリストを選んでください。');
     const source = this.Playlist(playlistId), entry = this.Entry(playlistId, entryId);
     const targets = [...new Set(destinationIds)].map(id => {
       if (id === playlistId) throw new Error('元のプレイリスト以外を選んでください。');
       return this.Playlist(id);
     });
     if (targetId !== undefined && (targets.length !== 1 || !targets[0].entries.some(e => e.id === targetId) || typeof after !== 'boolean')) throw new Error('挿入先の楽曲が見つかりません。挿入位置を選び直してください。');
-    const same = e => e.type === entry.type && (e.type === 'local' ? e.fileName === entry.fileName : ParseBilibili(e.url).url === ParseBilibili(entry.url).url);
+    const keyOf = this.IdentityKey(), same = e => keyOf(e) === keyOf(entry);
     const operations = targets.map(p => ({ p, existing: p.entries.find(same) }));
     const added = operations.filter(o => !o.existing).length;
     const count = this.data.playlists.reduce((n, p) => n + p.entries.length, 0);
     if (count + added - (mode === 'move' ? 1 : 0) > MAX_ENTRIES) throw new Error('登録数の上限は10000件です。');
-    const before = structuredClone(this.data), destinations = [];
+    const before = structuredClone(this.data), destinations = []; let retainedId = false;
     try {
       for (const { p, existing } of operations) {
-        const item = existing || { ...structuredClone(entry), title: this.CleanTitle(entry.title), id: randomUUID() };
+        const item = existing || { ...structuredClone(entry), title: this.CleanTitle(entry.title), id: mode === 'move' && !retainedId ? entry.id : randomUUID() };
+        if (!existing) retainedId = true;
         if (targetId !== undefined && item.id !== targetId) {
           if (existing) p.entries.splice(p.entries.indexOf(existing), 1);
           p.entries.splice(p.entries.findIndex(e => e.id === targetId) + (after ? 1 : 0), 0, item);
@@ -318,7 +339,7 @@ class Store {
     const targets = this.Targets(destinationIds), refs = [...new Map(entries.map(r => [`${r.playlistId}:${r.entryId}`, r])).values()];
     const sources = refs.map(r => ({ ...r, entry: structuredClone(this.Entry(r.playlistId, r.entryId)) }));
     if (sources.some(r => !targets.some(p => p.id !== r.playlistId))) throw new Error('元のプレイリスト以外にも移動先を選んでください。');
-    const before = structuredClone(this.data), mappings = []; let added = 0;
+    const before = structuredClone(this.data), mappings = [], keyOf = this.IdentityKey(); let added = 0;
     try {
       // Remove the complete selection first: a destination may also be a source.
       // This keeps reused destination rows and playback mappings valid.
@@ -327,11 +348,11 @@ class Store {
         source.entries = source.entries.filter(e => e.id !== ref.entryId);
       }
       for (const ref of sources) {
-        const destinations = [];
+        const destinations = []; let retainedId = false;
         for (const p of targets) {
           if (p.id === ref.playlistId) continue;
-          let item = p.entries.find(e => e.type === ref.entry.type && (e.type === 'local' ? e.fileName === ref.entry.fileName : e.url === ref.entry.url));
-          if (!item) { item = { ...ref.entry, id: randomUUID() }; p.entries.push(item); p.lastAddedAt = new Date().toISOString(); added++; }
+          let item = p.entries.find(e => keyOf(e) === keyOf(ref.entry));
+          if (!item) { item = { ...ref.entry, id: retainedId ? randomUUID() : ref.entry.id }; retainedId = true; p.entries.push(item); p.lastAddedAt = new Date().toISOString(); added++; }
           destinations.push({ playlistId: p.id, entryId: item.id });
         }
         mappings.push({ playlistId: ref.playlistId, entryId: ref.entryId, destinations });
@@ -341,45 +362,41 @@ class Store {
     } catch (error) { this.data = before; throw error; }
     return { state: this.Snapshot(), moved: sources.length, added, mappings };
   }
-  async Export(parent) {
-    const folder = path.join(parent, `FavecusPlayer-${new Date().toISOString().replace(/[:.]/g, '-')}`);
-    await fs.promises.mkdir(path.join(folder, 'media'), { recursive: true });
-    const playlists = ValidateLibrary(this.data);
-    const names = new Set(playlists.flatMap(p => p.entries).filter(e => e.type === 'local').map(e => e.fileName));
-    let missing = 0;
-    for (const name of names) {
-      if (fs.existsSync(path.join(this.media, name))) await fs.promises.copyFile(path.join(this.media, name), path.join(folder, 'media', name));
-      else missing++;
-    }
-    await fs.promises.writeFile(path.join(folder, 'favecus-player-library.json'), ExportJSON({ version: 3, playlists, rootPlaylistIds: this.data.rootPlaylistIds }));
-    return { folder, missing };
+  async Export(parent, options = {}) {
+    const { ShareMode, ShareData } = require('./library-share.cjs');
+    const mode = ShareMode(options);
+    if (this.sharingBusy) throw new Error('出力・取り込みの完了後に出力してください。');
+    const data = ShareData(structuredClone(this.data), mode); this.sharingBusy = true;
+    let folder, missing = 0, omitted = 0;
+    try {
+      folder = await fs.promises.mkdtemp(path.join(parent, 'FavecusPlayer-'));
+      const included = new Map();
+      for (const p of data.playlists) for (const e of p.entries) if (e.type === 'local') {
+        if (!included.has(e.fileName)) {
+          let available = false;
+          if (mode === 'media') {
+            const source = path.join(this.media, e.fileName), stat = await fs.promises.lstat(source).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+            if (stat?.isFile() && !stat.isSymbolicLink()) {
+              await fs.promises.mkdir(path.join(folder, 'media'), { recursive: true });
+              await fs.promises.copyFile(source, path.join(folder, 'media', e.fileName), fs.constants.COPYFILE_EXCL); available = true;
+            } else missing++;
+          } else omitted++;
+          included.set(e.fileName, available);
+        }
+        e.mediaIncluded = included.get(e.fileName);
+      }
+      await fs.promises.writeFile(path.join(folder, 'favecus-player-library.json'), ExportJSON(data), { flag: 'wx' });
+      return { folder, mode, missing, omitted };
+    } catch (error) { if (folder) await fs.promises.rm(folder, { recursive: true, force: true }); throw error; }
+    finally { this.sharingBusy = false; }
   }
   async Import(file) {
-    if ((await fs.promises.stat(file)).size > MAX_JSON) throw new Error('ファイルが大きすぎます。');
-    const input = ReadJSON(await fs.promises.readFile(file));
-    const lists = ValidateLibrary(input, true);
-    const cleanTitle = TitleCleaner(this.data.settings.titleCleanupWords);
-    for (const list of lists) for (const entry of list.entries) entry.title = cleanTitle(entry.title);
-    const skipped = input.playlists.reduce((n, p) => n + p.entries.filter(e => e?.type === 'youtube').length, 0);
-    if (this.data.playlists.length + lists.length > 100 || this.data.playlists.reduce((n, p) => n + p.entries.length, 0) + lists.reduce((n, p) => n + p.entries.length, 0) > MAX_ENTRIES) throw new Error('登録数の上限を超えています。');
-    const mapping = new Map(); let missing = 0;
-    for (const p of lists) for (const e of p.entries) if (e.type === 'local') {
-      if (mapping.has(e.fileName)) { e.fileName = mapping.get(e.fileName); continue; }
-      const source = path.join(path.dirname(file), 'media', e.fileName);
-      const newName = `${randomUUID()}${path.extname(e.fileName)}`;
-      mapping.set(e.fileName, newName);
-      // JSONで指定できるのは、同梱mediaフォルダー直下の通常ファイルだけ。
-      const stat = await fs.promises.lstat(source).catch(() => null);
-      const mediaStat = await fs.promises.lstat(path.dirname(source)).catch(() => null);
-      if (stat?.isFile() && !stat.isSymbolicLink() && mediaStat?.isDirectory() && !mediaStat.isSymbolicLink()) await fs.promises.copyFile(source, path.join(this.media, newName));
-      else missing++;
-      e.fileName = newName;
-    }
-    const mappingIds = new Map(input.playlists.map((p, i) => [p.id, lists[i].id]));
-    this.data.rootPlaylistIds.push(...(input.version === 3 ? input.rootPlaylistIds.map(id => mappingIds.get(id)) : lists.map(p => p.id)));
-    this.data.playlists.push(...lists); this.data.activePlaylistId = lists[0].id; this.Save();
-    return { state: this.Snapshot(), missing, skipped };
+    const { LibraryArchive } = require('./library-archive.cjs');
+    const archive = new LibraryArchive(this);
+    const plan = await archive.Prepare(file);
+    try { return await archive.Commit(plan.id, plan.playlists.map(p => p.id)); }
+    finally { await archive.Cancel(plan.id); }
   }
 }
 
-module.exports = { Store, CleanText, ValidateLibrary, ValidateSettings, MEDIA_NAME };
+module.exports = { Store, MAX_PLAYLISTS, ValidatePlaylistCount, CleanText, ValidateLibrary, ValidateSettings, MEDIA_NAME };

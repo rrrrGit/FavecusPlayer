@@ -7,7 +7,7 @@ const { DuplicateIndex } = require('./duplicates.cjs');
 const LIMIT = 10000, LIFETIME = 30 * 60000;
 class AdditionReview {
   constructor(store, options = {}) { this.store = store; this.options = options; this.plans = new Map(); this.now = options.now || Date.now; }
-  StateKey() { return createHash('sha256').update(JSON.stringify([this.store.data.settings.titleCleanupWords, this.store.data.playlists])).digest('hex'); }
+  StateKey() { return createHash('sha256').update(JSON.stringify([this.store.data.settings.titleCleanupWords, this.store.data.playlists, this.store.data.videoAliases])).digest('hex'); }
   async Prepare(action) {
     const items = this.store.InputItems(action);
     this.store.Targets(action.destinationIds ?? action.playlistId);
@@ -42,7 +42,7 @@ class AdditionReview {
     const items = candidates.map(item => ({ ...item, entry: { ...item.entry, title: this.store.CleanTitle(item.entry.title) } }));
     const operations = [], conflicts = [];
     for (const target of targets) {
-      const index = new DuplicateIndex(target.entries);
+      const index = new DuplicateIndex(target.entries, this.store.IdentityKey());
       for (const [itemIndex, candidate] of items.entries()) {
         const id = `${target.id}:${itemIndex}`, duplicate = index.Find(candidate.entry);
         operations.push({ id, playlistId: target.id, itemIndex, duplicate: !!duplicate });

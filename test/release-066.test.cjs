@@ -40,7 +40,8 @@ test('066 offline media and artwork import under the chosen parent and complete 
   const source = create(directory, b.store); source.Start(b.store.Playlist(b.leaf).entries, { kind: 'audio', playlistId: b.leaf, playlistName: 'C' }); await source.done; assert.equal(source.job.completed, 1);
   const file = path.join(directory, 'offline.zip'); await new LibraryArchive(b.store, source).Export(file);
   const d = Destination(directory), offline = create(path.join(directory, 'target-offline'), d.store), archive = new LibraryArchive(d.store, offline), plan = await archive.Prepare(file), result = await archive.Commit(plan.id, [b.leaf], { parentId: d.id });
-  assert.equal(result.downloaded, 1); const record = [...offline.records.values()][0]; assert.equal(record.layout, 3); assert.match(record.file, /^D[^/]*\/A[^/]*\/B[^/]*\/C[^/]*\//);
+  assert.equal(result.downloaded, 1); const record = [...offline.records.values()][0]; assert.equal(record.layout, 4); assert.match(record.file, /^media\/av702-p1\//);
+  assert.deepEqual(Tree.Path(result.state, result.state.activePlaylistId).map(p => p.name), ['D', 'A', 'B', 'C']);
   assert.equal(fs.readFileSync(offline.File(record.token).path, 'utf8'), 'saved audio'); assert.deepEqual(fs.readFileSync(offline.ResolvePath(record.thumbnail.file)), image); assert.ok(offline.Cover(record.token));
 });
 test('066 invalid import parents and failed persistence leave the old graph untouched', async t => {

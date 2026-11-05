@@ -50,7 +50,7 @@ test('new media keeps both formats and covers in a song folder; old layout migra
   const video = library.Find(entry(123), 'video'), audio = library.Find(entry(123), 'audio'); assert.equal(path.dirname(video.file), path.dirname(audio.file)); assert.equal(video.file.split('/').length, 3); assert.equal(path.dirname(video.thumbnail.file), path.dirname(video.file));
   const oldFile = 'old/saved-song.mp4', oldCover = 'old/saved-song.thumbnail.png'; fs.mkdirSync(path.join(library.directory, 'old')); fs.copyFileSync(video.path, library.ResolvePath(oldFile)); fs.copyFileSync(library.ResolvePath(video.thumbnail.file), library.ResolvePath(oldCover));
   library.CommitRecord({ ...video, layout: undefined, file: oldFile, thumbnail: { ...video.thumbnail, file: oldCover } });
-  await library.Organize(); const moved = library.Find(entry(123), 'video'); assert.equal(moved.layout, 2); assert.equal(fs.readFileSync(moved.path, 'utf8'), 'playable fixture'); assert.equal(library.Cover(moved.token), PNG); assert.equal(fs.existsSync(library.ResolvePath(oldFile)), false);
+  await library.Organize(); const moved = library.Find(entry(123), 'video'); assert.equal(moved.layout, 4, library.warning); assert.equal(fs.readFileSync(moved.path, 'utf8'), 'playable fixture'); assert.equal(library.Cover(moved.token), PNG); assert.equal(fs.existsSync(library.ResolvePath(oldFile)), false);
   const restarted = Offline(root); assert.equal(restarted.Find(entry(123)).file, moved.file); const before = fs.readFileSync(path.join(library.directory, 'index.json'), 'utf8'); await restarted.Organize(); assert.equal(fs.readFileSync(path.join(library.directory, 'index.json'), 'utf8'), before);
 });
 async function ArchiveFixture(t) {
@@ -60,10 +60,10 @@ async function ArchiveFixture(t) {
   const file = path.join(root, 'backup.zip'); const exported = await new LibraryArchive(from, offline).Export(file); assert.equal(exported.downloaded, 3);
   const to = new Store(path.join(root, 'target')), target = Offline(path.join(root, 'target')); return { root, from, first, second, file, to, target, archive: new LibraryArchive(to, target) };
 }
-test('playlist ZIP restores only selected saved video, audio and cover with fresh playlist IDs and no downloads', async t => {
+test('playlist ZIP restores only selected saved video, audio and cover with unused playlist IDs preserved and no downloads', async t => {
   const h = await ArchiveFixture(t), plan = await h.archive.Prepare(h.file); assert.equal(plan.playlists.find(p => p.id === h.first).downloaded, 2);
   const result = await h.archive.Commit(plan.id, [h.first]); assert.equal(result.downloaded, 2); assert.equal(result.imported, 1); assert.equal(h.target.records.size, 2); assert.equal(h.target.Find(entry(456)), null);
-  assert.equal(h.target.Cover(entry(123)), PNG); assert.equal(fs.readFileSync(h.target.Find(entry(123)).path, 'utf8'), 'playable fixture'); assert.notEqual(result.state.activePlaylistId, h.first);
+  assert.equal(h.target.Cover(entry(123)), PNG); assert.equal(fs.readFileSync(h.target.Find(entry(123)).path, 'utf8'), 'playable fixture'); assert.equal(result.state.activePlaylistId, h.first);
   const restarted = Offline(path.join(h.root, 'target')); assert.equal(restarted.Find(entry(123), 'audio').kind, 'audio'); assert.equal(restarted.Cover(entry(123)), PNG);
   const again = await h.archive.Prepare(h.file); const repeated = await h.archive.Commit(again.id, [h.first]); assert.equal(repeated.downloaded, 0); assert.equal(h.target.records.size, 2);
 });

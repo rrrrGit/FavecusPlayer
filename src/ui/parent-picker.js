@@ -14,8 +14,9 @@
     const previous = button('↑', 'icon-button', () => jump(-1)), next = button('↓', 'icon-button', () => jump(1));
     previous.setAttribute('aria-label', '前の検索結果へ'); next.setAttribute('aria-label', '次の検索結果へ'); tools.append(status, previous, next);
     const selection = node('p', 'parent-selection'); selection.setAttribute('role', 'status');
-    const top = button('最上位（親なし）', 'parent-root', () => choose(null));
-    const choices = node('div', 'parent-choices'); choices.setAttribute('role', 'group'); choices.setAttribute('aria-label', '親プレイリストの階層');
+    const rootLabel = options.rootLabel || '最上位（親なし）';
+    const top = button(rootLabel, 'parent-root', () => choose(null));
+    const choices = node('div', 'parent-choices'); choices.setAttribute('role', 'group'); choices.setAttribute('aria-label', options.label || '親プレイリストの階層');
     top.hidden = options.allowRoot === false;
     container.classList.add('parent-picker'); container.replaceChildren(searchLabel, tools, selection, top, choices);
     function reveal(id) { tree.ExpandTo(data, id, expanded); }
@@ -33,19 +34,21 @@
     function render() {
       choices.replaceChildren(); rows = []; names = new Map(); arrows = new Map();
       const highlighted = new Set(matches), focusId = matches[matchIndex];
-      const label = selected ? tree.Path(data, selected).map(p => p.name).join('/') : '最上位（親なし）';
+      const label = selected ? tree.Path(data, selected).map(p => p.name).join('/') : rootLabel;
       selection.textContent = `選択中：${label}`; selection.title = label; top.setAttribute('aria-pressed', String(!selected));
       status.textContent = query ? (matches.length ? `${matchIndex + 1} / ${matches.length}件` : '該当するプレイリストはありません') : '矢印で子プレイリストを開けます';
       previous.disabled = next.disabled = matches.length < 2;
       const visit = (id, path, depth, ancestors) => {
-        const p = map.get(id); if (!p || ancestors.has(id) || excluded.has(id)) return;
+        const p = map.get(id); if (!p || ancestors.has(id)) return;
         const row = node('div', 'parent-row'); row.dataset.playlistId = id; row.dataset.path = path; row.style.paddingLeft = `${Math.min(depth * 18, 180)}px`;
         row.classList.toggle('selected', selected === id); row.classList.toggle('search-match', highlighted.has(id)); row.classList.toggle('search-current', id === focusId);
-        const children = (p.childIds || []).filter(child => !excluded.has(child)), open = expanded.has(path);
+        const children = p.childIds || [], open = expanded.has(path);
         const arrow = button(open ? '⌄' : '›', 'tree-expand', () => { open ? expanded.delete(path) : expanded.add(path); render(); arrows.get(path)?.focus({ preventScroll: true }); });
         arrow.disabled = !children.length; arrow.setAttribute('aria-expanded', String(open)); arrow.setAttribute('aria-label', `${p.name}の子プレイリストを${open ? '閉じる' : '開く'}`);
         const name = button(p.name, 'parent-name', () => choose(id, path)); name.title = path.split('/').map(part => map.get(part)?.name || '').join('/'); name.setAttribute('aria-pressed', String(selected === id));
-        row.append(arrow, name); choices.append(row); rows.push(row); names.set(path, name); arrows.set(path, arrow);
+        name.disabled = excluded.has(id); row.append(arrow, name);
+        if (name.disabled) row.append(node('span', 'selection-unavailable', '選択不可'));
+        choices.append(row); rows.push(row); names.set(path, name); arrows.set(path, arrow);
         if (open) for (const child of children) visit(child, `${path}/${child}`, depth + 1, new Set([...ancestors, id]));
       };
       for (const id of tree.Roots(data)) visit(id, id, 0, new Set());
@@ -59,7 +62,7 @@
       if (value && !query) beforeSearch = new Set(expanded);
       if (beforeSearch) { expanded.clear(); for (const path of beforeSearch) expanded.add(path); }
       query = value; matchIndex = 0;
-      matches = query ? tree.Walk(data).filter(p => !excluded.has(p.id) && normal(p.name).includes(query)).map(p => p.id) : [];
+      matches = query ? tree.Walk(data).filter(p => normal(p.name).includes(query)).map(p => p.id) : [];
       for (const id of matches) reveal(id);
       if (!query) beforeSearch = null;
       render(); if (matches.length) scrollTo(matches[0]);
@@ -69,6 +72,7 @@
       event.preventDefault(); jump(event.key === 'ArrowUp' || event.shiftKey ? -1 : 1);
     };
     if (!map.has(selected) || excluded.has(selected)) selected = null;
+    if (options.excludeId) reveal(options.excludeId);
     if (selected) reveal(selected);
     render(); if (selected) scrollTo(selected);
     return { get: () => selected };

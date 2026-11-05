@@ -27,6 +27,8 @@ function Harness(t) {
     set value(value) { this.val = String(value); }
     get value() { return this.val ?? (this.tagName === 'select' ? this.children[0]?.value : '') ?? ''; }
     setAttribute(key, value) { this[key] = value; }
+    getBoundingClientRect() { return { top: 0, height: 40 }; }
+    focus() {}
     addEventListener(key, fn) { this.events[key] = fn; }
     click() { if (!this.disabled) return this.onclick?.() ?? this.events.click?.(); }
     querySelectorAll(selector) { const all = this.children.flatMap(child => [child, ...child.querySelectorAll('*')]); return selector === '*' ? all : all.filter(node => selector === 'input:checked' ? node.tagName === 'input' && node.checked : node.tagName === selector); }
@@ -42,7 +44,7 @@ function Harness(t) {
     close() { this.open = false; }
     reportValidity() { return true; }
   }
-  for (const id of ['modal', 'modal-body', 'modal-title', 'modal-submit', 'modal-back', 'modal-form', 'modal-close', 'modal-cancel', 'modal-notice', 'toast', 'mute', 'transport-volume', 'transport-volume-value', 'downloads-status', 'download-mini', 'download-mini-cancel', 'download-mini-gauge', 'download-mini-label', 'download-mini-detail']) nodes.set(id, new Node()); nodes.get('modal').open = false;
+  for (const id of ['modal', 'modal-body', 'modal-title', 'modal-submit', 'modal-back', 'modal-form', 'modal-close', 'modal-cancel', 'modal-notice', 'modal-actions', 'toast', 'mute', 'transport-volume', 'transport-volume-value', 'downloads-status', 'download-mini', 'download-mini-cancel', 'download-mini-gauge', 'download-mini-label', 'download-mini-detail']) nodes.set(id, new Node()); nodes.get('modal').open = false;
   const review = new AdditionReview(store);
   const api = { resolveURL: async value => { const video = require('../src/core/urls.cjs').ParseBilibili(value); return { kind: 'video', video: { ...video, title: '' }, sources: [] }; }, action: async action => { calls.push(structuredClone(action)); return store.Apply(action); }, accounts: async () => ({}), prepareFiles: async () => null,
     preferSaved: async value => ({ preferSaved: value }), prepareAdd: async action => { calls.push(structuredClone(action)); return review.Prepare(action); }, commitAdd: (id, allowed) => review.Commit(id, allowed), cancelAdd: async id => review.Cancel(id) };
@@ -62,11 +64,13 @@ test('existing-list picker preserves multi-song selection across lists and defau
   assert.deepEqual(destinations.filter(x => x.checked).map(x => x.value), [h.target]);
   let songs = h.node('existing-tracks').querySelectorAll('input'); assert.equal(songs.length, 2);
   songs[0].checked = true; songs[0].onchange();
-  h.node('existing-source').value = h.a; h.node('existing-source').onchange(); songs = h.node('existing-tracks').querySelectorAll('input');
+  const chooseSource = id => h.node('existing-source').querySelectorAll('div').find(n => n.dataset.playlistId === id).children.find(n => n.className === 'parent-name').click();
+  chooseSource(h.a); songs = h.node('existing-tracks').querySelectorAll('input');
   songs[0].checked = true; songs[0].onchange(); assert.match(h.node('existing-count').textContent, /2曲/);
-  h.node('existing-source').value = h.source; h.node('existing-source').onchange(); assert.equal(h.node('existing-tracks').querySelectorAll('input')[0].checked, true);
+  chooseSource(h.source); assert.equal(h.node('existing-tracks').querySelectorAll('input')[0].checked, true);
   const remaining = h.node('modal-body').children.at(-1).querySelectorAll('input').filter(n => n.type === 'checkbox');
-  assert.deepEqual(remaining.map(x => x.value), [h.target]);
+  assert.deepEqual(remaining.filter(x => !x.disabled).map(x => x.value), [h.target]);
+  assert.ok(remaining.filter(x => [h.source, h.a].includes(x.value)).every(x => x.disabled));
   await h.submit();
   assert.equal(h.calls.at(-1).type, 'add-existing'); assert.deepEqual(h.calls.at(-1).destinationIds, [h.target]);
   assert.deepEqual(h.store.Playlist(h.target).entries.map(e => e.title), ['TEST 曲A', '曲C']); assert.equal(h.store.Playlist(h.a).entries.length, 1); assert.equal(h.node('modal').open, false);
