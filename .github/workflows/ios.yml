@@ -1,0 +1,101 @@
+name: iOS build
+
+# macOSランナーは消費が大きいため、iOS関連の変更があるときだけ実行する。
+on:
+  push:
+    branches: ["release/v0.7.0"]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Record start time
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+        working-directory: .
+
+      - name: Tool versions
+        run: |
+          xcodebuild -version
+          swift --version
+          sw_vers
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Pick simulator
+        run: |
+          UDID=$(xcrun simctl list devices available iPhone | grep -m1 -oE '[0-9A-F]{8}-([0-9A-F]{4}-){3}[0-9A-F]{12}')
+          echo "Simulator: $UDID"
+          test -n "$UDID"
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+
+      - name: Build and test (simulator)
+        run: |
+          xcodebuild test \
+            -project FavecusPlayer.xcodeproj \
+            -scheme FavecusPlayer \
+            -destination "id=$SIM_UDID" \
+            -derivedDataPath build/sim \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Screenshot
+        run: |
+          APP=$(find build/sim -name FavecusPlayer.app -path "*iphonesimulator*" | head -1)
+          xcrun simctl boot "$SIM_UDID" || true
+          xcrun simctl bootstatus "$SIM_UDID" -b
+          xcrun simctl install "$SIM_UDID" "$APP"
+          xcrun simctl launch "$SIM_UDID" dev.favecus.player
+          sleep 5
+          mkdir -p out
+          xcrun simctl io "$SIM_UDID" screenshot out/screenshot.png
+
+      - name: Build unsigned IPA
+        run: |
+          xcodebuild build \
+            -project FavecusPlayer.xcodeproj \
+            -scheme FavecusPlayer \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath build/device \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+          APP=$(find build/device -name FavecusPlayer.app -path "*Release-iphoneos*" | head -1)
+          rm -rf Payload
+          mkdir Payload
+          cp -R "$APP" Payload/
+          mkdir -p out
+          zip -qry out/FavecusPlayer-unsigned.ipa Payload
+          ls -l out
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-outputs
+          path: |
+            ios/out/screenshot.png
+            ios/out/FavecusPlayer-unsigned.ipa
+          retention-days: 14
+
+      - name: Record duration
+        if: always()
+        working-directory: .
+        run: |
+          END=$(date +%s)
+          MIN=$(( (END - JOB_START + 59) / 60 ))
+          echo "macOS runner time: about ${MIN} min (billed per minute, rounded up)" >> "$GITHUB_STEP_SUMMARY"

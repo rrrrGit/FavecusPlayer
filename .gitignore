@@ -6,3 +6,8 @@ __pycache__/
 .env
 .env.*
 !.env.example
+
+# iOS（XcodeGenの生成物・ビルド出力）
+ios/*.xcodeproj/
+ios/build/
+*.ipa

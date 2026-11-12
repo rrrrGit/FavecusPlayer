@@ -1,0 +1,45 @@
+name: FavecusPlayer
+options:
+  bundleIdPrefix: dev.favecus
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.7.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  FavecusPlayer:
+    type: application
+    platform: iOS
+    sources:
+      - FavecusPlayer
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.favecus.player
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: FavecusPlayer
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
+        TARGETED_DEVICE_FAMILY: "1"
+  FavecusPlayerTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - FavecusPlayerTests
+    dependencies:
+      - target: FavecusPlayer
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.favecus.player.tests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  FavecusPlayer:
+    build:
+      targets:
+        FavecusPlayer: all
+        FavecusPlayerTests: [test]
+    test:
+      targets:
+        - FavecusPlayerTests
