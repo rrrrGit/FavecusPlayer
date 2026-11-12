@@ -2,7 +2,7 @@
 
 更新日：2026-11-13（日本時間）
 対象：v0.7.0 / `release/v0.7.0`
-現在地：Step1完了（iOS版方針と共通データ仕様をDESIGN.mdへ確定）。次はStep2（iOSビルド基盤の検証）。
+現在地：Step2のCI検証まで完了（AltStoreでの実機導入はユーザー確認待ち）。次はStep3（共通処理のiOS実行）。
 基準コミット：`79255411dfbcb240cbad064fa8d1ae0ca4e085d4`（`release/v0.6.7` 最新。配布済みv0.6.7 startup-hotfix-1を含む）。
 v0.6.7の開発・検証記録は `docs/VALIDATION-067.md` に移しました。
 
@@ -76,7 +76,7 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 | --- | --- | --- |
 | Step0 開始と全体計画 | 完了 | `release/v0.7.0` 作成、v0.6.7記録の移動、全体計画・役割分担の記載 |
 | Step1 iOS版方針と共通データ仕様 | 完了 | 設計をDESIGN.md冒頭「v0.7.0」節へ確定（コード変更なし）。判断1〜3は確定済み |
-| Step2 iOSビルド基盤の検証 | 未着手 | XcodeGenの最小SwiftUIアプリをCIでビルド・テストし、シミュレーターのスクリーンショットと署名なしIPAを取得。ユーザーがAltStoreで実機に導入できるか確認 |
+| Step2 iOSビルド基盤の検証 | CI完了・実機導入は確認待ち | XcodeGenの最小SwiftUIアプリをCIでビルド・テストし、シミュレーターのスクリーンショットと署名なしIPAを取得（取得済み）。ユーザーがAltStoreで実機に導入できるか確認 |
 | Step3 共通処理のiOS実行 | 未着手 | 共通JSの束ね方と読み込みを決め、共通テストデータをNodeとiOSシミュレーターの両方で実行。999リスト・10000登録での速度を確認 |
 | Step4 MediaKeyと端末依存情報の分離 | 未着手 | 端末非依存のMediaKeyとDeviceMediaをWindows版へ導入。既存JSON・DLカタログ・ZIPの互換と移行時の原本保護を確認 |
 | Step5 Windows版の改善 | 指示待ち | ユーザーが提示する改善項目。内容に応じてStep5-1、5-2…に分割し、他のStepの間へ挿入することもある |
@@ -107,9 +107,20 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 
 ## 現在の工程
 
-Step2：iOSビルド基盤の検証。
+Step2：iOSビルド基盤の検証。CIの検証は完了し、実機導入の確認待ちです。
 
-- `ios/project.yml`（XcodeGen）で最小のSwiftUIアプリとテストターゲットを定義し、`.github/workflows/ios.yml` でビルド・テスト・シミュレーターのスクリーンショット・署名なしIPAを生成する。実行は `ios/**` と当該workflowの変更時のみ（`paths`）。macOSランナーの実行時間を毎回記録し、無料枠の消費を確認する。
-- Macがないため `.pbxproj` は直接編集しない。生成物（Xcodeプロジェクト、IPA）はGitへ入れない。
-- Windows版・既存テストには触れない。バージョン番号は変更しない。
-- 完了条件：CIが成功し、スクリーンショットと署名なしIPAが取得できる。ユーザーがAltStoreで実機へ導入できるか確認する（実機は未検証のまま報告しない）。
+### Step2の結果
+
+- 追加：`ios/project.yml`（XcodeGen）、仮の最小SwiftUI画面（`ios/FavecusPlayer/`）、単体テスト2件（`ios/FavecusPlayerTests/`）、`.github/workflows/ios.yml`。`.pbxproj`・IPAはGitへ入れず、CIで生成します。Windows版・既存テスト・バージョン番号は変更していません。
+- CI実行（macos-15、Xcode 16.4、run 43327091224）：成功。シミュレーターでのビルド・テスト（2件成功・失敗0）、スクリーンショット、署名なしIPA（約11KB）を取得し、Artifact `ios-outputs`（保持14日）に保存しました。スクリーンショットは画面の表示（FavecusPlayer 0.7.0）を目視確認しました。
+- 実行条件：`release/v0.7.0` へのpushで `ios/**` またはworkflowが変わったときと、手動実行のみ。同一ブランチの古い実行は取り消します。
+- macOS実行時間：ジョブ全体で約11分（開始から完了まで）。内訳はシミュレーター選択に約53秒、ビルド・テストに約2分22秒、スクリーンショットに約6分46秒（シミュレーターの起動待ちが大半）、IPAに約27秒。$0.062/分で換算すると約$0.7（概算）で、GitHub Freeの含有$12/月に対して1回あたり約6%です。次の最適化候補は、シミュレーターの起動待ちを短縮することです（Step3以降で改善）。
+- 未確認：GitHub側の実際の課金表示、署名なしIPAをAltStoreが再署名して導入できること、AltStore自体が有効アプリの3枠を使うか、iPhone実機での起動。
+
+### ユーザーに行っていただく確認（実機導入）
+
+1. GitHubの該当Actions実行（`iOS build`、run 43327091224）から Artifact `ios-outputs` をダウンロードして展開し、`FavecusPlayer-unsigned.ipa` をiPhoneへ送る（AirDrop等）。
+2. iPhoneのAltStoreで、`+` から送ったIPAを選んで導入する。
+3. 起動して「FavecusPlayer 0.7.0」の画面が表示されるか、AltStoreの「My Apps」に有効アプリとして何個表示されるか（AltStore自体を含む）を確認して教えてください。
+
+導入できなかった場合は、エラー内容をもとに署名・Bundle IDの設定を見直します。
