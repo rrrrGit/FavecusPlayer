@@ -2,7 +2,7 @@
 
 更新日：2026-11-13（日本時間）
 対象：v0.7.0 / `release/v0.7.0`
-現在地：Step0完了（ブランチ作成・全体計画の制定）。次はStep1（iOS版方針と共通データ仕様の確定）。
+現在地：Step1完了（iOS版方針と共通データ仕様をDESIGN.mdへ確定）。次はStep2（iOSビルド基盤の検証）。
 基準コミット：`79255411dfbcb240cbad064fa8d1ae0ca4e085d4`（`release/v0.6.7` 最新。配布済みv0.6.7 startup-hotfix-1を含む）。
 v0.6.7の開発・検証記録は `docs/VALIDATION-067.md` に移しました。
 
@@ -94,7 +94,7 @@ GitHub ActionsのmacOS環境は、非公開リポジトリでは無料枠の消�
 | 工程 | 状態 | 完了条件・範囲 |
 | --- | --- | --- |
 | Step0 開始と全体計画 | 完了 | `release/v0.7.0` 作成、v0.6.7記録の移動、全体計画・役割分担の記載 |
-| Step1 iOS版方針と共通データ仕様 | 未着手 | 下記「Step1」の設計をDESIGN.mdへ確定。コードは変更しない |
+| Step1 iOS版方針と共通データ仕様 | 完了 | 設計をDESIGN.md冒頭「v0.7.0」節へ確定（コード変更なし）。ユーザー確認待ちの4項目あり |
 | Step2 iOSビルド基盤の検証 | 未着手 | XcodeGenの最小SwiftUIアプリをCIでビルド・テストし、シミュレーターのスクリーンショットと署名なしIPAを取得。ユーザーがAltStoreで実機に導入できるか確認 |
 | Step3 共通処理のiOS実行 | 未着手 | 共通JSの束ね方と読み込みを決め、共通テストデータをNodeとiOSシミュレーターの両方で実行。999リスト・10000登録での速度を確認 |
 | Step4 MediaKeyと端末依存情報の分離 | 未着手 | 端末非依存のMediaKeyとDeviceMediaをWindows版へ導入。既存JSON・DLカタログ・ZIPの互換と移行時の原本保護を確認 |
@@ -118,18 +118,19 @@ GitHub ActionsのmacOS環境は、非公開リポジトリでは無料枠の消�
 
 工程の順序は、前の工程の結果で入れ替えることがあります。その場合は理由を本ファイルに記録します。
 
-### Step1で確定する設計
+### Step1の結果
 
-- MediaKeyの形式（BV＋パートを基本、av/BVの確認済み対応、CIDの扱い、ローカル取り込み曲の扱い）と、既存mediaIdとの関係
-- 同期レコードの形（プレイリスト、親子の辺、登録曲、メディア情報）、並び順キー、更新日時と時計のずれの扱い、Tombstoneの保持期間、循環する移動の解決、削除されたリストの子の扱い
-- 既存JSON（version 3 / identityVersion 2）と同期レコードの相互変換、移行時のバックアップ
-- ZIPのmanifest拡張（既存identity.jsonとの関係、旧ZIPの読み込み）
-- iOS側の層（App / Features / Domain / Platform）とJavaScriptCoreで実行する範囲
-- DeviceMediaとダウンロード状態の定義（Windows・iOSで共通の意味）
-- 認証情報の保存先（Windows：Electron safeStorage、iOS：Keychain）
-- 各外部ツール（AltStore/AltServer/ショートカット）とFavecusPlayerの責務の境界
-- Supabaseの無料枠の条件（一定期間使わない場合の一時停止など）は公式情報で確認してから採用する
+確定した設計は `docs/DESIGN.md` 冒頭「v0.7.0：iOS版・同期の方針と共通データ仕様」に集約しました（本書へ重複して書きません）。ユーザー確認待ちは次の4点です。
+
+1. 同期基盤にSupabaseを使うこと。2. 自端末間でvideoAliasesを同期し確認済みとして受け入れること（現行方針の変更）。3. Tombstone保持期間（推奨90日）。4. iPhone画面はStep15でユーザーのUI案を受けて決定。
+
+公式ページ未確認の事項（Supabaseの自動停止後の復旧手順・「非活動」の定義、AltStoreの無料アカウント明記・Background RefreshとAltServerの関係、ショートカットの手順）は、該当工程の前に確認します。GitHub ActionsのmacOSは$0.062/分、Freeの含有は金額$12/月と確認しました（分数換算は概算）。
 
 ## 現在の工程
 
-Step1：iOS版方針と共通データ仕様の確定（Claude担当。文書のみ、コード変更なし）。完了後、Step2の指示をここへ記載します。
+Step2：iOSビルド基盤の検証。
+
+- `ios/project.yml`（XcodeGen）で最小のSwiftUIアプリとテストターゲットを定義し、`.github/workflows/ios.yml` でビルド・テスト・シミュレーターのスクリーンショット・署名なしIPAを生成する。実行は `ios/**` と当該workflowの変更時のみ（`paths`）。macOSランナーの実行時間を毎回記録し、無料枠の消費を確認する。
+- Macがないため `.pbxproj` は直接編集しない。生成物（Xcodeプロジェクト、IPA）はGitへ入れない。
+- Windows版・既存テストには触れない。バージョン番号は変更しない。
+- 完了条件：CIが成功し、スクリーンショットと署名なしIPAが取得できる。ユーザーがAltStoreで実機へ導入できるか確認する（実機は未検証のまま報告しない）。

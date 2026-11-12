@@ -1,5 +1,101 @@
 # Favecus Player の構造
 
+## v0.7.0：iOS版・同期の方針と共通データ仕様（Step1）
+
+本節は設計の確定であり、コードは変更していません。実装はStep2以降です。「ユーザー確認待ち」は推奨案であり、確認までは実装に入る前提としません。
+
+### 層と配置
+
+- `src/`（Windows版）は移動しません。端末非依存の共通JS（library-data / library-identity / media-identity / library-share / import-identity / queue / urls / library-tree / library-search 等）を規則の正本とします。
+- `shared/spec/`（スキーマ）と `shared/fixtures/`（期待値付きの共通テストデータ）を追加し、NodeとiOSの両方で同じデータを実行して仕様のずれを検出します。
+- iOSは `ios/`（XcodeGenの `project.yml`、App / Features / Domain / Platform の層）に置きます。保存・通信・再生・認証はPlatform層でネイティブ実装し、データ規則はDomain層がJavaScriptCoreの共通JSまたはSwift再実装（共通テストデータで一致保証）で担います。
+- JavaScriptCoreで実行する範囲は構造検証・階層・識別・検索・共有形式・同期のマージです。`library-data.cjs` が `require('../ui/library-tree.js')` で別ディレクトリを参照しており、JavaScriptCoreには `require` がありません。束ね方（単一ファイルへのバンドル）をStep3で決めます。`atob`・`TextEncoder` 等がJavaScriptCoreで使えるかは主張せず、Step3で実機相当のシミュレーターで検証します。
+
+### 識別：MediaKeyを端末間の正本にする
+
+- **端末間の同一性はMediaKeyで決めます。mediaIdは端末内の参照用に留めます。** 同期しても読み込み規則（照合キーとmediaIdが一対一。DESIGN上の既存規則）を破らないためです。別端末が同じBV＋パートを独立に登録するとmediaIdが異なるので、同期では次のとおり扱います。
+  - 同期レコードには `mediaKey` を持たせ、受信側はmediaKeyが既存の登録と一致すれば**自端末のmediaIdを使い、受信側のmediaIdは採用しない**。一致しなければ受信側が新しいmediaIdを割り当てます。この対応は端末ごとの表に保持し、同期レコードには端末のmediaIdを含めません。
+  - これにより、マージ結果が一対一規則に違反して起動を止めることを防ぎます。
+- MediaKeyの形式（v1）：`bili:<BV>:p<パート>`。CIDは保存せず、確認済みメタデータとして任意に保持します。
+- av番号のみで確認済みBVがない登録の仮キー：`bili-av:<aid>:p<パート>`。通常APIでav/BVの対応が確認されたとき `bili:<BV>:p<パート>` へ昇格し、昇格は「旧キー→新キー」の変更レコードとして同期します。受信側は旧キーと新キーを同一として扱います。
+- ローカル曲：識別は端末内のfileNameのまま、内容ハッシュによる同定は既存方針どおり行いません。他端末では `mediaIncluded:false` の取り込みと同様に**未充足参照**として表示します。ZIPで実体を取り込んだ場合のみ充足します。
+- **videoAliases（av/BV対応）の同期**：現行方針は「外部のaliasesを取り込み先の確認済み対応表へ登録しない」です。同一アカウントの他端末が確認した対応は、同期経由に限り**確認済みとして受け入れる**案とします。これは現行方針の変更であり、受け入れた対応は一対一・矛盾拒否の既存検証を通し、矛盾する場合は受け入れず通知します。ZIPと他者の共有ファイルには従来どおりこの変更を適用しません。**（ユーザー確認待ち。推奨：同期経由のみ受け入れ）**
+
+### 保存形式と移行
+
+- 同期用の追加情報は、既存JSONの `identityVersion` を上げず、独立した `syncVersion`（初版1）として別ファイル `sync/state.json` に保存します。既存JSON（version 3 / identityVersion 2）は変更せず、導入時に `library.pre-0.7.0-*.json` へバイト単位で原本を保存します。バックアップできなければ同期を有効にしません。
+- 未知の `syncVersion` は、旧版へ戻して上書きせず同期を停止します（既存の未知identityVersionの扱いと同じ）。
+- 同期をオフにしたままの端末は、従来どおり単独で動作します。
+
+### 同期レコード
+
+変更単位の追記型とし、状態全体を送りません。レコードの種類は次のとおりです。
+
+| 種類 | 識別 | 主な内容 |
+| --- | --- | --- |
+| playlist | playlistId | 名前、アイコン参照、参加フラグ、削除状態 |
+| edge | (parentId, childId) | 並び順キー。最上位は擬似親 `ROOT` からの辺として表す |
+| track | trackId（登録曲id） | 所属playlistId、mediaKey、曲名、元URL、パート、並び順キー、削除状態 |
+| mediaAlias | (aid, bvid) | 確認済みav/BV対応 |
+
+各レコードは `hlc`（下記）、`deviceId`、`deleted` を持ちます。実体（MP4/M4A）、端末の絶対パス、一時ファイル、Bilibiliの認証情報は含みません。同じ子リストを複数の親が持つ共有子リストは、単一のParentIdではなく**辺の集合**で表し、情報を失いません。
+
+### 時刻・並び順・競合
+
+- 時計はHLC（ハイブリッド論理時計）とし、端末の壁時計を信頼しません。HLCが同じときは `deviceId` の辞書順で決定します。
+- 並び順キーは分数インデックス（挿入間に文字列キーを生成する方式）とし、同一位置への同時挿入は `(キー, hlc, deviceId)` で決定的に整列します。キーが長くなりすぎた場合は、その親の辺だけを再採番する変更レコードを送ります。
+- 同一フィールドの競合は最新のhlcが勝つ（フィールド単位のLWW）。削除と更新の競合は削除が勝つ（下記の復活条件を除く）。
+- **循環**：各端末では局所的に正しい二つの移動を両方適用すると循環する場合があります。マージ後に循環を検出したら、循環を作った辺のうち hlc が最大のもの（同値ならdeviceIdが大きいもの）を無効化し、その子を元の親へ戻します。決定的に同じ結果になることを共通テストデータで確認します。
+- **親の削除**：削除は辺と playlist 自身にだけ付き、子へ連鎖しません。他に親を持つ共有子リストは残ります。親が一つだけだった子は最上位（`ROOT` 辺）へ引き上げ、曲を失わせません。
+- **上限999個**：マージ後の総数が999を超える場合は、超過分の受信playlistを**適用せず保留キューに置き**、ユーザーへ通知します。起動を止める状態の書き込みは行いません。
+- 登録曲の上限10000件も同様に保留します。
+
+### Tombstoneと長期オフライン
+
+- 削除はTombstone（`deleted:true`）で表し、古い情報による復活を防ぎます。保持期間の推奨は90日です。**（ユーザー確認待ち）**
+- 保持期間を超えて同期していない端末は、差分ではなく全量再同期とします。そのとき端末側の未送信の変更は、競合として一覧にして確認します（黙って上書き・復活させません）。
+
+### ローカルDBと同期キュー
+
+- 操作は先にローカルDBへ反映し、同期キューへ積み、通信可能時に送ります。オフラインでも閲覧・編集・並び替え・保存済み再生ができます。
+- 保存や同期が途中で失敗しても、中途の状態を確定扱いにしません。再起動後は最後に確定した状態から再開します。
+
+### DeviceMediaと保存状態
+
+- DeviceMedia（端末ごとの保存情報）は、mediaKey、形式（動画/音声）、画質、保存状態、端末内パスを持ち、**同期しません**。
+- 状態：NotDownloaded / Preparing / Downloading / Processing / Validating / Completed / Failed / Cancelled。Windowsの既存カタログ（layout 4）はCompletedに相当します。再起動後、Completed以外のファイルは完成扱いにしません。サムネイルの失敗で本体を削除しません。
+
+### ZIPの拡張
+
+既存のFVPA0002（内側のidentity.json、shareVersion 1）は維持し、`manifest.json` にmediaKeyの一覧を追加します（shareVersion 2案）。旧ZIPは従来の互換経路で読み込みます。新ZIPを旧版アプリで読めることは保証しません。ZIPはバックアップ、手動移行、メディア共有に残し、削除しません。
+
+### 認証情報
+
+Windows：Electron safeStorage。iOS：Keychain。平文保存、ログ、同期、ZIPへの出力は行いません。取得できない配信は「取得不可」で終え、保護・制限の回避は実装しません。
+
+### 外部ツールの責務
+
+署名・導入・更新はAltStore Classic／AltServer／iOSショートカットに任せ、FavecusPlayerは署名制限の回避処理もAltStoreの内部状態の取得も持ちません。
+
+### 外部情報（2026-11-13に公式ページで確認／未確認）
+
+| 項目 | 確認した内容 | 出典 |
+| --- | --- | --- |
+| Supabase Free | データベース500MB/プロジェクト、MAU 50,000、API要求は無制限、egress 5GB、Free枠のプロジェクトは2つ | supabase.com/pricing, docs/guides/platform/billing-on-supabase |
+| Supabase 一時停止 | Freeプロジェクトは1週間の非活動で停止（有料は停止しない） | supabase.com/pricing |
+| Supabase 未確認 | 「非活動」の定義、自動停止後の復旧手順、停止前の警告の有無 | 該当ページ未確認。Step7前に確認する |
+| GitHub Actions | GitHub Freeの含有利用は金額で$12/月（分数ではない）。標準macOSランナーは$0.062/分（Linux 2コアは$0.006/分）。公開リポジトリの標準ランナーは無料 | docs.github.com の課金ページ |
+| GitHub 未確認 | 公式の「倍率」表記はなし。macOSでの無料枠の分数換算（約194分）は筆者の概算で、公式値ではない。リポジトリはPrivateのため、枠の消費を実行ごとに記録する | |
+| AltStore | AltStoreのアプリは7日で期限切れ。AltServerと同一Wi-Fi（またはUSB）でRefreshし、PC起動時にAltServerを起動しておく運用を推奨。同時に有効にできるsideloadアプリは3つ、App IDは10個まで（各1週間） | faq.altstore.io |
+| AltStore 未確認 | 無料Apple Accountに限る旨の明記、Background RefreshにAltServerが必須と明記された記述、ショートカット「Refresh All」の手順（「Add to Siri」のショートカットとPersonal Automationの記載のみ）。Windows版はiTunes・iCloudをMicrosoft Store版でなくApple配布版で入れる必要 | |
+
+### ユーザー確認待ちの判断
+
+1. 同期基盤にSupabaseを使うこと（無料枠・1週間停止の条件を踏まえる）。
+2. videoAliasesを自分の端末間で同期して確認済みとして受け入れること。
+3. Tombstoneの保持期間（推奨90日）。
+4. iPhoneの画面・UIは、計画どおりユーザーのUI案を受けてStep15で決める。それまでは仮の最小画面のみ。
+
 ## v0.6.7開発中：共通識別と端末処理の境界
 
 `media-identity.cjs` はURL正規化、動画・パートの識別、確認済みav/BV対応、動画/音声の保存識別を扱う純粋な処理です。依存先は同じく端末非依存の `urls.cjs` のみです。ファイル・通信・Electron・時計・乱数には依存しません。識別規約のバージョンは `IDENTITY_VERSION = 1` です。これは保存JSONのversionやアプリのバージョンとは別です。
