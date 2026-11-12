@@ -55,26 +55,7 @@ Step1で確定する前提として、v0.6.7の実装から次を確認しまし
 | ZIP | FVPA0002の内側に `identity.json`、shareVersion 1、exportMode（information/media） | 既存形式を拡張してMediaKey入りのmanifestを加える。旧ZIPの読み込みを維持する |
 | 共通処理 | library-data / library-tree / library-search / library-share / import-identity / queue / media-identity / urls 等は、Node APIやDOMなしのVMで動くことをテスト済み | iOSのJavaScriptCoreで同じJSを実行できる見込みがある |
 
-### 共通処理の方針（Step1で確定、Step3で実証）
-
-- 第一案：データ規則（構造検証、階層、識別、検索、共有形式、同期のマージ）は既存の端末非依存JSを正本にします。Windowsは従来どおり実行し、iOSはJavaScriptCore（iOS標準）で同じJSを実行します。保存・通信・再生・UIは各端末でネイティブに実装します。
-- 両端末で同じ共通テストデータ（期待値付きJSON）を実行し、仕様のずれを検出します。
-- 第一案の性能や制約に問題が出た場合の代替案は、Swiftで再実装し共通テストデータで一致を保証する方式です。
-
-### ファイル配置案（Step1で確定）
-
-```text
-src/            既存Windows版（Electron）。移動しない
-  core/         既存の共通処理とNode側処理
-shared/         端末共通の仕様
-  spec/         ライブラリ・同期レコード・メディアmanifestのスキーマ
-  fixtures/     両端末で実行する共通テストデータ
-ios/            iPhone版
-  project.yml   XcodeGenのプロジェクト定義（Macなしで.pbxprojを直接編集しないため）
-  FavecusPlayer/    アプリ本体（App / Features / Platform）
-  FavecusPlayerTests/
-.github/workflows/ios.yml   iOSのビルド・テスト・スクリーンショット・署名なしIPA
-```
+共通処理の方針（既存JSを正本としJavaScriptCoreで実行、代替はSwift再実装）とファイル配置は、Step1で確定し `docs/DESIGN.md` 冒頭「v0.7.0」節に記載しました。Step3で実証します。
 
 ## 検証の区別
 
@@ -87,7 +68,7 @@ ios/            iPhone版
 - Bilibili実通信、Supabase実通信
 - Windowsの全体ビルド・Patch生成（Step20・21のみ）
 
-GitHub ActionsのmacOS環境は、非公開リポジトリでは無料枠の消費が大きいとされます（1分あたり10分換算との情報。公式ページは未確認）。iOS関連の変更があるときだけ実行し、実行時間を記録します。
+GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 2コアは$0.006/分）、GitHub Freeの含有利用は$12/月と確認しました。分数への換算（macOSで約194分）は公式値ではなく概算です。公式の「倍率」表記は見つかっていません。iOS関連の変更があるときだけ実行し、実行時間を記録します。
 
 ## 全工程と完了条件
 
