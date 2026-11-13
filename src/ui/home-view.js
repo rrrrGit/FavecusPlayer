@@ -13,8 +13,8 @@
     const pages = Math.max(1, Math.ceil(ids.length / PAGE_SIZE));
     page = Math.max(0, Math.min(pages - 1, Number.isFinite(page) ? Math.trunc(page) : 0));
     const cards = ids.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map(id => {
-      const p = map.get(id), lists = tree.RawWalk(data, [id]);
-      return { id, name: p.name, icon: p.icon || null, ownCount: p.entries.length,
+      const p = map.get(id), lists = tree.RawWalk(data, [id]), first = tree.Entries(data, id)[0];
+      return { id, name: p.name, cover: first ? { playlistId: first.playlistId, entryId: first.id } : null, ownCount: p.entries.length,
         count: lists.reduce((n, list) => n + list.entries.length, 0),
         childCount: new Set((p.childIds || []).filter(child => map.has(child) && child !== id && !seen.has(child))).size,
         includeInAll: p.includeInAll !== false };
@@ -47,23 +47,51 @@
     tools.append(button('並べ替え', 'button secondary', options.onSort), button('＋ プレイリストを作成', 'button primary', () => options.onCreate(path.at(-1) || null)));
     header.append(copy, tools); box.append(nav, header);
     const grid = el('div', 'home-grid'); grid.setAttribute('aria-label', 'プレイリストのカード');
+    // 三点メニューは同時に1つだけ。外側のクリックとEscで閉じる（再描画のたびに登録し直す）。
+    if (box.__homeMenuClose) { doc.removeEventListener?.('pointerdown', box.__homeMenuClose, true); doc.removeEventListener?.('keydown', box.__homeMenuKey, true); }
+    let openMenu = null;
+    const closeMenu = (restoreFocus = false) => {
+      if (!openMenu) return;
+      const { menu, trigger } = openMenu; openMenu = null; menu.hidden = true; trigger.setAttribute('aria-expanded', 'false'); trigger.closest('.home-card')?.classList.remove('menu-open');
+      if (restoreFocus) trigger.focus?.();
+    };
+    box.__homeMenuClose = event => { if (openMenu && !openMenu.menu.contains(event.target) && event.target !== openMenu.trigger) closeMenu(); };
+    box.__homeMenuKey = event => { if (event.key === 'Escape' && openMenu) { event.preventDefault?.(); closeMenu(true); } };
+    doc.addEventListener?.('pointerdown', box.__homeMenuClose, true); doc.addEventListener?.('keydown', box.__homeMenuKey, true);
     for (const card of view.cards) {
       const article = el('article', 'home-card'); article.dataset.playlistId = card.id;
+      const media = el('div', 'home-card-media');
+      // 画像は先頭曲のサムネイル（見えている間だけ取得）。曲がない・取得できないときは音楽アイコン。
       const open = button('', 'home-card-open', () => options.onOpen(card.id), `${card.name}を開く`);
-      const image = el('img', 'home-cover'); image.src = card.icon || 'music.png'; image.alt = ''; image.loading = 'lazy'; image.draggable = false;
-      image.onerror = () => { image.onerror = null; image.src = 'music.png'; };
-      open.append(image, el('strong', '', card.name));
+      const image = el('img', 'home-cover'); image.src = 'music.png'; image.alt = ''; image.draggable = false;
+      if (card.cover && options.artwork) options.artwork.Add(image, card.cover.playlistId, card.cover.entryId);
+      else image.onerror = () => { image.onerror = null; image.src = 'music.png'; };
+      open.append(image);
+      // 左上：全体再生に含める（外している間は常に表示して状態が分かるようにする）
+      const property = el('label', 'home-card-check' + (card.includeInAll ? '' : ' is-excluded')), check = el('input'); check.type = 'checkbox'; check.checked = card.includeInAll;
+      check.setAttribute('aria-label', `${card.name}を全体再生に含める`); property.title = '全体再生に含める';
+      check.onchange = () => { property.classList.toggle('is-excluded', !check.checked); return options.onInclude(card.id, check.checked); };
+      property.append(check, el('span', 'home-card-check-mark', '✓'));
+      // 右下：再生
+      const play = button('▶', 'home-card-play', () => options.onPlay(card.id), `${card.name}を再生`); play.disabled = !card.count; play.hidden = !card.count;
+      // 右上：三点メニュー（再生・シャッフル再生・子リストを見る）
+      const trigger = button('⋮', 'home-card-more', () => {
+        if (openMenu?.trigger === trigger) { closeMenu(); return; }
+        closeMenu(); menu.hidden = false; trigger.setAttribute('aria-expanded', 'true'); article.classList.add('menu-open'); openMenu = { menu, trigger };
+        [...menu.children].find(n => !n.disabled)?.focus?.();
+      }, `${card.name}のその他の操作`);
+      trigger.setAttribute('aria-haspopup', 'menu'); trigger.setAttribute('aria-expanded', 'false');
+      const menu = el('div', 'home-card-menu'); menu.setAttribute('role', 'menu'); menu.hidden = true;
+      const item = (label, action, disabled) => { const n = button(label, 'popup-item', () => { closeMenu(); action(); }, `${card.name}：${label}`); n.setAttribute('role', 'menuitem'); n.disabled = !!disabled; return n; };
+      menu.append(item('再生', () => options.onPlay(card.id), !card.count), item('シャッフル再生', () => options.onShuffle?.(card.id), !card.count || !options.onShuffle),
+        item('子リストを見る', () => options.onNavigate([...path, card.id], 0), !card.childCount));
+      media.append(open, property, play, trigger, menu);
+      const title = button(card.name, 'home-card-title', () => options.onOpen(card.id), `${card.name}を開く`);
       const count = el('p', 'home-card-count', `${card.count} 曲${card.childCount ? '（子孫を含む）' : ''}`);
       count.title = `このリスト自身は${card.ownCount}曲。共有する子リストは一度だけ数えます。`;
-      const actions = el('div', 'home-card-actions');
-      const play = button('▶ 再生', 'button play-button', () => options.onPlay(card.id), `${card.name}を再生`); play.disabled = !card.count;
-      actions.append(play);
-      if (card.childCount) actions.append(button(`子リスト ${card.childCount} ›`, 'home-children', () => options.onNavigate([...path, card.id], 0), `${card.name}の子リストを表示`));
-      const property = el('label', 'all-play-property'), check = el('input'); check.type = 'checkbox'; check.checked = card.includeInAll;
-      check.setAttribute('aria-label', `${card.name}を全体再生に含める`);
-      check.onchange = () => options.onInclude(card.id, check.checked);
-      property.append(check, el('span', '', '全体再生に含める'));
-      article.append(open, count, actions, property); grid.append(article);
+      article.append(media, title, count);
+      if (card.childCount) article.append(button(`子リスト ${card.childCount} ›`, 'home-children', () => options.onNavigate([...path, card.id], 0), `${card.name}の子リストを表示`));
+      grid.append(article);
     }
     if (!view.total) grid.append(el('p', 'home-empty', path.length ? '子プレイリストはありません。上のボタンからこのリストを開けます。' : 'プレイリストを作成すると、ここに表示されます。'));
     const pager = el('div', 'home-pager'); pager.setAttribute('aria-label', 'プレイリストのページ');

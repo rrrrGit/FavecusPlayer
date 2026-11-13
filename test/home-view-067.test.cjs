@@ -48,8 +48,12 @@ test('home supports 999-level paths and bounds cyclic input without mutating it'
   data.playlists[998].childIds = ['p997'];
   assert.equal(Page(data, { path: data.playlists.map(p => p.id) }).cards.length, 0);
 });
-test('home uses the existing sibling sort and playlist artwork without mixing song identities', () => {
+test('home uses the existing sibling sort and the first track as the card artwork without mixing song identities', () => {
   const data = Data(); data.settings.playlistSort = 'count-asc'; data.playlists[1].icon = 'data:image/png;base64,aWNvbg==';
-  const view = Page(data); assert.deepEqual(view.cards.map(p => p.id), ['b', 'a']); assert.equal(view.cards[0].icon, data.playlists[1].icon);
+  const view = Page(data); assert.deepEqual(view.cards.map(p => p.id), ['b', 'a']); assert.equal(Object.hasOwn(view.cards[0], 'icon'), false, '保存済みのiconはカードに使わない');
+  for (const card of view.cards) {
+    const first = require('../src/ui/library-tree.js').Entries(data, card.id)[0];
+    assert.deepEqual(card.cover, first ? { playlistId: first.playlistId, entryId: first.id } : null, 'リスト自身の先頭、なければ子孫を含む走査順の先頭');
+  }
   data.settings.playlistSort = 'manual'; assert.deepEqual(Page(data).cards.map(p => p.id), ['a', 'b']);
 });

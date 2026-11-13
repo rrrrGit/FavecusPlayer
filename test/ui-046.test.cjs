@@ -16,7 +16,7 @@ async function Harness(t) {
   store.Apply({ type: 'add', playlistId: id, urls: Array.from({ length: 12 }, (_, n) => `av${100 + n}`).join('\n') });
   store.Playlist(id).entries.forEach((entry, index) => entry.title = `曲${index + 1}`); store.Save();
   const review = new AdditionReview(store), nodes = new Map(), frames = [], errors = [], scrolls = [], bounds = [], calls = [], windowEvents = {};
-  let now = 0, emit, artworkObserver, searchObserver, timerId = 0; const timers = new Map();
+  let now = 0, emit, artworkObserver, homeObserver, searchObserver, timerId = 0; const timers = new Map();
   class Node {
     constructor(tag = 'div') { this.tagName = tag; this.children = []; this.events = {}; this.dataset = {}; this.style = { setProperty() {} }; this.scrollTop = 0; this.checked = false; this.disabled = false; this.open = false; this.clientHeight = 300; this.classes = new Set();
       this.classList = { add: (...values) => values.forEach(v => this.classes.add(v)), remove: (...values) => values.forEach(v => this.classes.delete(v)), contains: v => this.classes.has(v), toggle: (v, force) => { if (force ?? !this.classes.has(v)) this.classes.add(v); else this.classes.delete(v); } };
@@ -40,6 +40,7 @@ async function Harness(t) {
     get offsetHeight() { return this.classList.contains('entry') || this.classList.contains('playlist-entry') ? 60 : 0; }
     getBoundingClientRect() { const parentRow = this.classList.contains('parent-row'), height = parentRow ? 38 : 300; const top = parentRow || this.classList.contains('entry') || this.classList.contains('playlist-entry') ? 100 + this.parentElement.children.indexOf(this) * (parentRow ? 38 : 60) - this.parentElement.scrollTop : 100; return { top, y: top, x: 100, left: 100, right: 600, bottom: top + height, width: 500, height }; }
     scrollTo({ top }) { this.scrollTop = top; scrolls.push(top); }
+    contains(node) { return node === this || this.children.some(child => child.contains(node)); }
     remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(n => n !== this); }
     showModal() { this.open = true; } close() { this.open = false; } reportValidity() { return true; }
   }
@@ -57,13 +58,13 @@ async function Harness(t) {
     entryThumbnail: async () => null, preferSaved: async value => ({ preferSaved: value }), accounts: async () => ({ bilibili: { loggedIn: true } }), onEvent: cb => emit = cb, bounds: value => bounds.push(value), action: async value => store.Apply(value),
     prepareAdd: value => { calls.push(value); return review.Prepare(value); }, commitAdd: (id, selected) => review.Commit(id, selected), cancelAdd: async id => review.Cancel(id) };
   const context = { document, window: { addEventListener: (name, fn) => windowEvents[name] = fn, favecusApp: api, FavecusQueueFollow: { QueueFollower }, FavecusListArtwork: { ListArtwork }, FavecusTransport: require('../src/ui/transport-model.js') },
-    Date: class extends Date { static now() { return now; } }, requestAnimationFrame: fn => frames.push(fn), IntersectionObserver: class { constructor(callback, options) { this.callback = callback; this.options = options; this.items = new Set(); if (options.threshold === 0 && options.root === nodes.get('entries')) artworkObserver = this; if (options.threshold === 0 && options.root === nodes.get('home')) searchObserver = this; } observe(item) { this.items.add(item); } disconnect() { this.items.clear(); } }, ResizeObserver: class { constructor() {} observe() {} }, setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, { fn, at: now + ms }); return id; }, clearTimeout: id => timers.delete(id), console: { error: e => errors.push(e) } };
+    Date: class extends Date { static now() { return now; } }, requestAnimationFrame: fn => frames.push(fn), IntersectionObserver: class { constructor(callback, options) { this.callback = callback; this.options = options; this.items = new Set(); if (options.threshold === 0 && options.root === nodes.get('entries')) artworkObserver = this; if (options.threshold === 0 && options.root === nodes.get('home')) { if (homeObserver) searchObserver = this; else homeObserver = this; } } observe(item) { this.items.add(item); } disconnect() { this.items.clear(); } }, ResizeObserver: class { constructor() {} observe() {} }, setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, { fn, at: now + ms }); return id; }, clearTimeout: id => timers.delete(id), console: { error: e => errors.push(e) } };
   vm.createContext(context);
   for (const file of ['library-tree.js', 'home-view.js', 'library-search.js', 'tree-view.js', 'parent-picker.js', 'playlist-reader.js', 'keybindings.js', 'queue-drag.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/ui', file), 'utf8').replace('})(globalThis)', '})(window)'), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/ui/app.js'), 'utf8'), context); await new Promise(setImmediate);
   const flush = () => { while (frames.length) frames.shift()(); };
   flush(); assert.equal(errors.length, 0);
-  return { store, id, api, artworkObserver, searchObserver, nodes, scrolls, bounds, calls, html, document, surfaces, windowEvent: name => windowEvents[name]?.(), flush, run: code => vm.runInContext(code, context), emit: (type, value) => emit({ type, value }), advance: ms => now += ms,
+  return { store, id, api, artworkObserver, homeObserver, searchObserver, nodes, scrolls, bounds, calls, html, document, surfaces, windowEvent: name => windowEvents[name]?.(), flush, run: code => vm.runInContext(code, context), emit: (type, value) => emit({ type, value }), advance: ms => now += ms,
     play(index) { const entry = store.Playlist(id).entries[index]; emit({ type: 'current', value: { source: entry.type, playlistId: id, entryId: entry.id, entry } }); }, node: id => nodes.get(id), submit: () => vm.runInContext('PerformModal(submitModal, true)', context), tick(ms) { now += ms; for (const [id, timer] of [...timers]) if (timer.at <= now) { timers.delete(id); timer.fn(); } } };
 }
 function SingleDownloadAPI(h) {
@@ -131,6 +132,22 @@ test('067 search thumbnails request only visible rows and stop in the background
   SearchHomeFor(h, '曲1'); const next = h.node('home').querySelector('.home-result').querySelector('img'); h.run('AddURL()');
   h.searchObserver.callback([{ target: next, isIntersecting: true }]); await new Promise(setImmediate); assert.equal(requests.length, 1);
   h.run('CloseModal()'); await new Promise(setImmediate); assert.equal(requests.length, 2);
+});
+test('067 home cards request the first track thumbnail of their list or its descendants only while visible; empty lists keep the music icon', async t => {
+  const h = await Harness(t), s = h.store, ids = ParentTree(h), requests = [];
+  s.Apply({ type: 'create', name: '子の曲だけ', parentId: ids.other }); const child = s.data.activePlaylistId;
+  s.Apply({ type: 'add', playlistId: child, urls: 'https://www.bilibili.com/video/BV1xx411c7mD', title: '子の曲' }); const childEntry = s.Playlist(child).entries[0];
+  s.Apply({ type: 'create', name: '空のリスト' }); const empty = s.data.activePlaylistId; s.Apply({ type: 'select', playlistId: h.id }); h.emit('state', s.Snapshot());
+  h.api.entryThumbnail = async (...args) => { requests.push(args); return 'data:image/png;base64,aWNvbg=='; };
+  h.node('all-lists').onclick();
+  const cardOf = id => h.node('home').querySelectorAll('.home-card').find(n => n.dataset.playlistId === id), imageOf = id => cardOf(id).querySelector('img');
+  for (const id of [h.id, ids.other, empty]) assert.equal(imageOf(id).src, 'music.png');
+  assert.equal(requests.length, 0, '見えるまで取得しない');
+  h.homeObserver.callback([{ target: imageOf(h.id), isIntersecting: true }, { target: imageOf(ids.other), isIntersecting: true }, { target: imageOf(empty), isIntersecting: true }]);
+  for (let i = 0; i < 4; i++) await new Promise(setImmediate);
+  assert.deepEqual(requests.map(r => r.join('|')).sort(), [[h.id, s.Playlist(h.id).entries[0].id, '*', 'cover'], [child, childEntry.id, '*', 'cover']].map(r => r.join('|')).sort(), '所属リストのID・範囲*・大きい正方形(cover)で、先頭曲（自身の先頭、なければ子孫）だけを取得');
+  assert.ok(imageOf(h.id).src.startsWith('data:image/png')); assert.equal(imageOf(empty).src, 'music.png', '曲のないリストは音楽アイコンのまま');
+  assert.equal(cardOf(empty).querySelector('.home-card-play').hidden, true, '曲のないリストには再生ボタンを出さない');
 });
 test('067 search defers composition, reports playback failure and keeps the query and result visible', async t => {
   const h = await Harness(t); h.node('all-lists').onclick(); h.node('home-query').value = '曲1'; h.node('home-query').events.input({ isComposing: true });
@@ -326,7 +343,7 @@ test('067 home card opening and playback are separate and native video stays hid
   const h = await Harness(t), original = h.store.Snapshot(); let played;
   h.api.play = async id => { played = id; h.play(0); };
   h.node('all-lists').onclick();
-  await h.node('home').querySelector('.play-button').events.click(); h.flush();
+  await h.node('home').querySelector('.home-card-play').events.click(); h.flush();
   assert.equal(played, h.id); assert.equal(h.run('allListsView'), true); assert.deepEqual(h.store.Snapshot(), original);
   assert.equal(h.node('workspace').classList.contains('hidden'), true); assert.equal(h.bounds.at(-1).visible, false);
   assert.equal(h.node('now-title').textContent, '曲1');
@@ -334,6 +351,32 @@ test('067 home card opening and playback are separate and native video stays hid
   assert.equal(h.run('allListsView'), false); assert.equal(h.node('workspace').classList.contains('hidden'), false); assert.equal(h.bounds.at(-1).visible, true);
   assert.equal(played, h.id); assert.equal(h.node('entries').querySelectorAll('.entry').length, 12);
   h.node('all-lists').onclick(); h.flush(); assert.equal(h.bounds.at(-1).visible, false); assert.equal(h.node('now-title').textContent, '曲1');
+});
+test('067 home card puts the check, play and a three-dot menu on the cover; excluded lists stay marked and shuffle starts that list', async t => {
+  const h = await Harness(t), ids = ParentTree(h); let shuffled, played;
+  h.api.shufflePlay = async id => { shuffled = id; }; h.api.play = async id => { played = id; };
+  h.node('all-lists').onclick();
+  const card = h.node('home').querySelector('.home-card'), media = card.querySelector('.home-card-media');
+  for (const selector of ['.home-card-open', '.home-card-check', '.home-card-play', '.home-card-more', '.home-card-menu']) assert.ok(media.querySelector(selector), selector);
+  assert.equal(card.dataset.playlistId, h.id); assert.equal(card.querySelector('.home-card-title').textContent, 'EroGameSongs');
+  assert.ok(card.querySelector('.home-children'), '下の「子リスト N ›」は残す');
+  assert.equal(media.querySelector('.home-card-check').classList.contains('is-excluded'), false);
+  const menu = media.querySelector('.home-card-menu'), more = media.querySelector('.home-card-more');
+  assert.equal(menu.hidden, true); more.events.click(); assert.equal(menu.hidden, false);
+  assert.deepEqual(menu.children.map(n => n.textContent), ['再生', 'シャッフル再生', '子リストを見る']);
+  more.events.click(); assert.equal(menu.hidden, true, '三点を押し直すと閉じる');
+  more.events.click(); await menu.children[0].events.click(); assert.equal(played, h.id); assert.equal(menu.hidden, true);
+  more.events.click(); await menu.children[1].events.click(); assert.equal(shuffled, h.id); assert.equal(menu.hidden, true);
+  more.events.click(); menu.children[2].events.click(); assert.deepEqual([...h.run('homePath')], [h.id], '子リストを見る');
+  h.node('home').querySelector('.home-path').children[0].events.click();
+  const check = h.node('home').querySelector('.home-card-check').children[0]; check.checked = false; await check.onchange();
+  assert.equal(h.store.Playlist(h.id).includeInAll, false); assert.equal(h.node('home').querySelector('.home-card-check').classList.contains('is-excluded'), true, '外した状態はhoverなしでも見える');
+  // メニューはEscと、メニュー外のpointerdownで閉じる（実DOMでは document のリスナー。モデルには無いため登録済みのハンドラーを直接呼ぶ）
+  const home = h.node('home'), box = home.querySelector('.home-card-media'), button = box.querySelector('.home-card-more'), popup = box.querySelector('.home-card-menu');
+  button.events.click(); assert.equal(popup.hidden, false); home.__homeMenuKey({ key: 'Escape', preventDefault() {} }); assert.equal(popup.hidden, true, 'Escで閉じる');
+  button.events.click(); home.__homeMenuClose({ target: popup.children[0] }); assert.equal(popup.hidden, false, 'メニュー内のクリックでは閉じない');
+  home.__homeMenuClose({ target: {} }); assert.equal(popup.hidden, true, '外側のクリックで閉じる');
+  const other = home.querySelectorAll('.home-card-more').find(n => n !== button); button.events.click(); other?.events.click(); assert.equal(popup.hidden, true, '同時に開くメニューは1つ');
 });
 test('067 home renders at most 24 cards, reaches all 999 roots and clamps a removed page', async t => {
   const h = await Harness(t), template = h.store.Playlist(h.id);

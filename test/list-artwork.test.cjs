@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { ListArtwork } = require('../src/ui/list-artwork.js');
-const { Thumbnails, SmallImage } = require('../src/core/thumbnail.cjs');
+const { Thumbnails, SmallImage, CoverImage } = require('../src/core/thumbnail.cjs');
 const flush = () => new Promise(setImmediate);
 const png = fs.readFileSync(path.join(__dirname, '../build/music.png'));
 const art = 'data:image/png;base64,aWNvbg==';
@@ -33,6 +33,23 @@ test('small artwork keeps image proportions within 128 by 72 and handles an unde
   const native = { createFromDataURL: () => ({ isEmpty: () => false, getSize: () => ({ width: 1600, height: 900 }), resize: options => { resized = options; return { toPNG: () => png }; } }) };
   assert.ok(SmallImage(art, native).startsWith('data:image/png;base64,')); assert.equal(resized.width, 128); assert.equal(resized.height, 72);
   assert.equal(SmallImage(art, { createFromDataURL: () => ({ isEmpty: () => true }) }), null);
+});
+test('home cover art is a centered square JPEG of at most 300 pixels, cached separately from the small preview', async () => {
+  const calls = [], jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+  const native = { createFromDataURL: () => ({ isEmpty: () => false, getSize: () => ({ width: 1920, height: 1080 }),
+    crop: rect => { calls.push(['crop', rect]); return { resize: options => { calls.push(['resize', options]); return { toJPEG: quality => { calls.push(['jpeg', quality]); return jpeg; } }; } }; } }) };
+  assert.ok(CoverImage(art, native).startsWith('data:image/jpeg;base64,'));
+  assert.deepEqual(calls[0], ['crop', { x: 420, y: 0, width: 1080, height: 1080 }]); assert.equal(calls[1][1].width, 300); assert.equal(calls[1][1].height, 300);
+  assert.equal(CoverImage(art, { createFromDataURL: () => ({ isEmpty: () => true }) }), null);
+  assert.equal(CoverImage(art, { createFromDataURL: () => ({ isEmpty: () => false, getSize: () => ({ width: 0, height: 0 }) }) }), null);
+  const small = { createFromDataURL: () => ({ isEmpty: () => false, getSize: () => ({ width: 100, height: 100 }), crop: () => ({ resize: o => { calls.push(['small', o]); return { toJPEG: () => jpeg }; } }) }) };
+  CoverImage(art, small); assert.equal(calls.at(-1)[1].width, 100, '元より大きくしない');
+  let resizedSmall = 0, resizedCover = 0;
+  const thumbs = new Thumbnails({ Details: async () => ({ pic: 'https://i0.hdslb.com/a.png' }) }, async () => new Response(png), '', '', { resize: () => { resizedSmall++; return 'small'; }, resizeCover: () => { resizedCover++; return 'cover'; } });
+  const entry = { type: 'bilibili', videoId: 'BV1xx411c7mD' };
+  assert.equal(await thumbs.GetPreview(entry), 'small'); assert.equal(await thumbs.GetPreview(entry, () => true, 'cover'), 'cover');
+  assert.equal(await thumbs.GetPreview(entry), 'small'); assert.equal(await thumbs.GetPreview(entry, () => true, 'cover'), 'cover'); assert.deepEqual([resizedSmall, resizedCover], [1, 1], '種類ごとにキャッシュする');
+  assert.equal(await new Thumbnails({}, async () => new Response(png), '', '', {}).GetPreview(entry, () => true, 'cover'), null, '変換が無ければ取得しない');
 });
 test('shared thumbnail jobs keep the two-request cap and recheck duplicates after a slot opens', async () => {
   const releases = new Map(), calls = []; let active = 0, maximum = 0, cancelled = false;

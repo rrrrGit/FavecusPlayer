@@ -10,7 +10,6 @@ const { LibraryArchive } = require('./core/library-archive.cjs');
 const { ShareMode } = require('./core/library-share.cjs');
 const { Queue } = require('./core/queue.cjs');
 const { PlayCounts } = require('./core/play-counts.cjs');
-const { ReadIcon } = require('./core/playlist-icon.cjs');
 const Keys = require('./ui/keybindings.js');
 const { DriveURL } = require('./core/releases.cjs');
 const { OfflineLibrary } = require('./core/offline-library.cjs');
@@ -29,7 +28,7 @@ const { MiniPlayer } = require('./core/mini-player.cjs');
 const { MediaResponse } = require('./core/files.cjs');
 const { ConvertWma } = require('./core/audio-import.cjs');
 const { BilibiliAccount } = require('./core/bilibili.cjs');
-const { Thumbnails, SmallImage } = require('./core/thumbnail.cjs');
+const { Thumbnails, SmallImage, CoverImage } = require('./core/thumbnail.cjs');
 const { APP_ID, ConfigureTaskbar, PreviousInstallRoots } = require('./core/windows-identity.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'favecus', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
@@ -515,7 +514,7 @@ async function Start() {
     const page = data?.pages?.find(p => p.page === entry.part) || data?.pages?.[entry.part - 1];
     return data?.pages?.length > 1 ? page?.part || data?.title : data?.title;
   } });
-  thumbnails = new Thumbnails(biliAccount, (...args) => net.fetch(...args), ffmpeg, store.media, { resize: data => SmallImage(data, nativeImage) });
+  thumbnails = new Thumbnails(biliAccount, (...args) => net.fetch(...args), ffmpeg, store.media, { resize: data => SmallImage(data, nativeImage), resizeCover: data => CoverImage(data, nativeImage) });
   session.defaultSession.setPermissionRequestHandler((_c, permission, callback) => callback(permission === 'fullscreen'));
   session.defaultSession.setPermissionCheckHandler((_c, permission) => permission === 'fullscreen');
   Menu.setApplicationMenu(null);
@@ -560,7 +559,6 @@ async function Start() {
     }
   });
   Handle('app:state', () => ({ state: store.Snapshot(), statuses, current, playback, thumbnail, queue: QueueState(), downloads: offline.Snapshot(), foreground: Foreground(), accounts: accountStatus, version: app.getVersion(), platform: process.platform }));
-  Handle('library:choose-icon', async () => { const result = await dialog.showOpenDialog(win, { title: 'プレイリストの画像を選択', properties: ['openFile'], filters: [{ name: '画像', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] }); return result.canceled ? null : ReadIcon(result.filePaths[0], nativeImage); });
   Handle('player:reset-counts', () => { playCounts.Reset(); return true; });
   Handle('downloads:state', () => offline.Snapshot());
   const downloadTarget = options => {
@@ -581,11 +579,11 @@ async function Start() {
   Handle('downloads:prefer', value => offline.PreferSaved(value));
   Handle('downloads:directory', async () => { if (offline.controller) throw new Error('保存中は保存先を変更できません。'); const result = await dialog.showOpenDialog(win, { title: '動画・音声の保存先', defaultPath: offline.directory, properties: ['openDirectory', 'createDirectory'] }); return result.canceled ? offline.Snapshot() : offline.SetDirectory(result.filePaths[0]); });
   Handle('downloads:open', async () => { fs.mkdirSync(offline.directory, { recursive: true }); if (await shell.openPath(offline.directory)) throw new Error('保存先を開けませんでした。'); return true; });
-  Handle('library:thumbnail', (playlistId, entryId, scope = store.data.activePlaylistId) => {
-    const entry = structuredClone(store.Entry(playlistId, entryId));
-    if (offline.Find(entry)) { const cover = offline.Cover(entry); return cover ? SmallImage(cover, nativeImage) : null; }
+  Handle('library:thumbnail', (playlistId, entryId, scope = store.data.activePlaylistId, variant = 'small') => {
+    const entry = structuredClone(store.Entry(playlistId, entryId)); variant = variant === 'cover' ? 'cover' : 'small';
+    if (offline.Find(entry)) { const cover = offline.Cover(entry); return cover ? (variant === 'cover' ? CoverImage : SmallImage)(cover, nativeImage) : null; }
     const active = () => !!win && !win.isDestroyed() && (scope === '*' || scope === store.data.activePlaylistId && store.Entries(scope).some(e => e.id === entryId)) && !!store.data.playlists.find(p => p.id === playlistId)?.entries.some(e => e.id === entryId);
-    return thumbnails.GetPreview(entry, active);
+    return thumbnails.GetPreview(entry, active, variant);
   });
   Handle('library:action', async action => {
     const state = store.Apply(action);

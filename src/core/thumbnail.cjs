@@ -55,20 +55,30 @@ function SmallImage(data, nativeImage) {
   if (!Number.isFinite(scale) || scale <= 0) return null;
   return ImageData(image.resize({ width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)), quality: 'good' }).toPNG());
 }
+// ホームのカード用。中央を正方形に切り出して最大300pxのJPEGにする（カードは正方形で、128x72では拡大でぼやけるため）。
+function CoverImage(data, nativeImage) {
+  const image = nativeImage.createFromDataURL(data);
+  if (image.isEmpty()) return null;
+  const { width, height } = image.getSize(), side = Math.min(width, height);
+  if (!Number.isFinite(side) || side <= 0) return null;
+  const square = image.crop({ x: Math.floor((width - side) / 2), y: Math.floor((height - side) / 2), width: side, height: side }), out = Math.min(300, side);
+  return ImageData(square.resize({ width: out, height: out, quality: 'good' }).toJPEG(82));
+}
 const ImageKey = entry => entry.type === 'local' ? `file:${entry.fileName}` : `bili:${entry.videoId}`;
 class Thumbnails {
   constructor(account, fetch, executable, media, options = {}) {
     this.account = account; this.fetch = fetch; this.executable = executable; this.media = media;
-    this.cache = new Map(); this.pending = new Map(); this.previews = new Map(); this.resize = options.resize; this.now = options.now || Date.now;
+    this.cache = new Map(); this.pending = new Map(); this.previews = new Map(); this.resize = options.resize; this.resizeCover = options.resizeCover; this.now = options.now || Date.now;
   }
-  async GetPreview(entry, isActive = () => true) {
-    if (!isActive() || !this.resize) return null;
-    const key = ImageKey(entry), cached = this.previews.get(key);
+  async GetPreview(entry, isActive = () => true, variant = 'small') {
+    const resize = variant === 'cover' ? this.resizeCover : this.resize;
+    if (!isActive() || !resize) return null;
+    const key = variant === 'cover' ? `${ImageKey(entry)}|cover` : ImageKey(entry), cached = this.previews.get(key);
     if (cached && cached.expires > this.now()) {
       this.previews.delete(key); this.previews.set(key, cached); return cached.image;
     }
     let image = null;
-    try { const original = await this.Get(entry, isActive); if (original) image = this.resize(original); } catch {}
+    try { const original = await this.Get(entry, isActive); if (original) image = resize(original); } catch {}
     if (!isActive()) return null;
     this.previews.delete(key); this.previews.set(key, { image, expires: image ? Infinity : this.now() + 60000 });
     while (this.previews.size > 96) this.previews.delete(this.previews.keys().next().value);
@@ -94,4 +104,4 @@ class Thumbnails {
     this.pending.set(key, task); return task;
   }
 }
-module.exports = { Thumbnails, ImageURL, ImageData, RemoteImage, LocalImage, SmallImage };
+module.exports = { Thumbnails, ImageURL, ImageData, RemoteImage, LocalImage, SmallImage, CoverImage };

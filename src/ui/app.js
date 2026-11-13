@@ -20,6 +20,9 @@ const durationQueue = new Map(), durationFailures = new Set();
 const listArtwork = window.FavecusListArtwork && api?.entryThumbnail && typeof IntersectionObserver !== 'undefined' ? new window.FavecusListArtwork.ListArtwork({
   root: $('entries'), load: (playlistId, entryId) => api.entryThumbnail(playlistId, entryId, ViewScope()), observe: (callback, options) => new IntersectionObserver(callback, options)
 }) : null;
+const homeArtwork = window.FavecusListArtwork && api?.entryThumbnail && typeof IntersectionObserver !== 'undefined' ? new window.FavecusListArtwork.ListArtwork({
+  root: $('home'), load: (playlistId, entryId) => api.entryThumbnail(playlistId, entryId, '*', 'cover'), observe: (callback, options) => new IntersectionObserver(callback, options)
+}) : null;
 const searchArtwork = window.FavecusListArtwork && api?.entryThumbnail && typeof IntersectionObserver !== 'undefined' ? new window.FavecusListArtwork.ListArtwork({
   root: $('home'), load: (playlistId, entryId) => api.entryThumbnail(playlistId, entryId, '*'), observe: (callback, options) => new IntersectionObserver(callback, options)
 }) : null;
@@ -278,13 +281,10 @@ function SortLists() {
   $('playlist-sort').value = state.settings.playlistSort || 'manual';
 }
 function ListMenu() {
-  const p = List(); let iconDraft = p.icon || '';
-  OpenModal('プレイリストを編集', '<label class="field">名前<input id="name-input" maxlength="60" required></label><label class="check-row"><input id="include-in-all" type="checkbox">全体再生・全体シャッフルに含める</label><p class="form-note">オフにするとこのリストと配下を全体再生から外します。個別に選んだリストは再生できます。</p><div class="playlist-icon-editor"><img id="playlist-icon-preview" alt="プレイリストの画像"><button id="playlist-icon-choose" type="button" class="button secondary">画像を選択</button><button id="playlist-icon-clear" type="button" class="button secondary">画像を外す</button></div><p class="form-note">画像は左側の一覧だけに表示します。</p><div id="list-delete-area"></div>', () => Action({ type: 'playlist-properties', playlistId: p.id, name: $('name-input').value, includeInAll: $('include-in-all').checked, icon: iconDraft }));
+  const p = List();
+  OpenModal('プレイリストを編集', '<label class="field">名前<input id="name-input" maxlength="60" required></label><label class="check-row"><input id="include-in-all" type="checkbox">全体再生・全体シャッフルに含める</label><p class="form-note">オフにするとこのリストと配下を全体再生から外します。個別に選んだリストは再生できます。</p><div id="list-delete-area"></div>', () => Action({ type: 'playlist-properties', playlistId: p.id, name: $('name-input').value, includeInAll: $('include-in-all').checked }));
   $('name-input').value = p.name;
   $('include-in-all').checked = p.includeInAll !== false;
-  const iconEpoch = modalEpoch, paintIcon = () => { $('playlist-icon-preview').src = iconDraft || 'music.png'; $('playlist-icon-preview').classList.toggle('hidden', !iconDraft); $('playlist-icon-clear').disabled = !iconDraft; };
-  $('playlist-icon-choose').onclick = () => Run(async () => { const chosen = await api.choosePlaylistIcon(); if (modalEpoch === iconEpoch && chosen !== null) { iconDraft = chosen; paintIcon(); } });
-  $('playlist-icon-clear').onclick = () => { iconDraft = ''; paintIcon(); }; paintIcon();
   $('list-delete-area').append(Button('プレイリストを移動', 'button secondary', () => MovePlaylist(p.id)));
   $('list-delete-area').append(Button('このプレイリストの動画・音声を保存', 'button secondary', DownloadsDialog));
   if (state.playlists.length > 1) $('list-delete-area').append(Button('このプレイリストを削除', 'button secondary danger', () => {
@@ -924,7 +924,7 @@ async function OpenPlaylist(id) {
   state = result; allListsView = false; $('filter').value = ''; tree.ExpandTo(state, id, expandedLists); Render();
 }
 function RenderHome() {
-  searchArtwork?.Reset(); searchArtwork?.SetEnabled(false); homeSearchBadges.clear();
+  searchArtwork?.Reset(); searchArtwork?.SetEnabled(false); homeArtwork?.Reset(); homeArtwork?.SetEnabled(false); homeSearchBadges.clear();
   if (!allListsView) return;
   const searching = !!$('home-query').value.trim(); $('home-search-clear').disabled = !$('home-query').value;
   if (searching && !homeSearchActive) homeScrollTop = $('home').scrollTop;
@@ -933,11 +933,15 @@ function RenderHome() {
   const view = window.FavecusHome.Render($('home'), state, {
     path: homePath, page: homePage,
     onNavigate: (path, page) => { homePath = path; homePage = page; RenderHome(); $('home').scrollTop = 0; $('home').querySelector('h1')?.focus(); },
+    artwork: homeArtwork,
     onOpen: id => Run(() => OpenPlaylist(id)), onPlay: id => PlaybackAction(() => api.play(id)),
+    // シャッフル再生：既存のシャッフルと同じく、全体のシャッフル設定をオンにして、このリストをシャッフルで再生する
+    onShuffle: id => PlaybackAction(() => api.shufflePlay(id)),
     onSort: SortLists, onCreate: NewList,
     onInclude: (id, value) => Run(async () => { try { await Action({ type: 'playlist-properties', playlistId: id, includeInAll: value }); } finally { RenderHome(); } })
   });
   homePath = view.path.map(p => p.id); homePage = view.page;
+  homeArtwork?.SetEnabled(foreground && !$('modal').open);
   if (restore) $('home').scrollTop = homeScrollTop;
 }
 function RenderHomeSearch() {
@@ -972,7 +976,7 @@ function RenderHomeSearch() {
 function Render() {
   if (!state) return;
   document.body.style.setProperty('--sidebar-width', `${state.settings.sidebarWidth || 218}px`);
-  window.FavecusTreeView($('playlists'), state, { icons: true, expanded: expandedLists, activeId: allListsView ? null : state.activePlaylistId, drag: playlistDrag, onSelect: id => { allListsView = false; return Run(() => Action({ type: 'select', playlistId: id })); }, onDrop: !state.settings.playlistSort || state.settings.playlistSort === 'manual' ? DropPlaylist : null });
+  window.FavecusTreeView($('playlists'), state, { expanded: expandedLists, activeId: allListsView ? null : state.activePlaylistId, drag: playlistDrag, onSelect: id => { allListsView = false; return Run(() => Action({ type: 'select', playlistId: id })); }, onDrop: !state.settings.playlistSort || state.settings.playlistSort === 'manual' ? DropPlaylist : null });
   $('all-count').textContent = `${state.playlists.reduce((n, p) => n + p.entries.length, 0)}曲`;
   $('all-count').title = `${state.playlists.length}リストの登録曲数（重複登録を含む）`;
   $('all-lists').setAttribute('aria-pressed', String(allListsView));
@@ -1093,6 +1097,7 @@ function BackgroundInteractive(enabled) {
   for (const node of document.querySelectorAll('.sidebar, main, .transport, .titlebar')) node.inert = blocked;
   enabled = enabled && foreground && !blocked;
   searchArtwork?.SetEnabled(enabled && allListsView && homeSearchActive);
+  homeArtwork?.SetEnabled(enabled && allListsView && !homeSearchActive);
   for (const node of document.querySelectorAll(enabled ? '[data-saved-title]' : '.sidebar [title], main [title], .transport [title]')) {
     if (enabled) { node.title = node.dataset.savedTitle; delete node.dataset.savedTitle; }
     else { node.dataset.savedTitle = node.title; node.removeAttribute('title'); }
