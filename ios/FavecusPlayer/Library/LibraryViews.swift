@@ -54,6 +54,12 @@ struct LibraryRootView: View {
                 store.notice = "ファイルを開けません：\(error.localizedDescription)"
             }
         }
+        .onOpenURL { url in
+            // 「このアプリで開く」で渡されたZIP（ファイルアプリ・共有シート）。
+            guard let importer, url.isFileURL, url.pathExtension.lowercased() == "zip" else { return }
+            importer.begin(url: url)
+            showImport = true
+        }
         .sheet(isPresented: $showExport) {
             if let exporter { ExportSheet(coordinator: exporter, isPresented: $showExport) }
         }

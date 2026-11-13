@@ -18,6 +18,18 @@ targets:
       # 端末共通JS（node scripts/build-shared-bundle.cjs で生成。Gitには含めない）
       - path: ../shared/dist/favecus-core.js
         buildPhase: resources
+    # ファイルアプリ・共有シートの「このアプリで開く」にZIPを出すための宣言（App拡張は作らない：AltStoreのApp ID上限のため）。
+    # 生成するplistは、GENERATE_INFOPLIST_FILE の項目と統合される。
+    info:
+      path: Config/Info.plist
+      properties:
+        LSSupportsOpeningDocumentsInPlace: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: FavecusPlayerアーカイブ
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.zip-archive
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.favecus.player

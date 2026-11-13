@@ -109,6 +109,14 @@ jobs:
             { grep -E 'FAVECUS_(FIXTURES|BENCH)' build/test.log || true; } | sort -u | sed 's/^/- /'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Check the built Info.plist (document types)
+        run: |
+          APP=$(find build/sim -name FavecusPlayer.app -path "*iphonesimulator*" | head -1)
+          plutil -p "$APP/Info.plist" | tee build/plist.txt
+          grep -q CFBundleDocumentTypes build/plist.txt
+          grep -q public.zip-archive build/plist.txt
+          grep -q CFBundleDisplayName build/plist.txt
+
       - name: Verify the iPhone export with the Windows importer
         run: node ../scripts/verify-ios-export.cjs "$RUNNER_TEMP/transfer-ios"
 
