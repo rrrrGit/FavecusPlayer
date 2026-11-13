@@ -11,15 +11,15 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 @main
 struct FavecusPlayerApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @Environment(.scenePhase) private var scenePhase
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var environment = AppEnvironment()
 
     var body: some Scene {
         WindowGroup {
             LibraryRootView(store: environment.store, importer: environment.importer, exporter: environment.exporter, player: environment.player, sync: environment.sync, bilibili: environment.bilibili, downloads: environment.downloads, artwork: environment.artwork)
-        }
-        .onChange(of: scenePhase) { phase in
-            if phase == .active { Task { await environment.downloads?.resume() } }
+                .onChange(of: scenePhase) { phase in
+                    if phase == .active { Task { await environment.downloads?.resume() } }
+                }
         }
     }
 }
