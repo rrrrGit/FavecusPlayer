@@ -135,7 +135,7 @@ test('a library recovered from damage blocks sync instead of sending deletions f
   a.service.Dispose(); fs.writeFileSync(path.join(a.data, 'library.json'), '{broken'); fs.rmSync(path.join(a.data, 'library.json.bak'), { force: true });
   const store2 = new Store(a.data, {}); assert.ok(store2.recovered);
   const s2 = new SyncService({ directory: a.syncDir, adapter: StoreAdapter(store2, { validateLibrary: input => ValidateLibrary(input), mediaKey: LibraryMediaKey }), vault: new Storage.SessionVault(a.syncDir, FakeSafe(true)), request: server.request, now: () => server.now, timers: { set: () => ({ unref() {} }), clear() {} } });
-  s2.Start(); assert.equal(s2.Status().state, 'blocked'); assert.equal((await s2.SyncNow()).ok, false);
+  s2.Start(); assert.equal((await s2.SyncNow()).ok, false); assert.equal(s2.Status().state, 'blocked');
   await b.service.SyncNow(); assert.ok(Names(b).includes('消えてはいけない'), '他の端末から削除されない');
 });
 
@@ -179,4 +179,23 @@ test('a library that looks empty while sync state exists blocks sync and sends n
   s2.Start(); const r = await s2.SyncNow();
   assert.equal(r.ok, false); assert.equal(s2.Status().state, 'blocked'); assert.match(s2.Status().error, /空の状態/);
   await b.service.SyncNow(); assert.ok(Names(b).includes('消えてはいけない'), '他の端末から削除されない');
+});
+
+test('a recovered library stays blocked after a restart and is lifted only by the user, never by a plain restart', async () => {
+  const server = FakeServer(), a = Device(server), b = Device(server);
+  Create(b, 'Bの作ったリスト'); await Join(b); await Join(a); await a.service.SyncNow(); await b.service.SyncNow(); assert.ok(Names(a).includes('Bの作ったリスト'));
+  a.service.Dispose();
+  // 受信する前の内容（.bak）へ戻った状態を再現する：libraryを壊し、受信前の.bakだけが残る
+  const stale = JSON.parse(fs.readFileSync(path.join(a.data, 'library.json'), 'utf8')); stale.playlists = stale.playlists.filter(p => p.name !== 'Bの作ったリスト'); stale.rootPlaylistIds = stale.rootPlaylistIds.filter(id => stale.playlists.some(p => p.id === id));
+  fs.writeFileSync(path.join(a.data, 'library.json.bak'), JSON.stringify(stale)); fs.writeFileSync(path.join(a.data, 'library.json'), '{broken');
+  const make = () => { const store = new Store(a.data, {}); return { store, service: new SyncService({ directory: a.syncDir, adapter: StoreAdapter(store, { validateLibrary: input => ValidateLibrary(input) }), vault: new Storage.SessionVault(a.syncDir, FakeSafe(true)), request: server.request, now: () => server.now, timers: { set: () => ({ unref() {} }), clear() {} } }) }; };
+  let run = make(); assert.ok(run.store.recovered); run.service.Start(); assert.equal((await run.service.SyncNow()).ok, false); assert.equal(run.service.Status().state, 'blocked');
+  // 再起動（今度はlibraryは正常に読める）：それでも停止のまま
+  run.service.Dispose(); run = make(); assert.equal(run.store.recovered, false); run.service.Start();
+  assert.equal(run.service.Status().state, 'blocked'); assert.equal((await run.service.SyncNow()).ok, false);
+  await b.service.SyncNow(); assert.ok(Names(b).includes('Bの作ったリスト'), '他の端末から削除されない');
+  // 利用者が「サーバーの内容で復元」を選ぶ
+  const result = await run.service.Unblock('restore'); assert.equal(result.ok, true);
+  assert.ok(run.store.data.playlists.some(p => p.name === 'Bの作ったリスト'), '復元された'); assert.equal(run.service.Status().state, 'idle');
+  await b.service.SyncNow(); assert.ok(Names(b).includes('Bの作ったリスト'));
 });

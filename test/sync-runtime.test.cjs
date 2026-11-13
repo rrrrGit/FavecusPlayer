@@ -103,12 +103,13 @@ test('a recovered store or a library that suddenly looks empty blocks sync inste
   const saved = ios.state, session = ios.session;
   ios.edit({ type: 'create', name: '二つ目', select: false }); assert.equal((await Runtime.Cycle()).ok, true);
   await WindowsJoin(w); assert.ok(w.names().includes('旅行'));
+  const before = ios.state;
   // 復旧した状態
-  await Runtime.Open({ stateText: ios.state, config: ios.config, session, deviceId: 'ios-test' }); ios.recovered = true;
+  await Runtime.Open({ stateText: before, config: ios.config, session, deviceId: 'ios-test' }); ios.recovered = true;
   let r = await Runtime.Cycle(); assert.equal(r.ok, false); assert.ok(r.blocked);
   ios.recovered = false;
   // ライブラリが既定の空に見える（ファイルが消えた等）
-  ios.text = Pretty(EmptyLibrary()); await Runtime.Open({ stateText: ios.state, config: ios.config, session, deviceId: 'ios-test' });
+  ios.text = Pretty(EmptyLibrary()); await Runtime.Open({ stateText: before, config: ios.config, session, deviceId: 'ios-test' });
   r = await Runtime.Cycle(); assert.equal(r.ok, false); assert.match(r.blocked, /空の状態/);
   assert.equal((await w.service.SyncNow()).ok, true); assert.ok(w.names().includes('旅行') && w.names().includes('二つ目'), '他の端末から削除されない');
   void saved;
@@ -135,4 +136,62 @@ test('sign-in errors and offline failures are reported without changing the libr
   const failed = await Runtime.Cycle(); assert.equal(failed.ok, false); assert.ok(failed.pending > 0); assert.ok(ios.names().includes('オフライン中'));
   server.online = true; assert.equal((await Runtime.Cycle()).ok, true); assert.equal((await Runtime.Cycle()).pending, 0);
   void T0;
+});
+
+test('a block survives a restart and an edit, and is lifted only by the user: restore from the server, or keep this device', async () => {
+  const server = FakeServer(), w = WindowsDevice(server), ios = IosDevice(server, (() => { const l = EmptyLibrary(); l.playlists[0].name = '旅行'; return l; })());
+  await Join(server, ios); ios.edit({ type: 'create', name: '二つ目', select: false }); assert.equal((await Runtime.Cycle()).ok, true);
+  await WindowsJoin(w);
+  const session = ios.session, synced = ios.state;
+  // ファイルが消えて既定の空になる → 停止 → リストを1つ作る → 再起動しても停止したまま（他の端末の内容を消さない）
+  ios.text = Pretty(EmptyLibrary()); await Runtime.Open({ stateText: synced, config: ios.config, session, deviceId: 'ios-test' });
+  let r = await Runtime.Cycle(); assert.ok(r.blocked); const persisted = JSON.parse(ios.state); assert.ok(persisted.blocked, '停止の理由が同期状態に保存される');
+  ios.edit({ type: 'create', name: '新しく作った', select: false });
+  await Runtime.Open({ stateText: ios.state, config: ios.config, session, deviceId: 'ios-test' });
+  r = await Runtime.Cycle(); assert.ok(r.blocked, '再起動後も停止のまま');
+  assert.equal((await w.service.SyncNow()).ok, true); assert.ok(w.names().includes('旅行') && w.names().includes('二つ目'), '他の端末から削除されない');
+  // 「サーバーの内容で復元」
+  const restored = await Runtime.Unblock({ mode: 'restore' }); assert.equal(restored.ok, true);
+  assert.ok(ios.names().includes('旅行') && ios.names().includes('二つ目')); assert.equal(JSON.parse(ios.state).blocked, '');
+  assert.equal((await Runtime.Cycle()).ok, true);
+});
+
+test('keeping this device after a block sends the deletions only because the user chose it', async () => {
+  const server = FakeServer(), w = WindowsDevice(server), ios = IosDevice(server, (() => { const l = EmptyLibrary(); l.playlists[0].name = '作業用'; return l; })());
+  await Join(server, ios); ios.edit({ type: 'create', name: '作業用2', select: false }); assert.equal((await Runtime.Cycle()).ok, true); await WindowsJoin(w);
+  const session = ios.session, synced = ios.state;
+  ios.text = Pretty(EmptyLibrary()); await Runtime.Open({ stateText: synced, config: ios.config, session, deviceId: 'ios-test' });
+  assert.ok((await Runtime.Cycle()).blocked);
+  assert.equal((await Runtime.Unblock({ mode: 'keep' })).ok, true);
+  assert.equal((await Runtime.Cycle()).ok, true); assert.equal((await w.service.SyncNow()).ok, true);
+  assert.ok(!w.names().includes('作業用'), '意図した削除は反映される');
+});
+
+test('an edit that lands between reading the library and applying the result is not lost', async () => {
+  const server = FakeServer(), w = WindowsDevice(server), ios = IosDevice(server);
+  w.store.Apply({ type: 'create', name: 'W親', select: false }); await WindowsJoin(w); await w.service.SyncNow();
+  await Join(server, ios);
+  w.store.Apply({ type: 'create', name: 'リモートの追加', select: false }); await w.service.SyncNow();
+  const original = globalThis.__favecusHost.library; let calls = 0, injected = false;
+  globalThis.__favecusHost.library = async () => {
+    const text = await original(); calls++;
+    if (calls === 3 && !injected) { injected = true; ios.edit({ type: 'create', name: '読み取り直後の編集', select: false }); }
+    return text;
+  };
+  const r = await Runtime.Cycle(); globalThis.__favecusHost.library = original;
+  assert.equal(r.ok, true, JSON.stringify(r)); assert.ok(injected);
+  assert.ok(ios.names().includes('読み取り直後の編集') && ios.names().includes('リモートの追加'), JSON.stringify(ios.names()));
+  assert.equal((await Runtime.Cycle()).ok, true); assert.equal((await w.service.SyncNow()).ok, true);
+  assert.ok(w.names().includes('読み取り直後の編集'), 'サーバーにも送られる');
+});
+
+test('a changed connection or account stops the cycle before any network request', async () => {
+  const server = FakeServer(), ios = IosDevice(server);
+  await Join(server, ios);
+  const before = server.requests.length;
+  let r = await Runtime.Cycle({ origin: { url: 'https://zzzzzzzz.supabase.co', userId: ios.session.userId } });
+  assert.equal(r.ok, false); assert.equal(r.mismatch, true); assert.equal(server.requests.length, before, '通信しない');
+  r = await Runtime.Cycle({ origin: { url: URL_, userId: 'someone-else' } });
+  assert.equal(r.mismatch, true); assert.equal(server.requests.length, before);
+  r = await Runtime.Cycle({ origin: { url: URL_, userId: ios.session.userId } }); assert.equal(r.ok, true);
 });

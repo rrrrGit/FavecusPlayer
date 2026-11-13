@@ -56,7 +56,7 @@ class SyncService {
   get device() { return this.session.device; }
   get lastSyncAt() { return this.session.lastSyncAt; }
   Status() {
-    return { url: this.config.url, enabled: this.config.enabled, configured: !!(this.config.url && this.config.anonKey), signedIn: !!this.Session(), email: this.config.email, encryption: this.vault.Available(),
+    return { url: this.config.url, enabled: this.config.enabled, canUnblock: !!(this.device && this.session.blocked), configured: !!(this.config.url && this.config.anonKey), signedIn: !!this.Session(), email: this.config.email, encryption: this.vault.Available(),
       state: this.blocked ? 'blocked' : this.state, error: this.blocked || this.error, lastSyncAt: this.lastSyncAt, pending: this.device ? this.device.outbox.length : 0, conflicts: this.device ? this.device.conflicts.length : 0 };
   }
   Emit(state, error = '') { this.state = state; this.error = error; try { this.onStatus(this.Status()); } catch { /* 通知の失敗は同期に影響させない */ } }
@@ -86,10 +86,9 @@ class SyncService {
   // ---- 開始・有効化・停止
   Load() {
     if (this.loaded) return; this.loaded = true;
-    if (this.adapter.Recovered?.()) { this.blocked = '保存データを読み込めず復旧した状態のため、同期を停止しました（空の状態を他の端末へ反映しないためです）。内容を確認し、アプリを再起動してください。'; return; }
     const loaded = Storage.ReadState(this.dir);
     if (loaded.status === 'blocked') { this.blocked = loaded.reason; return; }
-    if (loaded.status === 'ok') this.session.Restore({ ...loaded.snapshot, context: this.adapter.Context() });
+    if (loaded.status === 'ok') { this.session.Restore({ ...loaded.snapshot, context: this.adapter.Context() }); this.blocked = this.session.blocked; } // 停止の理由は保存されており、再起動しても、利用者が選ぶまで解除しない
   }
   Start() {
     this.Load();
@@ -104,6 +103,14 @@ class SyncService {
     if (!this.device) await this.session.Enable({ url: this.config.url, userId: this.Session().userId });
     this.config = { ...this.config, enabled: true }; Storage.WriteConfig(this.dir, this.config);
     this.Emit('idle'); this.interval = this.interval || this.timers.set(() => this.Tick(), 5 * 60 * 1000); this.interval.unref?.();
+    return this.SyncNow();
+  }
+  // 停止の解除（利用者の選択）。mode：'restore'＝同期した内容でこの端末を復元／'keep'＝この端末の内容を正として同期（削除も送る）。
+  async Unblock(mode) {
+    this.Load();
+    if (!this.device || !this.session.blocked) throw new Error('解除できる停止状態がありません。');
+    await this.session.Unblock(mode);
+    this.blocked = ''; this.Emit('idle');
     return this.SyncNow();
   }
   Disable() {

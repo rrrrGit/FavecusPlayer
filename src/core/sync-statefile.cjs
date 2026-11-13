@@ -18,11 +18,11 @@ function ParseState(text) {
     const records = S.Merge(S.NewState(), value.records).state; // 各レコードを検証（不正なら例外）
     const outbox = value.outbox.map(S.CleanChange);
     const conflicts = value.conflicts.slice(0, MAX_CONFLICTS).map(item => ({ reason: String(item?.reason || 'stale').slice(0, 40), change: S.CleanChange(item.change) }));
-    return { status: 'ok', snapshot: { deviceId: value.deviceId, clock: value.clock, cursor: value.cursor, state: records, outbox, conflicts, origin: { url: String(value.origin?.url || ''), userId: String(value.origin?.userId || '') }, lastSyncAt: Number.isFinite(value.lastSyncAt) ? value.lastSyncAt : 0, lastCompactAt: Number.isFinite(value.lastCompactAt) ? value.lastCompactAt : 0 } };
+    return { status: 'ok', snapshot: { deviceId: value.deviceId, clock: value.clock, cursor: value.cursor, state: records, outbox, conflicts, origin: { url: String(value.origin?.url || ''), userId: String(value.origin?.userId || '') }, blocked: typeof value.blocked === 'string' ? value.blocked.slice(0, 1000) : '', lastSyncAt: Number.isFinite(value.lastSyncAt) ? value.lastSyncAt : 0, lastCompactAt: Number.isFinite(value.lastCompactAt) ? value.lastCompactAt : 0 } };
   } catch { return { status: 'blocked', reason: '同期データを読み込めません（壊れている可能性があります）。元のファイルは変更していません。' }; }
 }
 function SerializeState(device, extra = {}) {
   const records = Object.keys(device.state.records).sort().map(id => ({ id, f: device.state.records[id].f }));
-  return JSON.stringify({ syncVersion: STATE_VERSION, deviceId: device.id, clock: device.clock, cursor: device.cursor, outbox: device.outbox, conflicts: device.conflicts.slice(-MAX_CONFLICTS), records, origin: extra.origin || { url: '', userId: '' }, lastSyncAt: extra.lastSyncAt || 0, lastCompactAt: extra.lastCompactAt || 0 });
+  return JSON.stringify({ syncVersion: STATE_VERSION, deviceId: device.id, clock: device.clock, cursor: device.cursor, outbox: device.outbox, conflicts: device.conflicts.slice(-MAX_CONFLICTS), records, origin: extra.origin || { url: '', userId: '' }, blocked: extra.blocked || '', lastSyncAt: extra.lastSyncAt || 0, lastCompactAt: extra.lastCompactAt || 0 });
 }
 module.exports = { STATE_VERSION, MAX_STATE_BYTES, MAX_CONFLICTS, ParseState, SerializeState };

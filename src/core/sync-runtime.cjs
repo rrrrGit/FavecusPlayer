@@ -21,20 +21,24 @@ const Fail = error => ({ error: String(error && error.message || error) });
 function Adapter(host) {
   const load = async () => { const text = await host.library(); return { text, data: JSON.parse(text) }; };
   return {
-    Library: async () => { const { data } = await load(); return { version: 3, identityVersion: 2, videoAliases: data.videoAliases || [], rootPlaylistIds: data.rootPlaylistIds, playlists: data.playlists }; },
+    // token：読み取ったライブラリの文字列。Applyが、読み取り後に編集が入っていないかの確認に使う。
+    Library: async () => { const { text, data } = await load(); return { version: 3, identityVersion: 2, videoAliases: data.videoAliases || [], rootPlaylistIds: data.rootPlaylistIds, playlists: data.playlists, token: text }; },
     Context: async () => ContextOf((await load()).data),
     Recovered: async () => !!(await host.recovered()),
     Backup: async () => host.backup(),
-    Apply: async view => {
+    Apply: async (view, token) => {
       const { text, data } = await load(), { changed, next } = MergeView(data, view);
+      // 取り込みの後に編集が入っていたら、反映せずやり直させる（編集を黙って取り消さない）。
+      if (token !== undefined && token !== text) throw Object.assign(new Error('同期中に保存データが変更されました。'), { code: 'changed' });
       if (!changed) return false;
       const checked = ValidateLibrary({ version: 3, identityVersion: 2, ...next }); // 不正なら例外（ライブラリは変更しない）
-      await host.write(JSON.stringify({ base: text, text: Pretty(Compose(data, next, checked)) }));
+      try { await host.write(JSON.stringify({ base: text, text: Pretty(Compose(data, next, checked)) })); }
+      catch (error) { throw Object.assign(new Error(String(error && error.message || error)), { code: 'changed' }); } // 書き込み時に編集が入っていた場合も、やり直す
       return true;
     }
   };
 }
-const Status = () => runtime && runtime.session.device ? { pending: runtime.session.device.outbox.length, conflicts: runtime.session.device.conflicts.length, lastSyncAt: runtime.session.lastSyncAt, origin: runtime.session.origin, deviceId: runtime.session.device.id } : { pending: 0, conflicts: 0, lastSyncAt: 0, origin: { url: '', userId: '' }, deviceId: '' };
+const Status = () => runtime && runtime.session.device ? { pending: runtime.session.device.outbox.length, conflicts: runtime.session.device.conflicts.length, lastSyncAt: runtime.session.lastSyncAt, origin: runtime.session.origin, blocked: runtime.session.blocked, deviceId: runtime.session.device.id } : { pending: 0, conflicts: 0, lastSyncAt: 0, origin: { url: '', userId: '' }, blocked: '', deviceId: '' };
 
 // 開く。options：{ stateText（保存された同期状態。なければnull）, config: { url, anonKey }, session（サインイン情報またはnull）, deviceId }
 // 戻り値：{ status: 'none' | 'ok' | 'blocked', reason?, ...Status }
@@ -64,10 +68,19 @@ async function Enable(options) {
   } catch (error) { return Fail(error); }
 }
 // 1回の同期。戻り値：{ ok, error?, blocked? , ...Status }
-async function Cycle() {
+// options：{ origin: { url, userId } }（いまの接続先・アカウント。同期データの作成時と違えば、通信せずに止める）
+async function Cycle(options) {
   try {
     if (!runtime || !runtime.session.ready) throw new Error('同期が有効になっていません。');
-    return { ...(await runtime.session.Cycle()), ...Status() };
+    return { ...(await runtime.session.Cycle(options || {})), ...Status() };
+  } catch (error) { return Fail(error); }
+}
+// 停止の解除（利用者の選択）。mode：'restore'（同期した内容で復元）／'keep'（この端末の内容を正とする）
+async function Unblock(options) {
+  try {
+    if (!runtime || !runtime.session.ready) throw new Error('同期が開かれていません。');
+    await runtime.session.Unblock(options.mode);
+    return { ok: true, ...Status() };
   } catch (error) { return Fail(error); }
 }
 function Changed() { if (runtime) runtime.session.Changed(); return { ok: true }; }
@@ -90,4 +103,4 @@ function ValidateConfig(options) {
   try { return { ok: true, config: X.SupabaseConfig(options.config || {}) }; }
   catch (error) { return Fail(error); }
 }
-module.exports = { Open, Enable, Cycle, Changed, Reset, State, SendCode, VerifyCode, ValidateConfig };
+module.exports = { Open, Enable, Cycle, Unblock, Changed, Reset, State, SendCode, VerifyCode, ValidateConfig };

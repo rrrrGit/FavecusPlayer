@@ -22,6 +22,7 @@ if (!window.favecusApp && location.hostname === '127.0.0.1' && location.search =
     else if (command.action === 'verify') { if (command.code !== '123456') throw new Error('コードが正しくないか、期限が切れています。（模擬：123456）'); demoSync.signedIn = true; }
     else if (command.action === 'sign-out') demoSync.signedIn = false;
     else if (command.action === 'enable') Object.assign(demoSync, { enabled: true, state: 'idle', lastSyncAt: Date.now() });
+    else if (command.action === 'unblock') Object.assign(demoSync, { state: 'idle', canUnblock: false })
     else if (command.action === 'reset') Object.assign(demoSync, { enabled: false, state: 'off', signedIn: false });
     else if (command.action === 'disable') Object.assign(demoSync, { enabled: false, state: 'off' });
     else if (command.action === 'now') demoSync.lastSyncAt = Date.now();

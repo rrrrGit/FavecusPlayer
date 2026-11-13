@@ -18,6 +18,8 @@ final class LibraryStore: ObservableObject {
     private(set) var restoredThisLaunch = false
     /// 同期の結果を書き込んでいる間（その変更では、同期の再実行を予約しない）。
     var syncWriting = false
+    /// ライブラリが変わった通知（引数：同期自身の書き込みか）。同期が、利用者の編集だけで再実行を予約するために使う。
+    var onChange: (@MainActor (Bool) -> Void)?
     /// メディアの置き場にある実体のファイル名（再生できるローカル曲の判断に使う）。
     @Published private(set) var mediaFiles: Set<String> = []
 
@@ -139,13 +141,14 @@ final class LibraryStore: ObservableObject {
 
     private func replaceNow(expecting base: String, with newText: String) throws {
         guard isReady else { throw ZipError.invalid("保存データを開けないため、取り込めません。") }
-        guard text == base else { throw ZipError.invalid("取り込み中に保存データが変更されました。取り込みをやり直してください。") }
+        guard text == base else { throw ZipError.invalid("読み取り後に保存データが変更されました。やり直します。") }
         // 先に表示用の読み取りを確認してから保存する（保存した後に失敗して、参照されるメディアを消すことがないように）。
         let decoded = try JSONDecoder().decode(LibraryDocument.self, from: Data(newText.utf8))
         try persist(newText)
         text = newText
         document = decoded
         mediaFiles = Self.listMedia(mediaDirectory)
+        onChange?(syncWriting)
     }
 
     /// 前回の取り込みが途中で終了して残った、自分のステージング（.import-*）を片付ける。
@@ -214,6 +217,7 @@ final class LibraryStore: ObservableObject {
         text = newText
         document = decoded
         mediaFiles = Self.listMedia(mediaDirectory)
+        onChange?(syncWriting)
     }
 
     nonisolated static func listMedia(_ directory: URL) -> Set<String> {

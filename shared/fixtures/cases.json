@@ -15246,6 +15246,7 @@
      "url": "https://x.supabase.co",
      "userId": "u"
     },
+    "blocked": "",
     "lastSyncAt": 0,
     "lastCompactAt": 0
    }
@@ -15294,5 +15295,1847 @@
    "status": "blocked",
    "reason": "同期データの内容が正しくありません。"
   }
+ },
+ {
+  "name": "bilibili md5: empty",
+  "call": "BiliMd5",
+  "args": [
+   ""
+  ],
+  "expect": "d41d8cd98f00b204e9800998ecf8427e"
+ },
+ {
+  "name": "bilibili md5: ascii",
+  "call": "BiliMd5",
+  "args": [
+   "abc"
+  ],
+  "expect": "900150983cd24fb0d6963f7d28e17f72"
+ },
+ {
+  "name": "bilibili md5: block boundary 55",
+  "call": "BiliMd5",
+  "args": [
+   "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  ],
+  "expect": "04364420e25c512fd958a70738aa8f72"
+ },
+ {
+  "name": "bilibili md5: 56",
+  "call": "BiliMd5",
+  "args": [
+   "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  ],
+  "expect": "668a72d5ba17f08e62dabcafad6db14b"
+ },
+ {
+  "name": "bilibili md5: 64",
+  "call": "BiliMd5",
+  "args": [
+   "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  ],
+  "expect": "c1bb4f81d892b2d57947682aeb252456"
+ },
+ {
+  "name": "bilibili md5: japanese",
+  "call": "BiliMd5",
+  "args": [
+   "日本語のテスト"
+  ],
+  "expect": "4e077d11f832d51247e327d311e8563b"
+ },
+ {
+  "name": "bilibili md5: emoji",
+  "call": "BiliMd5",
+  "args": [
+   "😀emoji"
+  ],
+  "expect": "e04beb52eb664882198dcab6d67eb289"
+ },
+ {
+  "name": "bilibili md5: long",
+  "call": "BiliMd5",
+  "args": [
+   "long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-"
+  ],
+  "expect": "0d3e1ea0e1a07f48f978062ad57a0a7e"
+ },
+ {
+  "name": "bilibili sign: strips reserved characters and sorts the keys",
+  "call": "BiliSign",
+  "args": [
+   {
+    "foo": "a!'b",
+    "bvid": "BV1xx411c7mD",
+    "cid": "123"
+   },
+   {
+    "img_url": "https://i0.hdslb.com/bfs/wbi/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+    "sub_url": "https://i0.hdslb.com/bfs/wbi/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png"
+   },
+   1700000000000
+  ],
+  "expect": "bvid=BV1xx411c7mD&cid=123&foo=ab&wts=1700000000&w_rid=6b2bcdf7c30148c1b2cb8a9c25691a60"
+ },
+ {
+  "name": "bilibili sign: a bad key is rejected",
+  "call": "BiliSign",
+  "args": [
+   {
+    "a": 1
+   },
+   {
+    "img_url": "https://i0.hdslb.com/x.png",
+    "sub_url": "https://i0.hdslb.com/y.png"
+   },
+   1700000000000
+  ],
+  "expectError": "Bilibiliの署名情報を取得できません。"
+ },
+ {
+  "name": "bilibili media url: cdn host",
+  "call": "BiliMediaURL",
+  "args": [
+   "https://upos-sz-mirror.bilivideo.com/a/b.m4s?x=1"
+  ],
+  "expect": "https://upos-sz-mirror.bilivideo.com/a/b.m4s?x=1"
+ },
+ {
+  "name": "bilibili media url: http is upgraded",
+  "call": "BiliMediaURL",
+  "args": [
+   "http://a.bilivideo.com/a"
+  ],
+  "expect": "https://a.bilivideo.com/a"
+ },
+ {
+  "name": "bilibili media url: lookalike host",
+  "call": "BiliMediaURL",
+  "args": [
+   "https://bilivideo.com.evil.test/a"
+  ],
+  "expectError": "未対応の動画配信先です。"
+ },
+ {
+  "name": "bilibili media url: userinfo",
+  "call": "BiliMediaURL",
+  "args": [
+   "https://a@a.bilivideo.com/a"
+  ],
+  "expectError": "未対応の動画配信先です。"
+ },
+ {
+  "name": "bilibili media url: port",
+  "call": "BiliMediaURL",
+  "args": [
+   "https://a.bilivideo.com:8443/a"
+  ],
+  "expectError": "未対応の動画配信先です。"
+ },
+ {
+  "name": "bilibili media url: localhost",
+  "call": "BiliMediaURL",
+  "args": [
+   "http://localhost/a"
+  ],
+  "expectError": "未対応の動画配信先です。"
+ },
+ {
+  "name": "bilibili media url: akamai",
+  "call": "BiliMediaURL",
+  "args": [
+   "https://x.akamaized.net/v"
+  ],
+  "expect": "https://x.akamaized.net/v"
+ },
+ {
+  "name": "bilibili select: audio picks the closest AAC at or under 192k",
+  "call": "BiliSelect",
+  "args": [
+   {
+    "dash": {
+     "audio": [
+      {
+       "id": 30280,
+       "bandwidth": 192000,
+       "codecs": "mp4a.40.2",
+       "baseUrl": "https://upos.bilivideo.com/a/30280.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30280.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 1920000
+      },
+      {
+       "id": 30232,
+       "bandwidth": 132000,
+       "codecs": "mp4a.40.2",
+       "baseUrl": "https://upos.bilivideo.com/a/30232.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30232.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 1320000
+      },
+      {
+       "id": 30251,
+       "bandwidth": 320000,
+       "codecs": "mp4a.40.2",
+       "baseUrl": "https://upos.bilivideo.com/a/30251.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30251.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 3200000
+      },
+      {
+       "id": 30000,
+       "bandwidth": 64000,
+       "codecs": "ec-3",
+       "baseUrl": "https://upos.bilivideo.com/a/30000.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30000.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 640000
+      }
+     ],
+     "video": [
+      {
+       "id": 80,
+       "height": 1080,
+       "bandwidth": 80000,
+       "codecs": "avc1.640028",
+       "baseUrl": "https://upos.bilivideo.com/v/80.m4s"
+      },
+      {
+       "id": 64,
+       "height": 720,
+       "bandwidth": 64000,
+       "codecs": "avc1.640028",
+       "baseUrl": "https://upos.bilivideo.com/v/64.m4s"
+      },
+      {
+       "id": 32,
+       "height": 480,
+       "bandwidth": 32000,
+       "codecs": "avc1.640028",
+       "baseUrl": "https://upos.bilivideo.com/v/32.m4s"
+      },
+      {
+       "id": 100,
+       "height": 720,
+       "bandwidth": 100000,
+       "codecs": "hev1.1.6",
+       "baseUrl": "https://upos.bilivideo.com/v/100.m4s"
+      }
+     ]
+    }
+   },
+   "audio",
+   720
+  ],
+  "expect": {
+   "layout": "dash",
+   "streams": [
+    {
+     "urls": [
+      "https://upos.bilivideo.com/a/30280.m4s",
+      "https://backup.bilivideo.com/a/30280.m4s"
+     ],
+     "bandwidth": 192000,
+     "size": 1920000
+    }
+   ],
+   "height": null
+  }
+ },
+ {
+  "name": "bilibili select: video picks the H.264 at the wanted height and the AAC",
+  "call": "BiliSelect",
+  "args": [
+   {
+    "dash": {
+     "audio": [
+      {
+       "id": 30280,
+       "bandwidth": 192000,
+       "codecs": "mp4a.40.2",
+       "baseUrl": "https://upos.bilivideo.com/a/30280.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30280.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 1920000
+      },
+      {
+       "id": 30232,
+       "bandwidth": 132000,
+       "codecs": "mp4a.40.2",
+       "baseUrl": "https://upos.bilivideo.com/a/30232.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30232.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 1320000
+      },
+      {
+       "id": 30251,
+       "bandwidth": 320000,
+       "codecs": "mp4a.40.2",
+       "baseUrl": "https://upos.bilivideo.com/a/30251.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30251.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 3200000
+      },
+      {
+       "id": 30000,
+       "bandwidth": 64000,
+       "codecs": "ec-3",
+       "baseUrl": "https://upos.bilivideo.com/a/30000.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30000.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 640000
+      }
+     ],
+     "video": [
+      {
+       "id": 80,
+       "height": 1080,
+       "bandwidth": 80000,
+       "codecs": "avc1.640028",
+       "baseUrl": "https://upos.bilivideo.com/v/80.m4s"
+      },
+      {
+       "id": 64,
+       "height": 720,
+       "bandwidth": 64000,
+       "codecs": "avc1.640028",
+       "baseUrl": "https://upos.bilivideo.com/v/64.m4s"
+      },
+      {
+       "id": 32,
+       "height": 480,
+       "bandwidth": 32000,
+       "codecs": "avc1.640028",
+       "baseUrl": "https://upos.bilivideo.com/v/32.m4s"
+      },
+      {
+       "id": 100,
+       "height": 720,
+       "bandwidth": 100000,
+       "codecs": "hev1.1.6",
+       "baseUrl": "https://upos.bilivideo.com/v/100.m4s"
+      }
+     ]
+    }
+   },
+   "video",
+   720
+  ],
+  "expect": {
+   "layout": "dash",
+   "streams": [
+    {
+     "urls": [
+      "https://upos.bilivideo.com/v/64.m4s"
+     ],
+     "bandwidth": 64000,
+     "size": 0
+    },
+    {
+     "urls": [
+      "https://upos.bilivideo.com/a/30280.m4s",
+      "https://backup.bilivideo.com/a/30280.m4s"
+     ],
+     "bandwidth": 192000,
+     "size": 1920000
+    }
+   ],
+   "height": 720
+  }
+ },
+ {
+  "name": "bilibili select: a lower wanted height",
+  "call": "BiliSelect",
+  "args": [
+   {
+    "dash": {
+     "audio": [
+      {
+       "id": 30280,
+       "bandwidth": 192000,
+       "codecs": "mp4a.40.2",
+       "baseUrl": "https://upos.bilivideo.com/a/30280.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30280.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 1920000
+      },
+      {
+       "id": 30232,
+       "bandwidth": 132000,
+       "codecs": "mp4a.40.2",
+       "baseUrl": "https://upos.bilivideo.com/a/30232.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30232.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 1320000
+      },
+      {
+       "id": 30251,
+       "bandwidth": 320000,
+       "codecs": "mp4a.40.2",
+       "baseUrl": "https://upos.bilivideo.com/a/30251.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30251.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 3200000
+      },
+      {
+       "id": 30000,
+       "bandwidth": 64000,
+       "codecs": "ec-3",
+       "baseUrl": "https://upos.bilivideo.com/a/30000.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30000.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 640000
+      }
+     ],
+     "video": [
+      {
+       "id": 80,
+       "height": 1080,
+       "bandwidth": 80000,
+       "codecs": "avc1.640028",
+       "baseUrl": "https://upos.bilivideo.com/v/80.m4s"
+      },
+      {
+       "id": 64,
+       "height": 720,
+       "bandwidth": 64000,
+       "codecs": "avc1.640028",
+       "baseUrl": "https://upos.bilivideo.com/v/64.m4s"
+      },
+      {
+       "id": 32,
+       "height": 480,
+       "bandwidth": 32000,
+       "codecs": "avc1.640028",
+       "baseUrl": "https://upos.bilivideo.com/v/32.m4s"
+      },
+      {
+       "id": 100,
+       "height": 720,
+       "bandwidth": 100000,
+       "codecs": "hev1.1.6",
+       "baseUrl": "https://upos.bilivideo.com/v/100.m4s"
+      }
+     ]
+    }
+   },
+   "video",
+   360
+  ],
+  "expect": {
+   "layout": "dash",
+   "streams": [
+    {
+     "urls": [
+      "https://upos.bilivideo.com/v/32.m4s"
+     ],
+     "bandwidth": 32000,
+     "size": 0
+    },
+    {
+     "urls": [
+      "https://upos.bilivideo.com/a/30280.m4s",
+      "https://backup.bilivideo.com/a/30280.m4s"
+     ],
+     "bandwidth": 192000,
+     "size": 1920000
+    }
+   ],
+   "height": 480
+  }
+ },
+ {
+  "name": "bilibili select: a muxed durl stream",
+  "call": "BiliSelect",
+  "args": [
+   {
+    "durl": [
+     {
+      "url": "https://upos.bilivideo.com/m/1.mp4",
+      "size": 1000
+     }
+    ],
+    "quality": 16
+   },
+   "video",
+   720
+  ],
+  "expect": {
+   "layout": "muxed",
+   "streams": [
+    {
+     "urls": [
+      "https://upos.bilivideo.com/m/1.mp4"
+     ],
+     "bandwidth": 0,
+     "size": 1000
+    }
+   ],
+   "height": 360
+  }
+ },
+ {
+  "name": "bilibili select: several durl segments",
+  "call": "BiliSelect",
+  "args": [
+   {
+    "durl": [
+     {
+      "url": "https://upos.bilivideo.com/m/1.mp4"
+     },
+     {
+      "url": "https://upos.bilivideo.com/m/2.mp4"
+     }
+    ]
+   },
+   "audio",
+   720
+  ],
+  "expect": {
+   "layout": "segments",
+   "streams": [
+    {
+     "urls": [
+      "https://upos.bilivideo.com/m/1.mp4"
+     ],
+     "bandwidth": 0,
+     "size": 0
+    },
+    {
+     "urls": [
+      "https://upos.bilivideo.com/m/2.mp4"
+     ],
+     "bandwidth": 0,
+     "size": 0
+    }
+   ],
+   "height": null
+  }
+ },
+ {
+  "name": "bilibili select: a protected or preview stream is refused (is_preview)",
+  "call": "BiliSelect",
+  "args": [
+   {
+    "dash": {
+     "audio": [
+      {
+       "id": 30280,
+       "bandwidth": 192000,
+       "codecs": "mp4a.40.2",
+       "baseUrl": "https://upos.bilivideo.com/a/30280.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30280.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 1920000
+      },
+      {
+       "id": 30232,
+       "bandwidth": 132000,
+       "codecs": "mp4a.40.2",
+       "baseUrl": "https://upos.bilivideo.com/a/30232.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30232.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 1320000
+      },
+      {
+       "id": 30251,
+       "bandwidth": 320000,
+       "codecs": "mp4a.40.2",
+       "baseUrl": "https://upos.bilivideo.com/a/30251.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30251.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 3200000
+      },
+      {
+       "id": 30000,
+       "bandwidth": 64000,
+       "codecs": "ec-3",
+       "baseUrl": "https://upos.bilivideo.com/a/30000.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30000.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 640000
+      }
+     ],
+     "video": [
+      {
+       "id": 80,
+       "height": 1080,
+       "bandwidth": 80000,
+       "codecs": "avc1.640028",
+       "baseUrl": "https://upos.bilivideo.com/v/80.m4s"
+      },
+      {
+       "id": 64,
+       "height": 720,
+       "bandwidth": 64000,
+       "codecs": "avc1.640028",
+       "baseUrl": "https://upos.bilivideo.com/v/64.m4s"
+      },
+      {
+       "id": 32,
+       "height": 480,
+       "bandwidth": 32000,
+       "codecs": "avc1.640028",
+       "baseUrl": "https://upos.bilivideo.com/v/32.m4s"
+      },
+      {
+       "id": 100,
+       "height": 720,
+       "bandwidth": 100000,
+       "codecs": "hev1.1.6",
+       "baseUrl": "https://upos.bilivideo.com/v/100.m4s"
+      }
+     ]
+    },
+    "is_preview": 1
+   },
+   "audio",
+   720
+  ],
+  "expectError": "試聴用・保護された動画は保存できません。"
+ },
+ {
+  "name": "bilibili select: a protected or preview stream is refused (is_drm)",
+  "call": "BiliSelect",
+  "args": [
+   {
+    "dash": {
+     "audio": [
+      {
+       "id": 30280,
+       "bandwidth": 192000,
+       "codecs": "mp4a.40.2",
+       "baseUrl": "https://upos.bilivideo.com/a/30280.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30280.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 1920000
+      },
+      {
+       "id": 30232,
+       "bandwidth": 132000,
+       "codecs": "mp4a.40.2",
+       "baseUrl": "https://upos.bilivideo.com/a/30232.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30232.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 1320000
+      },
+      {
+       "id": 30251,
+       "bandwidth": 320000,
+       "codecs": "mp4a.40.2",
+       "baseUrl": "https://upos.bilivideo.com/a/30251.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30251.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 3200000
+      },
+      {
+       "id": 30000,
+       "bandwidth": 64000,
+       "codecs": "ec-3",
+       "baseUrl": "https://upos.bilivideo.com/a/30000.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30000.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 640000
+      }
+     ],
+     "video": [
+      {
+       "id": 80,
+       "height": 1080,
+       "bandwidth": 80000,
+       "codecs": "avc1.640028",
+       "baseUrl": "https://upos.bilivideo.com/v/80.m4s"
+      },
+      {
+       "id": 64,
+       "height": 720,
+       "bandwidth": 64000,
+       "codecs": "avc1.640028",
+       "baseUrl": "https://upos.bilivideo.com/v/64.m4s"
+      },
+      {
+       "id": 32,
+       "height": 480,
+       "bandwidth": 32000,
+       "codecs": "avc1.640028",
+       "baseUrl": "https://upos.bilivideo.com/v/32.m4s"
+      },
+      {
+       "id": 100,
+       "height": 720,
+       "bandwidth": 100000,
+       "codecs": "hev1.1.6",
+       "baseUrl": "https://upos.bilivideo.com/v/100.m4s"
+      }
+     ]
+    },
+    "is_drm": 1
+   },
+   "audio",
+   720
+  ],
+  "expectError": "試聴用・保護された動画は保存できません。"
+ },
+ {
+  "name": "bilibili select: a protected or preview stream is refused (drm_tech_type)",
+  "call": "BiliSelect",
+  "args": [
+   {
+    "dash": {
+     "audio": [
+      {
+       "id": 30280,
+       "bandwidth": 192000,
+       "codecs": "mp4a.40.2",
+       "baseUrl": "https://upos.bilivideo.com/a/30280.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30280.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 1920000
+      },
+      {
+       "id": 30232,
+       "bandwidth": 132000,
+       "codecs": "mp4a.40.2",
+       "baseUrl": "https://upos.bilivideo.com/a/30232.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30232.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 1320000
+      },
+      {
+       "id": 30251,
+       "bandwidth": 320000,
+       "codecs": "mp4a.40.2",
+       "baseUrl": "https://upos.bilivideo.com/a/30251.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30251.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 3200000
+      },
+      {
+       "id": 30000,
+       "bandwidth": 64000,
+       "codecs": "ec-3",
+       "baseUrl": "https://upos.bilivideo.com/a/30000.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/30000.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 640000
+      }
+     ],
+     "video": [
+      {
+       "id": 80,
+       "height": 1080,
+       "bandwidth": 80000,
+       "codecs": "avc1.640028",
+       "baseUrl": "https://upos.bilivideo.com/v/80.m4s"
+      },
+      {
+       "id": 64,
+       "height": 720,
+       "bandwidth": 64000,
+       "codecs": "avc1.640028",
+       "baseUrl": "https://upos.bilivideo.com/v/64.m4s"
+      },
+      {
+       "id": 32,
+       "height": 480,
+       "bandwidth": 32000,
+       "codecs": "avc1.640028",
+       "baseUrl": "https://upos.bilivideo.com/v/32.m4s"
+      },
+      {
+       "id": 100,
+       "height": 720,
+       "bandwidth": 100000,
+       "codecs": "hev1.1.6",
+       "baseUrl": "https://upos.bilivideo.com/v/100.m4s"
+      }
+     ]
+    },
+    "drm_tech_type": 1
+   },
+   "audio",
+   720
+  ],
+  "expectError": "試聴用・保護された動画は保存できません。"
+ },
+ {
+  "name": "bilibili select: nothing usable is refused",
+  "call": "BiliSelect",
+  "args": [
+   {
+    "dash": {
+     "audio": [
+      {
+       "id": 1,
+       "bandwidth": 100000,
+       "codecs": "ec-3",
+       "baseUrl": "https://upos.bilivideo.com/a/1.m4s",
+       "backupUrl": [
+        "https://backup.bilivideo.com/a/1.m4s",
+        "https://evil.example.com/a.m4s"
+       ],
+       "size": 1000000
+      }
+     ],
+     "video": []
+    }
+   },
+   "audio",
+   720
+  ],
+  "expectError": "対応するH.264動画・AAC音声を取得できません。ログイン状態と動画の公開範囲を確認してください。"
+ },
+ {
+  "name": "bilibili select: streams only on disallowed hosts are refused",
+  "call": "BiliSelect",
+  "args": [
+   {
+    "dash": {
+     "audio": [
+      {
+       "id": 1,
+       "bandwidth": 1,
+       "codecs": "mp4a.40.2",
+       "baseUrl": "https://evil.example.com/a.m4s"
+      }
+     ],
+     "video": []
+    }
+   },
+   "audio",
+   720
+  ],
+  "expectError": "保存可能な動画配信先が見つかりません。"
+ },
+ {
+  "name": "bilibili resolve: view then playurl gives an audio stream",
+  "call": "BiliResolve",
+  "args": [
+   {
+    "url": "https://www.bilibili.com/video/BV1aaaaaaaaa/",
+    "kind": "audio",
+    "height": 720,
+    "now": 1700000000000,
+    "responses": [
+     {
+      "code": 0,
+      "data": {
+       "bvid": "BV1aaaaaaaaa",
+       "aid": 100200,
+       "pic": "https://i0.hdslb.com/bfs/archive/pic.jpg",
+       "duration": 200,
+       "pages": [
+        {
+         "page": 1,
+         "cid": 5001,
+         "duration": 200,
+         "first_frame": "https://i0.hdslb.com/bfs/frame1.jpg"
+        },
+        {
+         "page": 2,
+         "cid": 5002,
+         "duration": 90
+        }
+       ]
+      }
+     },
+     {
+      "code": 0,
+      "data": {
+       "dash": {
+        "audio": [
+         {
+          "id": 30280,
+          "bandwidth": 192000,
+          "codecs": "mp4a.40.2",
+          "baseUrl": "https://upos.bilivideo.com/a/30280.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30280.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 1920000
+         },
+         {
+          "id": 30232,
+          "bandwidth": 132000,
+          "codecs": "mp4a.40.2",
+          "baseUrl": "https://upos.bilivideo.com/a/30232.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30232.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 1320000
+         },
+         {
+          "id": 30251,
+          "bandwidth": 320000,
+          "codecs": "mp4a.40.2",
+          "baseUrl": "https://upos.bilivideo.com/a/30251.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30251.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 3200000
+         },
+         {
+          "id": 30000,
+          "bandwidth": 64000,
+          "codecs": "ec-3",
+          "baseUrl": "https://upos.bilivideo.com/a/30000.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30000.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 640000
+         }
+        ],
+        "video": [
+         {
+          "id": 80,
+          "height": 1080,
+          "bandwidth": 80000,
+          "codecs": "avc1.640028",
+          "baseUrl": "https://upos.bilivideo.com/v/80.m4s"
+         },
+         {
+          "id": 64,
+          "height": 720,
+          "bandwidth": 64000,
+          "codecs": "avc1.640028",
+          "baseUrl": "https://upos.bilivideo.com/v/64.m4s"
+         },
+         {
+          "id": 32,
+          "height": 480,
+          "bandwidth": 32000,
+          "codecs": "avc1.640028",
+          "baseUrl": "https://upos.bilivideo.com/v/32.m4s"
+         },
+         {
+          "id": 100,
+          "height": 720,
+          "bandwidth": 100000,
+          "codecs": "hev1.1.6",
+          "baseUrl": "https://upos.bilivideo.com/v/100.m4s"
+         }
+        ]
+       },
+       "timelength": 200000
+      }
+     }
+    ]
+   }
+  ],
+  "expect": {
+   "requests": [
+    {
+     "endpoint": "/x/web-interface/view",
+     "query": {
+      "bvid": "BV1aaaaaaaaa"
+     }
+    },
+    {
+     "endpoint": "/x/player/playurl",
+     "query": {
+      "bvid": "BV1aaaaaaaaa",
+      "cid": "5001",
+      "qn": "64",
+      "fnval": "16",
+      "fnver": "0",
+      "fourk": "0"
+     }
+    }
+   ],
+   "resolved": {
+    "layout": "dash",
+    "streams": [
+     {
+      "urls": [
+       "https://upos.bilivideo.com/a/30280.m4s",
+       "https://backup.bilivideo.com/a/30280.m4s"
+      ],
+      "bandwidth": 192000,
+      "size": 1920000
+     }
+    ],
+    "height": null,
+    "kind": "audio",
+    "url": "https://www.bilibili.com/video/BV1aaaaaaaaa/",
+    "aliases": [
+     "https://www.bilibili.com/video/BV1aaaaaaaaa/",
+     "https://www.bilibili.com/video/av100200/"
+    ],
+    "thumbnailURL": "https://i0.hdslb.com/bfs/frame1.jpg",
+    "duration": 200
+   },
+   "verified": true
+  }
+ },
+ {
+  "name": "bilibili resolve: the second part uses its own cid and duration",
+  "call": "BiliResolve",
+  "args": [
+   {
+    "url": "https://www.bilibili.com/video/BV1aaaaaaaaa/?p=2",
+    "kind": "audio",
+    "height": 720,
+    "now": 1700000000000,
+    "responses": [
+     {
+      "code": 0,
+      "data": {
+       "bvid": "BV1aaaaaaaaa",
+       "aid": 100200,
+       "pic": "https://i0.hdslb.com/bfs/archive/pic.jpg",
+       "duration": 200,
+       "pages": [
+        {
+         "page": 1,
+         "cid": 5001,
+         "duration": 200,
+         "first_frame": "https://i0.hdslb.com/bfs/frame1.jpg"
+        },
+        {
+         "page": 2,
+         "cid": 5002,
+         "duration": 90
+        }
+       ]
+      }
+     },
+     {
+      "code": 0,
+      "data": {
+       "dash": {
+        "audio": [
+         {
+          "id": 30280,
+          "bandwidth": 192000,
+          "codecs": "mp4a.40.2",
+          "baseUrl": "https://upos.bilivideo.com/a/30280.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30280.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 1920000
+         },
+         {
+          "id": 30232,
+          "bandwidth": 132000,
+          "codecs": "mp4a.40.2",
+          "baseUrl": "https://upos.bilivideo.com/a/30232.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30232.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 1320000
+         },
+         {
+          "id": 30251,
+          "bandwidth": 320000,
+          "codecs": "mp4a.40.2",
+          "baseUrl": "https://upos.bilivideo.com/a/30251.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30251.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 3200000
+         },
+         {
+          "id": 30000,
+          "bandwidth": 64000,
+          "codecs": "ec-3",
+          "baseUrl": "https://upos.bilivideo.com/a/30000.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30000.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 640000
+         }
+        ],
+        "video": [
+         {
+          "id": 80,
+          "height": 1080,
+          "bandwidth": 80000,
+          "codecs": "avc1.640028",
+          "baseUrl": "https://upos.bilivideo.com/v/80.m4s"
+         },
+         {
+          "id": 64,
+          "height": 720,
+          "bandwidth": 64000,
+          "codecs": "avc1.640028",
+          "baseUrl": "https://upos.bilivideo.com/v/64.m4s"
+         },
+         {
+          "id": 32,
+          "height": 480,
+          "bandwidth": 32000,
+          "codecs": "avc1.640028",
+          "baseUrl": "https://upos.bilivideo.com/v/32.m4s"
+         },
+         {
+          "id": 100,
+          "height": 720,
+          "bandwidth": 100000,
+          "codecs": "hev1.1.6",
+          "baseUrl": "https://upos.bilivideo.com/v/100.m4s"
+         }
+        ]
+       },
+       "timelength": 200000
+      }
+     }
+    ]
+   }
+  ],
+  "expect": {
+   "requests": [
+    {
+     "endpoint": "/x/web-interface/view",
+     "query": {
+      "bvid": "BV1aaaaaaaaa"
+     }
+    },
+    {
+     "endpoint": "/x/player/playurl",
+     "query": {
+      "bvid": "BV1aaaaaaaaa",
+      "cid": "5002",
+      "qn": "64",
+      "fnval": "16",
+      "fnver": "0",
+      "fourk": "0"
+     }
+    }
+   ],
+   "resolved": {
+    "layout": "dash",
+    "streams": [
+     {
+      "urls": [
+       "https://upos.bilivideo.com/a/30280.m4s",
+       "https://backup.bilivideo.com/a/30280.m4s"
+      ],
+      "bandwidth": 192000,
+      "size": 1920000
+     }
+    ],
+    "height": null,
+    "kind": "audio",
+    "url": "https://www.bilibili.com/video/BV1aaaaaaaaa/?p=2",
+    "aliases": [
+     "https://www.bilibili.com/video/BV1aaaaaaaaa/?p=2",
+     "https://www.bilibili.com/video/av100200/?p=2"
+    ],
+    "thumbnailURL": "https://i0.hdslb.com/bfs/archive/pic.jpg",
+    "duration": 90
+   },
+   "verified": true
+  }
+ },
+ {
+  "name": "bilibili resolve: video kind at 1080",
+  "call": "BiliResolve",
+  "args": [
+   {
+    "url": "https://www.bilibili.com/video/BV1aaaaaaaaa/",
+    "kind": "video",
+    "height": 1080,
+    "now": 1700000000000,
+    "responses": [
+     {
+      "code": 0,
+      "data": {
+       "bvid": "BV1aaaaaaaaa",
+       "aid": 100200,
+       "pic": "https://i0.hdslb.com/bfs/archive/pic.jpg",
+       "duration": 200,
+       "pages": [
+        {
+         "page": 1,
+         "cid": 5001,
+         "duration": 200,
+         "first_frame": "https://i0.hdslb.com/bfs/frame1.jpg"
+        },
+        {
+         "page": 2,
+         "cid": 5002,
+         "duration": 90
+        }
+       ]
+      }
+     },
+     {
+      "code": 0,
+      "data": {
+       "dash": {
+        "audio": [
+         {
+          "id": 30280,
+          "bandwidth": 192000,
+          "codecs": "mp4a.40.2",
+          "baseUrl": "https://upos.bilivideo.com/a/30280.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30280.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 1920000
+         },
+         {
+          "id": 30232,
+          "bandwidth": 132000,
+          "codecs": "mp4a.40.2",
+          "baseUrl": "https://upos.bilivideo.com/a/30232.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30232.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 1320000
+         },
+         {
+          "id": 30251,
+          "bandwidth": 320000,
+          "codecs": "mp4a.40.2",
+          "baseUrl": "https://upos.bilivideo.com/a/30251.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30251.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 3200000
+         },
+         {
+          "id": 30000,
+          "bandwidth": 64000,
+          "codecs": "ec-3",
+          "baseUrl": "https://upos.bilivideo.com/a/30000.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30000.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 640000
+         }
+        ],
+        "video": [
+         {
+          "id": 80,
+          "height": 1080,
+          "bandwidth": 80000,
+          "codecs": "avc1.640028",
+          "baseUrl": "https://upos.bilivideo.com/v/80.m4s"
+         },
+         {
+          "id": 64,
+          "height": 720,
+          "bandwidth": 64000,
+          "codecs": "avc1.640028",
+          "baseUrl": "https://upos.bilivideo.com/v/64.m4s"
+         },
+         {
+          "id": 32,
+          "height": 480,
+          "bandwidth": 32000,
+          "codecs": "avc1.640028",
+          "baseUrl": "https://upos.bilivideo.com/v/32.m4s"
+         },
+         {
+          "id": 100,
+          "height": 720,
+          "bandwidth": 100000,
+          "codecs": "hev1.1.6",
+          "baseUrl": "https://upos.bilivideo.com/v/100.m4s"
+         }
+        ]
+       },
+       "timelength": 200000
+      }
+     }
+    ]
+   }
+  ],
+  "expect": {
+   "requests": [
+    {
+     "endpoint": "/x/web-interface/view",
+     "query": {
+      "bvid": "BV1aaaaaaaaa"
+     }
+    },
+    {
+     "endpoint": "/x/player/playurl",
+     "query": {
+      "bvid": "BV1aaaaaaaaa",
+      "cid": "5001",
+      "qn": "80",
+      "fnval": "16",
+      "fnver": "0",
+      "fourk": "0"
+     }
+    }
+   ],
+   "resolved": {
+    "layout": "dash",
+    "streams": [
+     {
+      "urls": [
+       "https://upos.bilivideo.com/v/80.m4s"
+      ],
+      "bandwidth": 80000,
+      "size": 0
+     },
+     {
+      "urls": [
+       "https://upos.bilivideo.com/a/30280.m4s",
+       "https://backup.bilivideo.com/a/30280.m4s"
+      ],
+      "bandwidth": 192000,
+      "size": 1920000
+     }
+    ],
+    "height": 1080,
+    "kind": "video",
+    "url": "https://www.bilibili.com/video/BV1aaaaaaaaa/",
+    "aliases": [
+     "https://www.bilibili.com/video/BV1aaaaaaaaa/",
+     "https://www.bilibili.com/video/av100200/"
+    ],
+    "thumbnailURL": "https://i0.hdslb.com/bfs/frame1.jpg",
+    "duration": 200
+   },
+   "verified": true
+  }
+ },
+ {
+  "name": "bilibili resolve: an unsupported endpoint falls back to the signed one",
+  "call": "BiliResolve",
+  "args": [
+   {
+    "url": "https://www.bilibili.com/video/BV1aaaaaaaaa/",
+    "kind": "audio",
+    "height": 720,
+    "now": 1700000000000,
+    "responses": [
+     {
+      "code": 0,
+      "data": {
+       "bvid": "BV1aaaaaaaaa",
+       "aid": 100200,
+       "pic": "https://i0.hdslb.com/bfs/archive/pic.jpg",
+       "duration": 200,
+       "pages": [
+        {
+         "page": 1,
+         "cid": 5001,
+         "duration": 200,
+         "first_frame": "https://i0.hdslb.com/bfs/frame1.jpg"
+        },
+        {
+         "page": 2,
+         "cid": 5002,
+         "duration": 90
+        }
+       ]
+      }
+     },
+     {
+      "code": -400
+     },
+     {
+      "code": 0,
+      "data": {
+       "wbi_img": {
+        "img_url": "https://i0.hdslb.com/bfs/wbi/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+        "sub_url": "https://i0.hdslb.com/bfs/wbi/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png"
+       }
+      }
+     },
+     {
+      "code": 0,
+      "data": {
+       "dash": {
+        "audio": [
+         {
+          "id": 30280,
+          "bandwidth": 192000,
+          "codecs": "mp4a.40.2",
+          "baseUrl": "https://upos.bilivideo.com/a/30280.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30280.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 1920000
+         },
+         {
+          "id": 30232,
+          "bandwidth": 132000,
+          "codecs": "mp4a.40.2",
+          "baseUrl": "https://upos.bilivideo.com/a/30232.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30232.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 1320000
+         },
+         {
+          "id": 30251,
+          "bandwidth": 320000,
+          "codecs": "mp4a.40.2",
+          "baseUrl": "https://upos.bilivideo.com/a/30251.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30251.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 3200000
+         },
+         {
+          "id": 30000,
+          "bandwidth": 64000,
+          "codecs": "ec-3",
+          "baseUrl": "https://upos.bilivideo.com/a/30000.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30000.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 640000
+         }
+        ],
+        "video": [
+         {
+          "id": 80,
+          "height": 1080,
+          "bandwidth": 80000,
+          "codecs": "avc1.640028",
+          "baseUrl": "https://upos.bilivideo.com/v/80.m4s"
+         },
+         {
+          "id": 64,
+          "height": 720,
+          "bandwidth": 64000,
+          "codecs": "avc1.640028",
+          "baseUrl": "https://upos.bilivideo.com/v/64.m4s"
+         },
+         {
+          "id": 32,
+          "height": 480,
+          "bandwidth": 32000,
+          "codecs": "avc1.640028",
+          "baseUrl": "https://upos.bilivideo.com/v/32.m4s"
+         },
+         {
+          "id": 100,
+          "height": 720,
+          "bandwidth": 100000,
+          "codecs": "hev1.1.6",
+          "baseUrl": "https://upos.bilivideo.com/v/100.m4s"
+         }
+        ]
+       },
+       "timelength": 200000
+      }
+     }
+    ]
+   }
+  ],
+  "expect": {
+   "requests": [
+    {
+     "endpoint": "/x/web-interface/view",
+     "query": {
+      "bvid": "BV1aaaaaaaaa"
+     }
+    },
+    {
+     "endpoint": "/x/player/playurl",
+     "query": {
+      "bvid": "BV1aaaaaaaaa",
+      "cid": "5001",
+      "qn": "64",
+      "fnval": "16",
+      "fnver": "0",
+      "fourk": "0"
+     }
+    },
+    {
+     "endpoint": "/x/web-interface/nav",
+     "query": {}
+    },
+    {
+     "endpoint": "/x/player/wbi/playurl",
+     "query": "bvid=BV1aaaaaaaaa&cid=5001&fnval=16&fnver=0&fourk=0&qn=64&wts=1700000000&w_rid=202ee1eb28819f3f35902ddda9466dd2"
+    }
+   ],
+   "resolved": {
+    "layout": "dash",
+    "streams": [
+     {
+      "urls": [
+       "https://upos.bilivideo.com/a/30280.m4s",
+       "https://backup.bilivideo.com/a/30280.m4s"
+      ],
+      "bandwidth": 192000,
+      "size": 1920000
+     }
+    ],
+    "height": null,
+    "kind": "audio",
+    "url": "https://www.bilibili.com/video/BV1aaaaaaaaa/",
+    "aliases": [
+     "https://www.bilibili.com/video/BV1aaaaaaaaa/",
+     "https://www.bilibili.com/video/av100200/"
+    ],
+    "thumbnailURL": "https://i0.hdslb.com/bfs/frame1.jpg",
+    "duration": 200
+   },
+   "verified": true
+  }
+ },
+ {
+  "name": "bilibili resolve: a login-required reply stops with a message and is not retried",
+  "call": "BiliResolve",
+  "args": [
+   {
+    "url": "https://www.bilibili.com/video/BV1aaaaaaaaa/",
+    "kind": "audio",
+    "height": 720,
+    "now": 1700000000000,
+    "responses": [
+     {
+      "code": -101
+     }
+    ]
+   }
+  ],
+  "expectError": "Bilibiliへのログインが必要です。設定からログインしてください。"
+ },
+ {
+  "name": "bilibili resolve: risk-control replies are not retried by other means",
+  "call": "BiliResolve",
+  "args": [
+   {
+    "url": "https://www.bilibili.com/video/BV1aaaaaaaaa/",
+    "kind": "audio",
+    "height": 720,
+    "now": 1700000000000,
+    "responses": [
+     {
+      "code": 0,
+      "data": {
+       "bvid": "BV1aaaaaaaaa",
+       "aid": 100200,
+       "pic": "https://i0.hdslb.com/bfs/archive/pic.jpg",
+       "duration": 200,
+       "pages": [
+        {
+         "page": 1,
+         "cid": 5001,
+         "duration": 200,
+         "first_frame": "https://i0.hdslb.com/bfs/frame1.jpg"
+        },
+        {
+         "page": 2,
+         "cid": 5002,
+         "duration": 90
+        }
+       ]
+      }
+     },
+     {
+      "code": -352
+     }
+    ]
+   }
+  ],
+  "expectError": "動画を取得できません（コード -352）。公開範囲・利用制限を確認してください。"
+ },
+ {
+  "name": "bilibili resolve: a missing part is refused",
+  "call": "BiliResolve",
+  "args": [
+   {
+    "url": "https://www.bilibili.com/video/BV1aaaaaaaaa/?p=9",
+    "kind": "audio",
+    "height": 720,
+    "now": 1700000000000,
+    "responses": [
+     {
+      "code": 0,
+      "data": {
+       "bvid": "BV1aaaaaaaaa",
+       "aid": 100200,
+       "pic": "https://i0.hdslb.com/bfs/archive/pic.jpg",
+       "duration": 200,
+       "pages": [
+        {
+         "page": 1,
+         "cid": 5001,
+         "duration": 200,
+         "first_frame": "https://i0.hdslb.com/bfs/frame1.jpg"
+        },
+        {
+         "page": 2,
+         "cid": 5002,
+         "duration": 90
+        }
+       ]
+      }
+     },
+     {
+      "code": 0,
+      "data": {
+       "dash": {
+        "audio": [
+         {
+          "id": 30280,
+          "bandwidth": 192000,
+          "codecs": "mp4a.40.2",
+          "baseUrl": "https://upos.bilivideo.com/a/30280.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30280.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 1920000
+         },
+         {
+          "id": 30232,
+          "bandwidth": 132000,
+          "codecs": "mp4a.40.2",
+          "baseUrl": "https://upos.bilivideo.com/a/30232.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30232.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 1320000
+         },
+         {
+          "id": 30251,
+          "bandwidth": 320000,
+          "codecs": "mp4a.40.2",
+          "baseUrl": "https://upos.bilivideo.com/a/30251.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30251.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 3200000
+         },
+         {
+          "id": 30000,
+          "bandwidth": 64000,
+          "codecs": "ec-3",
+          "baseUrl": "https://upos.bilivideo.com/a/30000.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30000.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 640000
+         }
+        ],
+        "video": [
+         {
+          "id": 80,
+          "height": 1080,
+          "bandwidth": 80000,
+          "codecs": "avc1.640028",
+          "baseUrl": "https://upos.bilivideo.com/v/80.m4s"
+         },
+         {
+          "id": 64,
+          "height": 720,
+          "bandwidth": 64000,
+          "codecs": "avc1.640028",
+          "baseUrl": "https://upos.bilivideo.com/v/64.m4s"
+         },
+         {
+          "id": 32,
+          "height": 480,
+          "bandwidth": 32000,
+          "codecs": "avc1.640028",
+          "baseUrl": "https://upos.bilivideo.com/v/32.m4s"
+         },
+         {
+          "id": 100,
+          "height": 720,
+          "bandwidth": 100000,
+          "codecs": "hev1.1.6",
+          "baseUrl": "https://upos.bilivideo.com/v/100.m4s"
+         }
+        ]
+       },
+       "timelength": 200000
+      }
+     }
+    ]
+   }
+  ],
+  "expectError": "指定したパートの動画を取得できません。"
+ },
+ {
+  "name": "bilibili resolve: a protected stream is refused after the lookup",
+  "call": "BiliResolve",
+  "args": [
+   {
+    "url": "https://www.bilibili.com/video/BV1aaaaaaaaa/",
+    "kind": "audio",
+    "height": 720,
+    "now": 1700000000000,
+    "responses": [
+     {
+      "code": 0,
+      "data": {
+       "bvid": "BV1aaaaaaaaa",
+       "aid": 100200,
+       "pic": "https://i0.hdslb.com/bfs/archive/pic.jpg",
+       "duration": 200,
+       "pages": [
+        {
+         "page": 1,
+         "cid": 5001,
+         "duration": 200,
+         "first_frame": "https://i0.hdslb.com/bfs/frame1.jpg"
+        },
+        {
+         "page": 2,
+         "cid": 5002,
+         "duration": 90
+        }
+       ]
+      }
+     },
+     {
+      "code": 0,
+      "data": {
+       "dash": {
+        "audio": [
+         {
+          "id": 30280,
+          "bandwidth": 192000,
+          "codecs": "mp4a.40.2",
+          "baseUrl": "https://upos.bilivideo.com/a/30280.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30280.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 1920000
+         },
+         {
+          "id": 30232,
+          "bandwidth": 132000,
+          "codecs": "mp4a.40.2",
+          "baseUrl": "https://upos.bilivideo.com/a/30232.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30232.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 1320000
+         },
+         {
+          "id": 30251,
+          "bandwidth": 320000,
+          "codecs": "mp4a.40.2",
+          "baseUrl": "https://upos.bilivideo.com/a/30251.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30251.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 3200000
+         },
+         {
+          "id": 30000,
+          "bandwidth": 64000,
+          "codecs": "ec-3",
+          "baseUrl": "https://upos.bilivideo.com/a/30000.m4s",
+          "backupUrl": [
+           "https://backup.bilivideo.com/a/30000.m4s",
+           "https://evil.example.com/a.m4s"
+          ],
+          "size": 640000
+         }
+        ],
+        "video": [
+         {
+          "id": 80,
+          "height": 1080,
+          "bandwidth": 80000,
+          "codecs": "avc1.640028",
+          "baseUrl": "https://upos.bilivideo.com/v/80.m4s"
+         },
+         {
+          "id": 64,
+          "height": 720,
+          "bandwidth": 64000,
+          "codecs": "avc1.640028",
+          "baseUrl": "https://upos.bilivideo.com/v/64.m4s"
+         },
+         {
+          "id": 32,
+          "height": 480,
+          "bandwidth": 32000,
+          "codecs": "avc1.640028",
+          "baseUrl": "https://upos.bilivideo.com/v/32.m4s"
+         },
+         {
+          "id": 100,
+          "height": 720,
+          "bandwidth": 100000,
+          "codecs": "hev1.1.6",
+          "baseUrl": "https://upos.bilivideo.com/v/100.m4s"
+         }
+        ]
+       },
+       "is_drm": 1
+      }
+     }
+    ]
+   }
+  ],
+  "expectError": "試聴用・保護された動画は保存できません。"
  }
 ]

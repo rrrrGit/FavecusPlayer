@@ -652,6 +652,7 @@ async function Start() {
     else if (kind === 'now') { const result = await sync.SyncNow(); if (!result.ok) throw new Error(result.error); }
     else if (kind === 'sign-out') sync.SignOut();
     else if (kind === 'reset') sync.ResetLink();
+    else if (kind === 'unblock') { const result = await sync.Unblock(command.mode); if (!result.ok) throw new Error(result.error); }
     else throw new Error('対応していない操作です。');
     return sync.Status();
   });

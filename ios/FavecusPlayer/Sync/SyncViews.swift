@@ -42,6 +42,11 @@ struct SyncSheet: View {
                     Button("今すぐ同期") { run { _ = await sync.syncNow() } }.disabled(!status.enabled || working)
                     Button("同期を止める") { sync.disable() }.disabled(!status.enabled)
                     Button("接続を初期化", role: .destructive) { sync.resetLink() }.disabled(status.enabled)
+                    if status.canUnblock {
+                        Button("サーバーの内容で復元") { run { try await sync.unblock(mode: "restore"); message = "同期した内容で復元しました。" } }.disabled(working)
+                        Button("この端末の内容を正とする", role: .destructive) { run { try await sync.unblock(mode: "keep"); message = "同期しました。" } }.disabled(working)
+                        Text("「この端末の内容を正とする」は、サーバーと他の端末にある、この端末にない内容を削除します。").font(.caption).foregroundStyle(.secondary)
+                    }
                     Text("有効にする前に、現在の保存データのバックアップを残します。止めても、プレイリストや同期データは消えません。Supabaseの無料枠は、1週間ほど使われないと一時停止します（ダッシュボードで再開でき、データは残ります）。")
                         .font(.caption).foregroundStyle(.secondary)
                 }

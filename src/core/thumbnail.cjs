@@ -3,11 +3,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const LIMIT = 3 * 1024 * 1024;
 
-function ImageURL(raw) {
-  const url = new URL(String(raw).replace(/^http:/, 'https:').replace(/^\/\//, 'https://'));
-  if (url.protocol !== 'https:' || url.username || url.password || url.port || !['hdslb.com', 'bilibili.com'].some(host => url.hostname === host || url.hostname.endsWith(`.${host}`))) throw new Error('サムネイルのURLを確認できません。');
-  return url.href;
-}
+const { ImageURL } = require('./bilibili-resolve.cjs'); // サムネイルの配信先の検査は共通
 function ImageData(bytes) {
   if (!bytes.length || bytes.length > LIMIT) throw new Error('サムネイルのサイズが正しくありません。');
   let type;

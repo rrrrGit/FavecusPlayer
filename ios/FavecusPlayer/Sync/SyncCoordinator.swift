@@ -30,6 +30,8 @@ struct SyncStatus: Equatable {
     var lastSyncAt: Double = 0
     var pending = 0
     var conflicts = 0
+    /// 停止の理由が保存されていて、利用者が「復元」か「この端末を正とする」を選べる状態。
+    var canUnblock = false
 }
 
 /// iPhone版の同期の運用。規則（baseとの差分・受信は先にライブラリ・既定リストの扱い・空の状態の停止・整理）は共通JS（FavecusCore.Sync*）。
@@ -46,6 +48,7 @@ final class SyncCoordinator: ObservableObject {
     private var config = SyncConfig()
     private var opened = false
     private var blockedReason = ""
+    private var unblockable = false
     private var chain: Task<Void, Never>?
     private var debounce: Task<Void, Never>?
     private var interval: Task<Void, Never>?
@@ -87,6 +90,7 @@ final class SyncCoordinator: ObservableObject {
         next.enabled = config.enabled
         next.configured = !config.url.isEmpty && !config.anonKey.isEmpty
         next.signedIn = vault.get() != nil
+        next.canUnblock = unblockable && !blockedReason.isEmpty
         next.email = config.email
         next.url = config.url
         if let pending = summary["pending"] as? Int { next.pending = pending }
@@ -102,6 +106,7 @@ final class SyncCoordinator: ObservableObject {
         if let error = result["error"] as? String { throw TransferError.message(error) }
         guard let normalized = result["config"] as? [String: Any], let cleanURL = normalized["url"] as? String, let key = normalized["anonKey"] as? String else { throw TransferError.message("接続先を確認できません。") }
         if cleanURL != config.url { vault.clear() } // 別の接続先へ古いトークンを送らない
+        opened = false // 設定が変わったら、同期のJSを開き直す（古い設定・トークンを使い続けない）
         config.url = cleanURL
         config.anonKey = key
         try writeConfig()
@@ -120,6 +125,7 @@ final class SyncCoordinator: ObservableObject {
         if let error = result["error"] as? String { throw TransferError.message(error) }
         guard let session = result["session"], let data = try? JSONSerialization.data(withJSONObject: session) else { throw TransferError.message("サインインできませんでした。") }
         try vault.set(String(decoding: data, as: UTF8.self))
+        opened = false // アカウントが変わり得るので、同期のJSを開き直す
         config.email = email.trimmingCharacters(in: .whitespacesAndNewlines)
         try writeConfig()
         publish(state: status.state, message: status.message)
@@ -127,6 +133,7 @@ final class SyncCoordinator: ObservableObject {
 
     func signOut() {
         vault.clear()
+        opened = false
         publish(state: status.state, message: status.message)
     }
 
@@ -136,9 +143,8 @@ final class SyncCoordinator: ObservableObject {
 
     /// 起動時：同期が有効なら、状態を読み込んで、同期を始める。
     func start() async {
-        observer = store.$document.dropFirst().sink { [weak self] _ in
-            Task { @MainActor in self?.storeChanged() }
-        }
+        // ライブラリが変わった瞬間に同期で受ける（同期自身の書き込みか、利用者の編集かを、その場で区別するため）。
+        store.onChange = { [weak self] bySync in self?.storeChanged(bySync: bySync) }
         #if canImport(UIKit)
         foreground = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.request() }
@@ -176,6 +182,12 @@ final class SyncCoordinator: ObservableObject {
                 return false
             }
             opened = true
+            if let reason = result["blocked"] as? String, !reason.isEmpty { // 前回の停止が保存されている（再起動しても、利用者が選ぶまで解除しない）
+                blockedReason = reason
+                unblockable = true
+                publish(state: .blocked, summary: result)
+                return true
+            }
             publish(state: .idle, summary: result)
             return true
         } catch {
@@ -205,20 +217,33 @@ final class SyncCoordinator: ObservableObject {
     }
 
     /// 別のプロジェクト・アカウントへ切り替える：同期データは別名で残し、手元のライブラリから新しく始める。
+    /// 停止の解除（利用者の選択）。mode：restore＝同期した内容でこの端末を復元／keep＝この端末の内容を正として同期する（削除も送る）。
+    func unblock(mode: String) async throws {
+        guard await open() else { throw TransferError.message("同期を開始できません。") }
+        let result = try await call("SyncUnblock", ["mode": mode])
+        if let error = result["error"] as? String { throw TransferError.message(error) }
+        blockedReason = ""
+        unblockable = false
+        publish(state: .idle, summary: result)
+        _ = await syncNow()
+    }
+
     func resetLink() {
         disable()
-        host.setAsideState()
+        let host = self.host
         opened = false
         blockedReason = ""
-        Task { _ = try? await call("SyncReset", [:]) }
+        unblockable = false
         status = SyncStatus(state: .off, message: "", enabled: false, configured: status.configured, signedIn: status.signedIn, email: status.email, url: status.url)
+        // 実行中の同期が、退避した後の状態ファイルを書き直さないよう、JSの状態を戻してから退避する
+        Task { _ = try? await call("SyncReset", [:]); host.setAsideState() }
     }
 
     // MARK: 同期
 
-    private func storeChanged() {
+    private func storeChanged(bySync: Bool) {
         Task { _ = try? await call("SyncChanged", [:]) }
-        guard config.enabled, !store.syncWriting, blockedReason.isEmpty else { return }
+        guard config.enabled, !bySync, blockedReason.isEmpty else { return }
         debounce?.cancel()
         debounce = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_500_000_000)
@@ -249,14 +274,15 @@ final class SyncCoordinator: ObservableObject {
         guard let current = session() else { publish(state: .error, message: "サインインが必要です。"); return false }
         publish(state: .syncing)
         do {
-            let result = try await call("SyncCycle", [:])
-            if let origin = result["origin"] as? [String: Any], let url = origin["url"] as? String, !url.isEmpty,
-               url != config.url || (origin["userId"] as? String) != current.userId {
-                publish(state: .error, message: "接続先またはアカウントが、この同期データの作成時と異なります。「接続を初期化」で切り替えてください（手元のプレイリストは変わりません）。", summary: result)
+            // いまの接続先・アカウントを渡す。同期データの作成時と違えば、JSが通信せずに止める。
+            let result = try await call("SyncCycle", ["origin": ["url": config.url, "userId": current.userId]])
+            if result["mismatch"] as? Bool == true {
+                publish(state: .error, message: (result["error"] as? String) ?? "接続先またはアカウントが異なります。", summary: result)
                 return false
             }
-            if let blocked = result["blocked"] as? String {
+            if let blocked = result["blocked"] as? String, !blocked.isEmpty {
                 blockedReason = blocked
+                unblockable = true
                 publish(state: .blocked, summary: result)
                 return false
             }

@@ -2,6 +2,7 @@
 // 共通テストデータ（shared/fixtures/cases.json）の実行器。NodeでもiOSのJavaScriptCoreでも同じものを実行する。
 // 入出力はJSON文字列のみ。端末APIには依存しない。
 const urls = require('../core/urls.cjs');
+const bilibili = require('../core/bilibili-resolve.cjs');
 const mediaIdentity = require('../core/media-identity.cjs');
 const data = require('../core/library-data.cjs');
 const libraryIdentity = require('../core/library-identity.cjs');
@@ -77,6 +78,19 @@ const CALLS = {
   SyncStateParse: text => syncStateFile.ParseState(text),
   SyncStateRoundTrip: library => { const device = syncEngine.NewDevice('devA'); syncEngine.Initialize(device, library, 1800000000000); const text = syncStateFile.SerializeState(device, { origin: { url: 'https://x.supabase.co', userId: 'u1' }, lastSyncAt: 5 }); const parsed = syncStateFile.ParseState(text); return { status: parsed.status, records: Object.keys(parsed.snapshot.state.records).length, outbox: parsed.snapshot.outbox.length, origin: parsed.snapshot.origin, same: JSON.stringify(parsed.snapshot.state) === JSON.stringify(device.state) }; },
   SyncPristine: library => ({ pristine: syncSession.IsPristine(library), hasContent: syncSession.HasContent(library) }),
+  // Bilibiliの配信先の決め方（通信は含まない）。MD5・署名・配信先の許可・ストリームの選択・保護された動画の拒否。
+  BiliMd5: text => bilibili.Md5(text),
+  BiliSign: (query, images, now) => bilibili.SignQuery(query, images, now),
+  BiliMediaURL: raw => bilibili.MediaURL(raw),
+  BiliSelect: (info, kind, height) => bilibili.SelectStreams(info, kind, height),
+  // 通信の順番：決まった応答を順に渡し、要求（endpoint・query）と最終結果を返す。
+  BiliResolve: spec => {
+    const steps = bilibili.ResolveSteps(urls.ParseBilibili(spec.url), spec.kind, spec.height || 720, spec.now || 1700000000000), requests = [];
+    let step = steps.next();
+    for (const response of spec.responses) { if (step.done) break; requests.push(step.value); step = steps.next(response); }
+    if (!step.done) return { requests, pending: step.value };
+    return { requests, resolved: step.value.resolved, verified: step.value.verified };
+  },
   SyncClock: steps => steps.map(step => step.op === 'tick' ? syncClock.Tick(step.last, step.now, step.device) : syncClock.Observe(step.last, step.remote, step.now, step.device)),
   SyncOrder: spec => ({ between: (spec.pairs || []).map(([a, b]) => syncOrder.Between(a, b)), spread: syncOrder.Spread(spec.spread || 0) }),
   SyncMerge: changes => { const merged = changes.reduce((state, change) => syncState.Merge(state, [change]).state, syncState.NewState()); return JSON.parse(syncState.Canonical(merged)); },
@@ -182,7 +196,8 @@ const QueueMove = json => JSON.stringify(libraryApp.QueueMove(JSON.parse(json)))
 const Json = promise => promise.then(value => JSON.stringify(value));
 const SyncOpen = json => Json(syncRuntime.Open(JSON.parse(json)));
 const SyncEnable = json => Json(syncRuntime.Enable(JSON.parse(json)));
-const SyncCycle = () => Json(syncRuntime.Cycle());
+const SyncCycle = json => Json(syncRuntime.Cycle(json ? JSON.parse(json) : {}));
+const SyncUnblock = json => Json(syncRuntime.Unblock(JSON.parse(json)));
 const SyncChanged = () => JSON.stringify(syncRuntime.Changed());
 const SyncReset = () => JSON.stringify(syncRuntime.Reset());
 const SyncState = () => JSON.stringify(syncRuntime.State());
@@ -194,4 +209,4 @@ const QueuePeek = json => JSON.stringify(libraryApp.QueuePeek(JSON.parse(json)))
 const TransferPrepare = json => JSON.stringify(libraryApp.TransferPrepare(JSON.parse(json)));
 const TransferImport = json => JSON.stringify(libraryApp.TransferImport(JSON.parse(json)));
 const TransferExport = json => JSON.stringify(libraryApp.TransferExport(JSON.parse(json)));
-module.exports = { RunCases, Observe, Bench, LibraryOpen, LibraryApply, QueueStart, QueueMove, QueueSync, QueuePeek, SyncOpen, SyncEnable, SyncCycle, SyncChanged, SyncReset, SyncState, SyncValidate, SyncSendCode, SyncVerifyCode, TransferPrepare, TransferImport, TransferExport };
+module.exports = { RunCases, Observe, Bench, LibraryOpen, LibraryApply, QueueStart, QueueMove, QueueSync, QueuePeek, SyncOpen, SyncEnable, SyncCycle, SyncUnblock, SyncChanged, SyncReset, SyncState, SyncValidate, SyncSendCode, SyncVerifyCode, TransferPrepare, TransferImport, TransferExport };

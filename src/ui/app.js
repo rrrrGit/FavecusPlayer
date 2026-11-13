@@ -527,6 +527,7 @@ function PaintSync(status) {
   $('sync-send').disabled = !ready || !status?.encryption; $('sync-verify').disabled = !ready; $('sync-signout').disabled = !signed || on;
   $('sync-enable').disabled = on || !signed; $('sync-disable').disabled = !on; $('sync-reset').disabled = on; $('sync-now').disabled = !on || status?.state === 'syncing';
   $('sync-encryption').classList.toggle('hidden', !status || status.encryption);
+  $('sync-blocked').classList.toggle('hidden', !(status && status.enabled && status.state === 'blocked' && status.canUnblock));
 }
 function SyncSettings() {
   OpenModal('プレイリストの同期', `
@@ -546,6 +547,7 @@ function SyncSettings() {
     </section>
     <section class="settings-block"><h3>3. 同期</h3>
       <div class="settings-actions"><button id="sync-enable" type="button" class="button primary">同期を有効にする</button><button id="sync-now" type="button" class="button secondary">今すぐ同期</button><button id="sync-disable" type="button" class="button secondary">同期を止める</button><button id="sync-reset" type="button" class="button secondary">接続を初期化</button></div>
+      <div id="sync-blocked" class="settings-actions hidden"><button id="sync-restore" type="button" class="button primary">サーバーの内容で復元</button><button id="sync-keep" type="button" class="button secondary">この端末の内容を正とする</button></div>
       <p class="form-note">有効にする前に、現在のlibrary.jsonのバックアップをデータフォルダーへ残します。止めても、プレイリストや同期データは消えません。Supabaseの無料枠は、1週間ほど使われないと一時停止します（ダッシュボードで再開でき、データは残ります）。</p>
     </section>`, null, '保存', Settings);
   const call = (command, message) => Run(async () => { const status = await api.sync(command); PaintSync(status); if (message) Toast(message); });
@@ -555,6 +557,8 @@ function SyncSettings() {
   $('sync-signout').onclick = () => call({ action: 'sign-out' }, 'サインアウトしました。');
   $('sync-enable').onclick = () => call({ action: 'enable' }, '同期を有効にしました。');
   $('sync-disable').onclick = () => call({ action: 'disable' }, '同期を止めました。');
+  $('sync-restore').onclick = () => call({ action: 'unblock', mode: 'restore' }, '同期した内容で復元しました。');
+  $('sync-keep').onclick = () => { if (confirm('この端末の内容を正として同期します。サーバーと他の端末にある、この端末にない内容は削除されます。よろしいですか？')) call({ action: 'unblock', mode: 'keep' }, '同期しました。'); };
   $('sync-reset').onclick = () => { if (confirm('別のプロジェクト・アカウントへ切り替えるため、同期の紐付けを初期化します。手元のプレイリストは変わりません。よろしいですか？')) call({ action: 'reset' }, '初期化しました。'); };
   $('sync-now').onclick = () => call({ action: 'now' }, '同期しました。');
   Run(async () => { const status = await api.sync({ action: 'status' }); PaintSync(status); $('sync-email').value = status.email || ''; $('sync-url').value = status.url || ''; });
