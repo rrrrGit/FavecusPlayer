@@ -6,7 +6,7 @@ struct FavecusPlayerApp: App {
 
     var body: some Scene {
         WindowGroup {
-            LibraryRootView(store: environment.store, importer: environment.importer, exporter: environment.exporter)
+            LibraryRootView(store: environment.store, importer: environment.importer, exporter: environment.exporter, player: environment.player)
         }
     }
 }
@@ -17,6 +17,7 @@ final class AppEnvironment: ObservableObject {
     let store: LibraryStore
     let importer: ImportCoordinator?
     let exporter: ExportCoordinator?
+    let player: PlaybackEngine?
 
     init() {
         do {
@@ -26,12 +27,14 @@ final class AppEnvironment: ObservableObject {
             self.store = store
             importer = ImportCoordinator(service: TransferService(core: core), store: store)
             exporter = ExportCoordinator(service: ExportService(core: core), store: store)
+            player = PlaybackEngine(core: core, store: store, backend: AVPlayerBackend(), makeSystem: { SystemAudio(controls: $0) })
         } catch {
             // 起動に必要な部品がない：保存データには触らず、画面に理由を出す。
             let fallback = FileManager.default.temporaryDirectory.appendingPathComponent("FavecusPlayer-unavailable")
             store = LibraryStore(core: nil, directory: fallback, startupError: "起動に必要な部品を読み込めません：\(error)")
             importer = nil
             exporter = nil
+            player = nil
         }
     }
 }

@@ -24,6 +24,9 @@ targets:
       path: Config/Info.plist
       properties:
         LSSupportsOpeningDocumentsInPlace: true
+        # 画面を閉じた・ロックした状態でも音声の再生を続ける
+        UIBackgroundModes:
+          - audio
         CFBundleDocumentTypes:
           - CFBundleTypeName: FavecusPlayerアーカイブ
             CFBundleTypeRole: Viewer

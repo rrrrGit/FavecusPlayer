@@ -1,0 +1,176 @@
+import AVFoundation
+import XCTest
+@testable import FavecusPlayer
+
+/// 偽の再生の道具。曲の終わり・失敗を、テストから起こせる。
+@MainActor
+final class FakeBackend: PlayerBackend {
+    var onEnded: (() -> Void)?
+    var onFailed: ((String) -> Void)?
+    var onTick: (() -> Void)?
+    var position: Double = 0
+    var duration: Double = 10
+    var isPlaying = false
+    private(set) var loaded: [URL] = []
+    private(set) var stopped = false
+
+    func load(url: URL) { loaded.append(url); position = 0 }
+    func play() { isPlaying = true }
+    func pause() { isPlaying = false }
+    func seek(to seconds: Double) { position = seconds }
+    func stop() { isPlaying = false; stopped = true }
+    func simulateEnd() { isPlaying = false; onEnded?() }
+    func simulateFailure() { onFailed?("テスト用の失敗") }
+}
+
+/// 再生順は共通JS（Windows版と同じQueue）、再生の道具は偽物で確認する。実機のロック画面・割り込み・イヤホンの動作は、実機での確認項目。
+@MainActor
+final class PlaybackTests: XCTestCase {
+    private var directory: URL!
+
+    override func setUpWithError() throws {
+        directory = FileManager.default.temporaryDirectory.appendingPathComponent("favecus-playback-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    private func fixture(_ name: String) throws -> URL {
+        let folder = try XCTUnwrap(ProcessInfo.processInfo.environment["FAVECUS_TRANSFER_DIR"], "FAVECUS_TRANSFER_DIR が渡されていません（CIの設定を確認）")
+        let url = URL(fileURLWithPath: folder).appendingPathComponent(name)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path), "\(name) がありません")
+        return url
+    }
+
+    /// Windows版のZIP（ローカル曲2つ・Bilibili曲2つ）を取り込んだライブラリと、偽の再生の道具つきのエンジン。
+    private func prepare() async throws -> (LibraryStore, PlaybackEngine, FakeBackend) {
+        let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let store = LibraryStore(core: core, directory: directory)
+        await store.load()
+        let importer = ImportCoordinator(service: TransferService(core: core), store: store)
+        importer.begin(url: try fixture("windows-media.zip"))
+        try await waitFor { if case .choosing = importer.phase { return true }; return false }
+        guard case .choosing(let plan) = importer.phase else { throw TransferError.message("取り込み候補を読めません") }
+        await importer.commit(ids: plan.lists.map(\.id))
+        guard case .done = importer.phase else { throw TransferError.message("取り込めません: \(importer.phase)") }
+        let backend = FakeBackend()
+        return (store, PlaybackEngine(core: core, store: store, backend: backend), backend)
+    }
+
+    private func waitFor(_ condition: () -> Bool) async throws {
+        let end = Date().addingTimeInterval(20)
+        while Date() < end {
+            if condition() { return }
+            try await Task.sleep(nanoseconds: 30_000_000)
+        }
+        XCTFail("条件が満たされませんでした")
+    }
+
+    private func entry(_ store: LibraryStore, _ title: String) throws -> EntryItem {
+        try XCTUnwrap(store.document?.playlists.flatMap(\.entries).first { $0.title == title }, title)
+    }
+
+    private func parentId(_ store: LibraryStore) throws -> String {
+        try XCTUnwrap(store.document?.playlists.first { $0.name == "親" }?.id)
+    }
+
+    func testPlayingALocalEntryLoadsItsFile() async throws {
+        let (store, engine, backend) = try await prepare()
+        let a = try entry(store, "ローカルA")
+        XCTAssertTrue(engine.canPlay(a))
+        await engine.play(entryId: a.id, scope: try parentId(store))
+        XCTAssertEqual(engine.current?.title, "ローカルA")
+        XCTAssertEqual(backend.loaded.last?.lastPathComponent, a.fileName)
+        XCTAssertTrue(backend.isPlaying)
+        XCTAssertTrue(engine.isPlaying)
+    }
+
+    func testAnEntryWithoutMediaCannotBePlayedAndExplainsWhy() async throws {
+        let (store, engine, backend) = try await prepare()
+        let online = try entry(store, "曲1")
+        XCTAssertFalse(engine.canPlay(online))
+        await engine.play(entryId: online.id, scope: try parentId(store))
+        XCTAssertNotNil(engine.message)
+        XCTAssertTrue(backend.loaded.isEmpty)
+        XCTAssertNil(engine.current)
+    }
+
+    func testNextSkipsEntriesThatCannotBePlayedAndTheEndStops() async throws {
+        let (store, engine, backend) = try await prepare()
+        let scope = try parentId(store)
+        await engine.play(entryId: try entry(store, "ローカルA").id, scope: scope)
+        await engine.goNext() // 親の次は子のローカルB（Bilibiliの曲は飛ばす）
+        XCTAssertEqual(engine.current?.title, "ローカルB")
+        backend.simulateEnd() // 最後まで来た（リピートなし）→ 止まる
+        try await waitFor { !engine.isPlaying }
+        XCTAssertEqual(engine.current?.title, "ローカルB")
+        XCTAssertEqual(backend.loaded.count, 2)
+    }
+
+    func testRepeatAllWrapsAndRepeatOneReplaysTheSameEntry() async throws {
+        let (store, engine, backend) = try await prepare()
+        let scope = try parentId(store)
+        engine.repeatMode = .all
+        await engine.play(entryId: try entry(store, "ローカルB").id, scope: scope)
+        backend.simulateEnd()
+        try await waitFor { engine.current?.title == "ローカルA" }
+        engine.repeatMode = .one
+        let count = backend.loaded.count
+        backend.simulateEnd()
+        try await waitFor { backend.loaded.count == count + 1 }
+        XCTAssertEqual(engine.current?.title, "ローカルA")
+    }
+
+    func testAFailingEntryIsSkippedAndEndlessFailureStops() async throws {
+        let (store, engine, backend) = try await prepare()
+        engine.repeatMode = .all
+        await engine.play(entryId: try entry(store, "ローカルA").id, scope: try parentId(store))
+        backend.simulateFailure()
+        try await waitFor { engine.current?.title == "ローカルB" }
+        XCTAssertNotNil(engine.message)
+        for _ in 0..<10 { backend.simulateFailure() } // 全部失敗しても、無限に回らず止まる
+        try await waitFor { backend.stopped }
+        XCTAssertTrue(engine.message?.contains("再生できる曲がありません") ?? false, engine.message ?? "")
+    }
+
+    func testPreviousGoesBackToTheStartOfTheCurrentEntryAfterAFewSeconds() async throws {
+        let (store, engine, backend) = try await prepare()
+        let scope = try parentId(store)
+        await engine.play(entryId: try entry(store, "ローカルA").id, scope: scope)
+        await engine.goNext()
+        backend.position = 5
+        engine.seek(to: 5)
+        await engine.goPrevious()
+        XCTAssertEqual(engine.current?.title, "ローカルB")
+        XCTAssertEqual(backend.position, 0)
+        await engine.goPrevious()
+        XCTAssertEqual(engine.current?.title, "ローカルA")
+    }
+
+    func testShufflePlaysEveryPlayableEntryOncePerCycle() async throws {
+        let (store, engine, backend) = try await prepare()
+        engine.shuffle = true
+        engine.repeatMode = .off
+        await engine.play(entryId: try entry(store, "ローカルA").id, scope: try parentId(store))
+        backend.simulateEnd()
+        try await waitFor { engine.current?.title == "ローカルB" }
+        let count = backend.loaded.count
+        backend.simulateEnd()
+        try await waitFor { !engine.isPlaying }
+        XCTAssertEqual(backend.loaded.count, count, "1周したら止まる")
+    }
+
+    /// 本物のAVPlayerで、実際のファイルを読み込めること（CIのシミュレーターには音声の出力装置がないため、時間の進み方は確認しない）。
+    func testTheRealPlayerLoadsALocalAudioFile() async throws {
+        let (store, _, _) = try await prepare()
+        let a = try entry(store, "ローカルA")
+        let url = store.mediaDirectory.appendingPathComponent(try XCTUnwrap(a.fileName))
+        let backend = AVPlayerBackend()
+        backend.load(url: url)
+        try await waitFor { backend.duration > 0.5 }
+        XCTAssertEqual(backend.duration, 1.0, accuracy: 0.2)
+        backend.stop()
+    }
+}

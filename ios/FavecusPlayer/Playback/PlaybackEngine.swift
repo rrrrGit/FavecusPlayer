@@ -1,0 +1,189 @@
+import Foundation
+
+/// iPhone版のローカル再生（音声）。次に何を再生するかは共通JS（FavecusCore.QueueStart / QueueMove。Windows版と同じQueue）が決め、
+/// ここは「再生できる曲を集める」「選ばれた曲を道具（PlayerBackend）で鳴らす」「OSへ状態を伝える」だけ。
+/// 再生できる曲＝この端末にメディアの実体があるローカル曲。それ以外（Bilibiliのオンライン・実体のない曲）は順番に入れず、選ぶとお知らせを出す。
+@MainActor
+final class PlaybackEngine: ObservableObject, PlaybackControls {
+    enum RepeatMode: String, CaseIterable {
+        case off
+        case all
+        case one
+    }
+
+    struct NowPlaying: Equatable {
+        let entryId: String
+        let playlistId: String
+        let title: String
+    }
+
+    @Published private(set) var current: NowPlaying?
+    @Published private(set) var isPlaying = false
+    @Published private(set) var position: Double = 0
+    @Published private(set) var duration: Double = 0
+    @Published var shuffle = false
+    @Published var repeatMode: RepeatMode = .off
+    @Published var message: String?
+
+    private let core: SharedCore
+    private let store: LibraryStore
+    private let backend: PlayerBackend
+    private var system: SystemAudioHooks?
+    private var scope: String?
+    private var failureStreak = 0
+    private var started = false
+
+    init(core: SharedCore, store: LibraryStore, backend: PlayerBackend, makeSystem: ((PlaybackControls) -> SystemAudioHooks)? = nil) {
+        self.core = core
+        self.store = store
+        self.backend = backend
+        system = makeSystem?(self)
+        backend.onEnded = { [weak self] in self?.ended() }
+        backend.onFailed = { [weak self] reason in self?.failed(reason) }
+        backend.onTick = { [weak self] in self?.tick() }
+    }
+
+    // MARK: 再生できる曲
+
+    /// この端末で再生できる曲（実体のあるローカル曲）。
+    func canPlay(_ entry: EntryItem) -> Bool {
+        entry.type == "local" && entry.fileName.map { store.mediaFiles.contains($0) } == true
+    }
+
+    private func playableIds() -> [String] {
+        (store.document?.playlists ?? []).flatMap(\.entries).filter(canPlay).map(\.id)
+    }
+
+    private func entry(_ id: String) -> EntryItem? {
+        store.document?.playlists.lazy.flatMap(\.entries).first { $0.id == id }
+    }
+
+    // MARK: 操作
+
+    /// scope：再生範囲のリストID（そのリストと子のリスト）、または "*"（すべて）。
+    func play(entryId: String, scope: String) async {
+        guard let target = entry(entryId), canPlay(target) else {
+            message = "この曲はこの端末で再生できません（メディアがありません）。"
+            return
+        }
+        self.scope = scope
+        failureStreak = 0
+        guard let result = await queue("QueueStart", ["text": store.currentText, "scope": scope, "entryId": entryId, "shuffle": shuffle, "playable": playableIds()]),
+              let id = result.id, let playlistId = result.playlistId else {
+            message = "この曲を再生キューに入れられません。"
+            return
+        }
+        load(id: id, playlistId: playlistId)
+    }
+
+    func next() { Task { await goNext() } }
+
+    func previous() { Task { await goPrevious() } }
+
+    func goNext() async { await advance(direction: 1, automatic: false) }
+
+    func goPrevious() async {
+        // 再生位置が数秒進んでいれば、前の曲ではなく、この曲の頭へ戻る（一般的なプレイヤーの動作）。
+        if position > 3 { seek(to: 0); return }
+        await advance(direction: -1, automatic: false)
+    }
+
+    func resume() {
+        guard current != nil else { return }
+        backend.play()
+        refresh()
+    }
+
+    func pause() {
+        backend.pause()
+        refresh()
+    }
+
+    func toggle() {
+        if isPlaying { pause() } else { resume() }
+    }
+
+    func seek(to seconds: Double) {
+        backend.seek(to: seconds)
+        position = seconds
+        refresh()
+    }
+
+    func stop() {
+        backend.stop()
+        current = nil
+        scope = nil
+        refresh()
+    }
+
+    // MARK: 内部
+
+    private struct QueueResult: Decodable {
+        var id: String?
+        var playlistId: String?
+        var error: String?
+    }
+
+    private func queue(_ function: String, _ request: [String: Any]) async -> QueueResult? {
+        do {
+            let text = String(decoding: try JSONSerialization.data(withJSONObject: request), as: UTF8.self)
+            let result = try JSONDecoder().decode(QueueResult.self, from: Data(try await core.callAsync(function, text).utf8))
+            if let error = result.error { message = error; return nil }
+            return result
+        } catch {
+            message = "再生順を決められません：\(error)"
+            return nil
+        }
+    }
+
+    /// 前後の曲へ。automatic：曲の終わりでの自動送り（1曲リピートではそのまま繰り返す）。
+    private func advance(direction: Int, automatic: Bool) async {
+        guard let scope, let currentId = current?.entryId else { return }
+        let sync: [String: Any] = ["text": store.currentText, "scope": scope, "entryId": currentId, "shuffle": shuffle, "playable": playableIds()]
+        let request: [String: Any] = ["direction": direction, "repeat": repeatMode.rawValue, "automatic": automatic, "sync": sync]
+        guard let result = await queue("QueueMove", request), let id = result.id, let playlistId = result.playlistId else {
+            // 最後まで再生した（リピートなし）／前がない：止める。曲の表示は残す。
+            backend.pause()
+            refresh()
+            return
+        }
+        load(id: id, playlistId: playlistId)
+    }
+
+    private func load(id: String, playlistId: String) {
+        guard let target = entry(id), let fileName = target.fileName else { return }
+        system?.activate()
+        started = true
+        current = NowPlaying(entryId: id, playlistId: playlistId, title: target.title.isEmpty ? "（無題）" : target.title)
+        backend.load(url: store.mediaDirectory.appendingPathComponent(fileName))
+        backend.play()
+        refresh()
+    }
+
+    private func ended() {
+        failureStreak = 0
+        Task { await advance(direction: 1, automatic: true) }
+    }
+
+    /// 読み込み・再生に失敗した曲は飛ばす。続けて失敗したら（再生できる曲がない）、無限に回らず止める。
+    private func failed(_ reason: String) {
+        failureStreak += 1
+        guard failureStreak <= max(3, playableIds().count) else {
+            message = "再生できる曲がありません：\(reason)"
+            backend.stop()
+            refresh()
+            return
+        }
+        message = "再生できない曲を飛ばしました：\(reason)"
+        Task { await advance(direction: 1, automatic: true) }
+    }
+
+    private func tick() { refresh() }
+
+    private func refresh() {
+        isPlaying = backend.isPlaying
+        position = backend.position
+        duration = backend.duration
+        system?.update(title: current?.title, position: position, duration: duration, playing: isPlaying)
+    }
+}

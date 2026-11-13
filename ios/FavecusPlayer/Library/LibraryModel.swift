@@ -28,6 +28,8 @@ struct EntryItem: Decodable, Identifiable, Equatable {
     var id: String
     var title: String
     var type: String
+    /// ローカル曲のファイル名（メディアの置き場にある名前）。Bilibiliの曲にはない。
+    var fileName: String?
 }
 
 /// SwiftUIのonMove（移動元・挿入位置）を、共通JSの並べ替え操作（対象の前/後ろ）へ変換する。

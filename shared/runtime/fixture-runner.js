@@ -66,6 +66,7 @@ const CALLS = {
   TreeOrder: spec => ({ ids: tree.Ordered(Plain(spec.library), spec.ids, spec.mode) }),
   LibraryOpen: options => libraryApp.Open(options),
   LibraryApply: options => libraryApp.Apply(options),
+  QueueRun: options => libraryApp.QueueRun(options),
   TransferPrepare: options => libraryApp.TransferPrepare(options),
   TransferImport: options => libraryApp.TransferImport(options),
   TransferExport: options => libraryApp.TransferExport(options),
@@ -168,7 +169,10 @@ function Bench(json) {
 // iPhone版の入口（JSON文字列の入出力）。
 const LibraryOpen = json => JSON.stringify(libraryApp.Open(JSON.parse(json)));
 const LibraryApply = json => JSON.stringify(libraryApp.Apply(JSON.parse(json)));
+const QueueStart = json => JSON.stringify(libraryApp.QueueStart(JSON.parse(json)));
+const QueueMove = json => JSON.stringify(libraryApp.QueueMove(JSON.parse(json)));
+const QueuePeek = json => JSON.stringify(libraryApp.QueuePeek(JSON.parse(json)));
 const TransferPrepare = json => JSON.stringify(libraryApp.TransferPrepare(JSON.parse(json)));
 const TransferImport = json => JSON.stringify(libraryApp.TransferImport(JSON.parse(json)));
 const TransferExport = json => JSON.stringify(libraryApp.TransferExport(JSON.parse(json)));
-module.exports = { RunCases, Observe, Bench, LibraryOpen, LibraryApply, TransferPrepare, TransferImport, TransferExport };
+module.exports = { RunCases, Observe, Bench, LibraryOpen, LibraryApply, QueueStart, QueueMove, QueuePeek, TransferPrepare, TransferImport, TransferExport };

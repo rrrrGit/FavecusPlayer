@@ -6,6 +6,7 @@ const Tree = require('../ui/library-tree.js');
 const { ValidateLibrary, CleanText } = require('./library-data.cjs');
 const { ValidateIdentityVersion } = require('./library-identity.cjs');
 const Transfer = require('./library-transfer.cjs');
+const { Queue } = require('./queue.cjs');
 
 const ID = /^[a-f0-9-]{36}$/;
 function Context(options) {
@@ -83,4 +84,54 @@ function TransferExport(options) {
   try { return Transfer.Export({ library: JSON.parse(options.text), mode: options.mode, available: options.available }); }
   catch (error) { return { error: String(error && error.message || error) }; }
 }
-module.exports = { Open, Apply, TransferPrepare, TransferImport, TransferExport };
+// ---- 再生順（Windows版と同じQueue。端末で再生できる曲だけを渡し、再生できない曲は順番に入れない）
+// 再生の道具（AVPlayerなど）は端末側。ここは「次に何を再生するか」だけを決める。シャッフルの重み（再生回数）はWindows版のみ（iPhone版は均等）。
+function Rng(seed) { // テスト用の決定的な乱数（mulberry32）
+  let state = seed >>> 0;
+  return () => { state = (state + 0x6D2B79F5) >>> 0; let t = state; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+let queue = new Queue();
+function PlayableEntries(options) {
+  const library = JSON.parse(options.text), playable = new Set(options.playable || []);
+  return Tree.Entries(library, options.scope).filter(entry => playable.has(entry.id));
+}
+const Found = (entries, id) => { const entry = entries.find(e => e.id === id); return { id: id || null, playlistId: entry ? entry.playlistId : null }; };
+function QueueApply(target, options) {
+  const entries = PlayableEntries(options);
+  const id = target.Start(options.scope, entries, options.entryId, options.shuffle);
+  return id === null ? { id: null, playlistId: null } : Found(entries, id);
+}
+// 再生を始める。entryIdが再生できる曲の中にないとき（メディアがない等）は { id: null }。
+function QueueStart(options) {
+  try { queue = new Queue(options.seed === undefined ? null : Rng(options.seed)); return QueueApply(queue, options); }
+  catch (error) { return { error: String(error && error.message || error) }; }
+}
+// 前後へ。options.sync（Start と同じ形）があれば、移動の前にライブラリの変更を反映する。
+function QueueMove(options) { return QueueStep(queue, options); }
+function QueueStep(target, options) {
+  try {
+    let entries = null;
+    if (options.sync) { entries = PlayableEntries(options.sync); target.Sync(options.sync.scope, entries, options.sync.entryId, options.sync.shuffle); }
+    const id = target.Move(options.direction, options.repeat, options.automatic === true);
+    if (id === null) return { id: null, playlistId: null };
+    return { id, playlistId: entries ? Found(entries, id).playlistId : (target.catalog.get(id) || {}).playlistId || null };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+function QueuePeek(options) {
+  const id = queue.Peek(options.repeat, options.automatic !== false);
+  return { id, upcoming: queue.Timeline(options.repeat).upcoming.slice(0, 20) };
+}
+// 共通テストデータ用：順番の決まった一連の操作を、専用のQueueで実行して、再生された曲のIDの並びを返す。
+function QueueRun(spec) {
+  const own = new Queue(Rng(spec.seed || 1)), played = [];
+  const first = QueueApply(own, { ...spec });
+  played.push(first.id);
+  for (const step of spec.steps || []) {
+    if (step.sync) { const next = QueueStep(own, { direction: 0, repeat: 'off', sync: step.sync }); if (next.error) return next; continue; }
+    const result = QueueStep(own, step);
+    if (result.error) return result;
+    played.push(result.id);
+  }
+  return { played };
+}
+module.exports = { Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueuePeek, QueueRun };

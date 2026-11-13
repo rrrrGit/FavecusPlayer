@@ -77,6 +77,9 @@ ${parts.join(',\n')}
     Bench: function (json) { return runner().Bench(json); },
     LibraryOpen: function (json) { return runner().LibraryOpen(json); },
     LibraryApply: function (json) { return runner().LibraryApply(json); },
+    QueueStart: function (json) { return runner().QueueStart(json); },
+    QueueMove: function (json) { return runner().QueueMove(json); },
+    QueuePeek: function (json) { return runner().QueuePeek(json); },
     TransferPrepare: function (json) { return runner().TransferPrepare(json); },
     TransferImport: function (json) { return runner().TransferImport(json); },
     TransferExport: function (json) { return runner().TransferExport(json); }

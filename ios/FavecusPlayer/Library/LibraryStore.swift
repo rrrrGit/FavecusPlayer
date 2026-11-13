@@ -14,6 +14,8 @@ final class LibraryStore: ObservableObject {
     @Published private(set) var state: State = .loading
     @Published private(set) var document: LibraryDocument?
     @Published var notice: String?
+    /// メディアの置き場にある実体のファイル名（再生できるローカル曲の判断に使う）。
+    @Published private(set) var mediaFiles: Set<String> = []
 
     private let core: SharedCore?
     private let directory: URL
@@ -129,6 +131,7 @@ final class LibraryStore: ObservableObject {
         try persist(newText)
         text = newText
         document = decoded
+        mediaFiles = Self.listMedia(mediaDirectory)
     }
 
     /// 前回の取り込みが途中で終了して残った、自分のステージング（.import-*）を片付ける。
@@ -196,6 +199,11 @@ final class LibraryStore: ObservableObject {
         let decoded = try JSONDecoder().decode(LibraryDocument.self, from: Data(newText.utf8))
         text = newText
         document = decoded
+        mediaFiles = Self.listMedia(mediaDirectory)
+    }
+
+    nonisolated static func listMedia(_ directory: URL) -> Set<String> {
+        Set(((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).filter { !$0.hasPrefix(".") })
     }
 
     /// 新しいID（小文字。共通JSのID規則は小文字のみ）。操作1回に必要な数より十分多く渡す。

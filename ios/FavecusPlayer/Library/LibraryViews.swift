@@ -7,6 +7,7 @@ struct LibraryRootView: View {
     @ObservedObject var store: LibraryStore
     let importer: ImportCoordinator?
     let exporter: ExportCoordinator?
+    let player: PlaybackEngine?
     @State private var showDiagnostics = false
     @State private var showPicker = false
     @State private var showImport = false
@@ -22,11 +23,11 @@ struct LibraryRootView: View {
                 case .blocked(let message):
                     BlockedView(message: message)
                 case .ready:
-                    PlaylistPage(store: store, parentId: nil)
+                    PlaylistPage(store: store, player: player, parentId: nil)
                 }
             }
             .navigationDestination(for: String.self) { id in
-                PlaylistPage(store: store, parentId: id)
+                PlaylistPage(store: store, player: player, parentId: id)
             }
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarLeading) {
@@ -36,6 +37,7 @@ struct LibraryRootView: View {
                 }
             }
         }
+        .safeAreaInset(edge: .bottom) { if let player { MiniPlayerBar(player: player) } }
         .task {
             await store.load()
             // 画面確認用（シミュレーターのスクリーンショット）：起動引数 -FavecusDemoPath <ID,ID...> で、指定の階層まで開く。通常の起動では何もしない。
@@ -92,6 +94,7 @@ private struct BlockedView: View {
 /// 親（nilなら最上位）の子リストと、そのリストの曲を表示・編集する1ページ。
 private struct PlaylistPage: View {
     @ObservedObject var store: LibraryStore
+    let player: PlaybackEngine?
     let parentId: String?
 
     @State private var creating = false
@@ -134,7 +137,7 @@ private struct PlaylistPage: View {
                 Section("曲") {
                     if entries.isEmpty { Text("曲はありません").foregroundStyle(.secondary) }
                     ForEach(entries) { entry in
-                        Text(entry.title.isEmpty ? "（無題）" : entry.title)
+                        EntryRow(entry: entry, player: player, scope: parent.id)
                     }
                     .onDelete { offsets in
                         for index in offsets {
