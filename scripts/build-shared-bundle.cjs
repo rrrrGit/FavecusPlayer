@@ -10,6 +10,7 @@ const MODULES = {
   'core/library-identity.cjs': 'src/core/library-identity.cjs',
   'core/device-media.cjs': 'src/core/device-media.cjs',
   'core/library-actions.cjs': 'src/core/library-actions.cjs',
+  'core/library-app.cjs': 'src/core/library-app.cjs',
   'core/sync-clock.cjs': 'src/core/sync-clock.cjs',
   'core/sync-order.cjs': 'src/core/sync-order.cjs',
   'core/sync-state.cjs': 'src/core/sync-state.cjs',
@@ -71,7 +72,9 @@ ${parts.join(',\n')}
     load: load,
     RunCases: function (json) { return runner().RunCases(json); },
     Observe: function (json) { return runner().Observe(json); },
-    Bench: function (json) { return runner().Bench(json); }
+    Bench: function (json) { return runner().Bench(json); },
+    LibraryOpen: function (json) { return runner().LibraryOpen(json); },
+    LibraryApply: function (json) { return runner().LibraryApply(json); }
   };
 })(globalThis);
 `;

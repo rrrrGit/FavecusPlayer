@@ -100,6 +100,9 @@
 - **ローカルDB = Windows版と同じv3の `library.json`**（Application Support内、原子的に保存し `.bak` を保持）。SQLite・SwiftData・Core Dataは使いません（データ規則をSwiftへ持ち込まないため）。同期の状態は別ファイル（Windowsの `sync/state.json` に相当）です。
 - **編集操作は共通JS**：Windows版のStoreにあった階層・名前・並び順・曲の削除/並べ替えの規則を `src/core/library-actions.cjs`（端末APIなし。ID生成・時刻・曲名整形は注入）へ移し、StoreとiPhone版（JavaScriptCore）が同じ処理を使います。URLからの追加、移動/コピー（Transfer）、ZIP、設定は端末側の処理です。共通テストデータに操作ごとのケース（正常・拒否）と、名前順（Intl.Collator）の混在ケースを追加し、NodeとiOSで比較します。
 - 保存の流れ：編集のたびに全体検証はせず、Storeと同じく階層の検証＋保存。全体検証は読み込み時のみ。
+- **iPhone版の入口**（`src/core/library-app.cjs`、共通JS）：`Open`（保存ファイルの読み込み判定：new/ok/unsupported/invalid。BOM許容、全体検証、`identityVersion` が未知・形式がv3以外は `unsupported`）と `Apply`（操作1つ＋階層検証。失敗は `{error}` を返し、元は変えない）。IDと時刻は呼び出し側が渡します（ID規則は小文字のみなので、Swiftは `UUID().uuidString.lowercased()` を渡す）。
+- **Swift側 `LibraryStore`**：Application Support/FavecusPlayer/library.json、一時ファイル経由の原子的な置換＋`.bak`、ファイル保護は `completeUntilFirstUserAuthentication`（後の工程のロック中の音声・ダウンロードからも読めるため）。壊れた/未対応の保存データは上書きせず（壊れていて.bakが正常なら、壊れたファイルを `library.json.damaged-*` に残して復元）、書き込みを止めて理由を表示します。操作は積んだ順に直列で処理し、保存に失敗したら画面も更新しません。SwiftはJSON文字列を正本として持ち、構造体から書き戻しません（未知の項目を落とさない）。`JSContext` は専用の直列キューで使います。
+- **仮の最小画面**（Step15で置き換え）：ドリルダウンの階層表示、作成・名前変更・スワイプ削除（子は1つ上へ）、リスト・曲の並べ替え（`onMove` → 前/後ろの指定へ変換）、曲の削除。操作1回ごとに全体のJSONをJSで処理するため、規模が大きい場合の実機での所要時間は未計測です（Step8後半で `actionMs`・Edit相当を実機で確認）。
 
 ### Supabaseの構成（Step7-1・7-2）
 

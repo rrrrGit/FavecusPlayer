@@ -82,7 +82,7 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 | Step5 Windows版の改善 | 完了（実Electronで主要動作を確認） | ユーザー提示の8項目（`C:\Dev\v0.6.7改善点`）。5-1 ホーム・再生バー／5-2 ×でトレイ格納／5-3 オリジナルのプレイヤーUIと拡大。実Electron 44.2.0で、拡大・Esc・×のトレイ格納を確認（Bilibili実通信・Windowsの実キー操作・シャットダウンは未確認）。下記「Step5の計画」 |
 | Step6 同期の共通基盤 | 完了（iOS CIの確認待ち） | 変更レコード、親子の辺と並び順、Tombstone、競合解決、同期キューを共通JSで実装。SyncRepositoryの抽象とメモリ実装で、同時変更・オフライン編集・削除後の復活防止をテスト |
 | Step7 Supabase接続 | 完了（2台目・iPhoneからの反映確認はStep11で実施） | テーブル・行単位のアクセス制御・認証の設計、SupabaseSyncRepository。Windows版の同期接続と、トークンの安全な保存 |
-| Step8 iOS基本アプリとローカルDB | 8-1実装中（編集操作の共通化）／8-2 Swiftのファイル保存／8-3 仮の最小画面 | ローカルDB、プレイリスト階層の表示・編集・並び替え。画面はユーザーのUI案を受けて決定 |
+| Step8 iOS基本アプリとローカルDB | 8-1（編集操作の共通化）済み／8-2 LibraryStore・8-3 仮の最小画面を実装、CI待ち | ローカルDB、プレイリスト階層の表示・編集・並び替え。画面はユーザーのUI案を受けて決定 |
 | Step9 iOSローカル再生 | 未着手 | AVPlayerによる再生、ミニプレイヤー、バックグラウンド音声、ロック画面操作、再生順 |
 | Step10 メディアZIPの取り込み・出力 | 未着手 | 既存ZIP形式の拡張、Windows出力→iPhone取り込み→iPhone出力→Windows取り込み、重複防止、Filesアプリ・共有シートからの選択 |
 | Step11 iOS同期とWindows/iPhone間同期の検証 | 未着手 | iOS側の同期接続。双方向・同時変更・オフライン・再接続・深い階層・共有子リストを実通信で確認 |
@@ -122,6 +122,13 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 ## 現在の工程
 
 Step6完了（下記）。次はStep7（Supabase接続、Windows版の同期配線、`sync/state.json`）です。
+
+### Step8の進捗（2026-11-13）
+
+- 方針：ローカルDB＝Windows版と同じv3の `library.json`（SQLite等は使わない）。編集操作は `src/core/library-actions.cjs` へ共通化し、Windows版の `Store` が同じ処理を使う（Nodeの既存テストは変更せず、失敗は環境起因の既知9件のみ）。iPhone版の入口は `src/core/library-app.cjs`（Open/Apply）。共通テストデータは操作ごとのケース・名前順（Intl.Collator、かな/カナ/漢字/英数混在）・Open/Applyを追加し208件。
+- CIのBENCHに同期4項目と `actionMs` を追加。
+- 8-2・8-3：`ios/FavecusPlayer/Library/`（LibraryModel・LibraryStore・LibraryViews）、`LibraryStoreTests`。**Macがないためコンパイルはまだ未確認**（CIで確認）。画面は仮の最小画面で、シミュレーターのスクリーンショット（workflow_dispatch）と実機は別途。
+- 申し送り（Step11）：端末ごとにランダムIDの既定リスト「お気に入り」が作られ、同期を有効にすると他端末でも重複する。初回の有効化で「既定リストだけの未編集のライブラリ」は送らない対応を行う。
 
 ### Step7の結果（途中）
 

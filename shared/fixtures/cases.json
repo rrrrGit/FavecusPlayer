@@ -11665,5 +11665,376 @@
     "00000001-0000-4000-8000-000000000025"
    ]
   }
+ },
+ {
+  "name": "library app: open without a file gives a new default library from the supplied ids",
+  "call": "LibraryOpen",
+  "args": [
+   {
+    "text": null,
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003",
+     "aaaaaaaa-0000-4000-8000-000000000004",
+     "aaaaaaaa-0000-4000-8000-000000000005",
+     "aaaaaaaa-0000-4000-8000-000000000006"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "status": "new",
+   "text": "{\n  \"version\": 3,\n  \"identityVersion\": 2,\n  \"videoAliases\": [],\n  \"activePlaylistId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n  \"rootPlaylistIds\": [\n    \"aaaaaaaa-0000-4000-8000-000000000001\"\n  ],\n  \"playlists\": [\n    {\n      \"id\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"name\": \"お気に入り\",\n      \"icon\": \"\",\n      \"entries\": [],\n      \"childIds\": [],\n      \"createdAt\": \"2026-11-13T09:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true\n    }\n  ]\n}"
+  }
+ },
+ {
+  "name": "library app: open a valid library validates everything and keeps its fields",
+  "call": "LibraryOpen",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000001\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\",\"00000001-0000-4000-8000-000000000003\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"曲1\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa1/\"},{\"id\":\"00000002-0000-4000-8000-000000000002\",\"mediaId\":\"00000003-0000-4000-8000-000000000002\",\"type\":\"bilibili\",\"title\":\"曲2\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa2/\"}],\"childIds\":[\"00000001-0000-4000-8000-000000000002\"],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000002\",\"name\":\"子\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000003\",\"mediaId\":\"00000003-0000-4000-8000-000000000003\",\"type\":\"bilibili\",\"title\":\"曲3\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa3/\"}],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000003\",\"name\":\"独立\",\"icon\":\"\",\"entries\":[],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":false}]}",
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003",
+     "aaaaaaaa-0000-4000-8000-000000000004",
+     "aaaaaaaa-0000-4000-8000-000000000005",
+     "aaaaaaaa-0000-4000-8000-000000000006"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "status": "ok",
+   "text": "{\n  \"version\": 3,\n  \"identityVersion\": 2,\n  \"videoAliases\": [],\n  \"activePlaylistId\": \"00000001-0000-4000-8000-000000000001\",\n  \"rootPlaylistIds\": [\n    \"00000001-0000-4000-8000-000000000001\",\n    \"00000001-0000-4000-8000-000000000003\"\n  ],\n  \"playlists\": [\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000001\",\n      \"childIds\": [\n        \"00000001-0000-4000-8000-000000000002\"\n      ],\n      \"icon\": \"\",\n      \"name\": \"親\",\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000001\",\n          \"title\": \"曲1\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1aaaaaaaa1\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1aaaaaaaa1/\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000002\",\n          \"title\": \"曲2\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1aaaaaaaa2\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1aaaaaaaa2/\"\n        }\n      ]\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000002\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"子\",\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000003\",\n          \"title\": \"曲3\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1aaaaaaaa3\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1aaaaaaaa3/\"\n        }\n      ]\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000003\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"独立\",\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": false,\n      \"entries\": []\n    }\n  ]\n}"
+  }
+ },
+ {
+  "name": "library app: open repairs an unknown active list to the first root list",
+  "call": "LibraryOpen",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000009\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\",\"00000001-0000-4000-8000-000000000003\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"曲1\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa1/\"},{\"id\":\"00000002-0000-4000-8000-000000000002\",\"mediaId\":\"00000003-0000-4000-8000-000000000002\",\"type\":\"bilibili\",\"title\":\"曲2\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa2/\"}],\"childIds\":[\"00000001-0000-4000-8000-000000000002\"],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000002\",\"name\":\"子\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000003\",\"mediaId\":\"00000003-0000-4000-8000-000000000003\",\"type\":\"bilibili\",\"title\":\"曲3\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa3/\"}],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000003\",\"name\":\"独立\",\"icon\":\"\",\"entries\":[],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":false}]}",
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003",
+     "aaaaaaaa-0000-4000-8000-000000000004",
+     "aaaaaaaa-0000-4000-8000-000000000005",
+     "aaaaaaaa-0000-4000-8000-000000000006"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "status": "ok",
+   "text": "{\n  \"version\": 3,\n  \"identityVersion\": 2,\n  \"videoAliases\": [],\n  \"activePlaylistId\": \"00000001-0000-4000-8000-000000000001\",\n  \"rootPlaylistIds\": [\n    \"00000001-0000-4000-8000-000000000001\",\n    \"00000001-0000-4000-8000-000000000003\"\n  ],\n  \"playlists\": [\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000001\",\n      \"childIds\": [\n        \"00000001-0000-4000-8000-000000000002\"\n      ],\n      \"icon\": \"\",\n      \"name\": \"親\",\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000001\",\n          \"title\": \"曲1\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1aaaaaaaa1\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1aaaaaaaa1/\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000002\",\n          \"title\": \"曲2\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1aaaaaaaa2\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1aaaaaaaa2/\"\n        }\n      ]\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000002\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"子\",\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000003\",\n          \"title\": \"曲3\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1aaaaaaaa3\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1aaaaaaaa3/\"\n        }\n      ]\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000003\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"独立\",\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": false,\n      \"entries\": []\n    }\n  ]\n}"
+  }
+ },
+ {
+  "name": "library app: open accepts a leading BOM",
+  "call": "LibraryOpen",
+  "args": [
+   {
+    "text": "﻿{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000001\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\",\"00000001-0000-4000-8000-000000000003\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"曲1\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa1/\"},{\"id\":\"00000002-0000-4000-8000-000000000002\",\"mediaId\":\"00000003-0000-4000-8000-000000000002\",\"type\":\"bilibili\",\"title\":\"曲2\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa2/\"}],\"childIds\":[\"00000001-0000-4000-8000-000000000002\"],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000002\",\"name\":\"子\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000003\",\"mediaId\":\"00000003-0000-4000-8000-000000000003\",\"type\":\"bilibili\",\"title\":\"曲3\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa3/\"}],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000003\",\"name\":\"独立\",\"icon\":\"\",\"entries\":[],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":false}]}",
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003",
+     "aaaaaaaa-0000-4000-8000-000000000004",
+     "aaaaaaaa-0000-4000-8000-000000000005",
+     "aaaaaaaa-0000-4000-8000-000000000006"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "status": "ok",
+   "text": "{\n  \"version\": 3,\n  \"identityVersion\": 2,\n  \"videoAliases\": [],\n  \"activePlaylistId\": \"00000001-0000-4000-8000-000000000001\",\n  \"rootPlaylistIds\": [\n    \"00000001-0000-4000-8000-000000000001\",\n    \"00000001-0000-4000-8000-000000000003\"\n  ],\n  \"playlists\": [\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000001\",\n      \"childIds\": [\n        \"00000001-0000-4000-8000-000000000002\"\n      ],\n      \"icon\": \"\",\n      \"name\": \"親\",\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000001\",\n          \"title\": \"曲1\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1aaaaaaaa1\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1aaaaaaaa1/\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000002\",\n          \"title\": \"曲2\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1aaaaaaaa2\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1aaaaaaaa2/\"\n        }\n      ]\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000002\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"子\",\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000003\",\n          \"title\": \"曲3\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1aaaaaaaa3\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1aaaaaaaa3/\"\n        }\n      ]\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000003\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"独立\",\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": false,\n      \"entries\": []\n    }\n  ]\n}"
+  }
+ },
+ {
+  "name": "library app: open rejects broken JSON as invalid, without a new library",
+  "call": "LibraryOpen",
+  "args": [
+   {
+    "text": "{broken",
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003",
+     "aaaaaaaa-0000-4000-8000-000000000004",
+     "aaaaaaaa-0000-4000-8000-000000000005",
+     "aaaaaaaa-0000-4000-8000-000000000006"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "status": "invalid",
+   "message": "保存データを読み取れません。"
+  }
+ },
+ {
+  "name": "library app: open reports an older or newer format as unsupported",
+  "call": "LibraryOpen",
+  "args": [
+   {
+    "text": "{\"version\":2,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000001\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\",\"00000001-0000-4000-8000-000000000003\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"曲1\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa1/\"},{\"id\":\"00000002-0000-4000-8000-000000000002\",\"mediaId\":\"00000003-0000-4000-8000-000000000002\",\"type\":\"bilibili\",\"title\":\"曲2\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa2/\"}],\"childIds\":[\"00000001-0000-4000-8000-000000000002\"],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000002\",\"name\":\"子\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000003\",\"mediaId\":\"00000003-0000-4000-8000-000000000003\",\"type\":\"bilibili\",\"title\":\"曲3\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa3/\"}],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000003\",\"name\":\"独立\",\"icon\":\"\",\"entries\":[],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":false}]}",
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003",
+     "aaaaaaaa-0000-4000-8000-000000000004",
+     "aaaaaaaa-0000-4000-8000-000000000005",
+     "aaaaaaaa-0000-4000-8000-000000000006"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "status": "unsupported",
+   "message": "この版では扱えない形式の保存データです。保存データは変更していません。"
+  }
+ },
+ {
+  "name": "library app: open reports an unknown identity version as unsupported",
+  "call": "LibraryOpen",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":3,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000001\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\",\"00000001-0000-4000-8000-000000000003\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"曲1\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa1/\"},{\"id\":\"00000002-0000-4000-8000-000000000002\",\"mediaId\":\"00000003-0000-4000-8000-000000000002\",\"type\":\"bilibili\",\"title\":\"曲2\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa2/\"}],\"childIds\":[\"00000001-0000-4000-8000-000000000002\"],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000002\",\"name\":\"子\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000003\",\"mediaId\":\"00000003-0000-4000-8000-000000000003\",\"type\":\"bilibili\",\"title\":\"曲3\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa3/\"}],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000003\",\"name\":\"独立\",\"icon\":\"\",\"entries\":[],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":false}]}",
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003",
+     "aaaaaaaa-0000-4000-8000-000000000004",
+     "aaaaaaaa-0000-4000-8000-000000000005",
+     "aaaaaaaa-0000-4000-8000-000000000006"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "status": "unsupported",
+   "message": "対応していないメディア識別形式です。保存データは変更していません。"
+  }
+ },
+ {
+  "name": "library app: open reports a broken hierarchy as invalid",
+  "call": "LibraryOpen",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000001\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"曲1\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa1/\"},{\"id\":\"00000002-0000-4000-8000-000000000002\",\"mediaId\":\"00000003-0000-4000-8000-000000000002\",\"type\":\"bilibili\",\"title\":\"曲2\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa2/\"}],\"childIds\":[\"00000001-0000-4000-8000-000000000002\"],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000002\",\"name\":\"子\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000003\",\"mediaId\":\"00000003-0000-4000-8000-000000000003\",\"type\":\"bilibili\",\"title\":\"曲3\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa3/\"}],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000003\",\"name\":\"独立\",\"icon\":\"\",\"entries\":[],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":false}]}",
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003",
+     "aaaaaaaa-0000-4000-8000-000000000004",
+     "aaaaaaaa-0000-4000-8000-000000000005",
+     "aaaaaaaa-0000-4000-8000-000000000006"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "status": "invalid",
+   "message": "保存データを検証できません：表示できないプレイリストが含まれています。"
+  }
+ },
+ {
+  "name": "library app: open reports a missing media id as invalid",
+  "call": "LibraryOpen",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000001\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\",\"00000001-0000-4000-8000-000000000003\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"曲1\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa1/\"}],\"childIds\":[\"00000001-0000-4000-8000-000000000002\"],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000002\",\"name\":\"子\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000003\",\"mediaId\":\"00000003-0000-4000-8000-000000000003\",\"type\":\"bilibili\",\"title\":\"曲3\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa3/\"}],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000003\",\"name\":\"独立\",\"icon\":\"\",\"entries\":[],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":false}]}",
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003",
+     "aaaaaaaa-0000-4000-8000-000000000004",
+     "aaaaaaaa-0000-4000-8000-000000000005",
+     "aaaaaaaa-0000-4000-8000-000000000006"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "status": "invalid",
+   "message": "保存データを検証できません：メディア識別番号がありません。保存データは変更していません。"
+  }
+ },
+ {
+  "name": "library app: apply create uses the supplied id and time",
+  "call": "LibraryApply",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000001\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\",\"00000001-0000-4000-8000-000000000003\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"曲1\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa1/\"},{\"id\":\"00000002-0000-4000-8000-000000000002\",\"mediaId\":\"00000003-0000-4000-8000-000000000002\",\"type\":\"bilibili\",\"title\":\"曲2\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa2/\"}],\"childIds\":[\"00000001-0000-4000-8000-000000000002\"],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000002\",\"name\":\"子\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000003\",\"mediaId\":\"00000003-0000-4000-8000-000000000003\",\"type\":\"bilibili\",\"title\":\"曲3\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa3/\"}],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000003\",\"name\":\"独立\",\"icon\":\"\",\"entries\":[],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":false}]}",
+    "action": {
+     "type": "create",
+     "name": "新規",
+     "parentId": "00000001-0000-4000-8000-000000000002"
+    },
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003",
+     "aaaaaaaa-0000-4000-8000-000000000004",
+     "aaaaaaaa-0000-4000-8000-000000000005",
+     "aaaaaaaa-0000-4000-8000-000000000006"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "text": "{\n  \"version\": 3,\n  \"identityVersion\": 2,\n  \"videoAliases\": [],\n  \"activePlaylistId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n  \"rootPlaylistIds\": [\n    \"00000001-0000-4000-8000-000000000001\",\n    \"00000001-0000-4000-8000-000000000003\"\n  ],\n  \"playlists\": [\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000001\",\n      \"name\": \"親\",\n      \"icon\": \"\",\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000001\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"title\": \"曲1\",\n          \"addedAt\": \"\",\n          \"url\": \"https://www.bilibili.com/video/BV1aaaaaaaa1/\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000002\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\n          \"type\": \"bilibili\",\n          \"title\": \"曲2\",\n          \"addedAt\": \"\",\n          \"url\": \"https://www.bilibili.com/video/BV1aaaaaaaa2/\"\n        }\n      ],\n      \"childIds\": [\n        \"00000001-0000-4000-8000-000000000002\"\n      ],\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000002\",\n      \"name\": \"子\",\n      \"icon\": \"\",\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000003\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\n          \"type\": \"bilibili\",\n          \"title\": \"曲3\",\n          \"addedAt\": \"\",\n          \"url\": \"https://www.bilibili.com/video/BV1aaaaaaaa3/\"\n        }\n      ],\n      \"childIds\": [\n        \"aaaaaaaa-0000-4000-8000-000000000001\"\n      ],\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"2026-11-13T09:00:00.000Z\",\n      \"includeInAll\": true\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000003\",\n      \"name\": \"独立\",\n      \"icon\": \"\",\n      \"entries\": [],\n      \"childIds\": [],\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": false\n    },\n    {\n      \"id\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"name\": \"新規\",\n      \"icon\": \"\",\n      \"entries\": [],\n      \"childIds\": [],\n      \"createdAt\": \"2026-11-13T09:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true\n    }\n  ]\n}"
+  }
+ },
+ {
+  "name": "library app: apply rename and entry title are cleaned",
+  "call": "LibraryApply",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000001\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\",\"00000001-0000-4000-8000-000000000003\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"曲1\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa1/\"},{\"id\":\"00000002-0000-4000-8000-000000000002\",\"mediaId\":\"00000003-0000-4000-8000-000000000002\",\"type\":\"bilibili\",\"title\":\"曲2\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa2/\"}],\"childIds\":[\"00000001-0000-4000-8000-000000000002\"],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000002\",\"name\":\"子\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000003\",\"mediaId\":\"00000003-0000-4000-8000-000000000003\",\"type\":\"bilibili\",\"title\":\"曲3\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa3/\"}],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000003\",\"name\":\"独立\",\"icon\":\"\",\"entries\":[],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":false}]}",
+    "action": {
+     "type": "title",
+     "playlistId": "00000001-0000-4000-8000-000000000001",
+     "entryId": "00000002-0000-4000-8000-000000000001",
+     "title": "  新しい\u0001題名  "
+    },
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003",
+     "aaaaaaaa-0000-4000-8000-000000000004",
+     "aaaaaaaa-0000-4000-8000-000000000005",
+     "aaaaaaaa-0000-4000-8000-000000000006"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "text": "{\n  \"version\": 3,\n  \"identityVersion\": 2,\n  \"videoAliases\": [],\n  \"activePlaylistId\": \"00000001-0000-4000-8000-000000000001\",\n  \"rootPlaylistIds\": [\n    \"00000001-0000-4000-8000-000000000001\",\n    \"00000001-0000-4000-8000-000000000003\"\n  ],\n  \"playlists\": [\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000001\",\n      \"name\": \"親\",\n      \"icon\": \"\",\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000001\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"title\": \"新しい 題名\",\n          \"addedAt\": \"\",\n          \"url\": \"https://www.bilibili.com/video/BV1aaaaaaaa1/\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000002\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\n          \"type\": \"bilibili\",\n          \"title\": \"曲2\",\n          \"addedAt\": \"\",\n          \"url\": \"https://www.bilibili.com/video/BV1aaaaaaaa2/\"\n        }\n      ],\n      \"childIds\": [\n        \"00000001-0000-4000-8000-000000000002\"\n      ],\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000002\",\n      \"name\": \"子\",\n      \"icon\": \"\",\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000003\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\n          \"type\": \"bilibili\",\n          \"title\": \"曲3\",\n          \"addedAt\": \"\",\n          \"url\": \"https://www.bilibili.com/video/BV1aaaaaaaa3/\"\n        }\n      ],\n      \"childIds\": [],\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000003\",\n      \"name\": \"独立\",\n      \"icon\": \"\",\n      \"entries\": [],\n      \"childIds\": [],\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": false\n    }\n  ]\n}"
+  }
+ },
+ {
+  "name": "library app: apply delete a parent moves the active list",
+  "call": "LibraryApply",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000001\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\",\"00000001-0000-4000-8000-000000000003\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"曲1\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa1/\"},{\"id\":\"00000002-0000-4000-8000-000000000002\",\"mediaId\":\"00000003-0000-4000-8000-000000000002\",\"type\":\"bilibili\",\"title\":\"曲2\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa2/\"}],\"childIds\":[\"00000001-0000-4000-8000-000000000002\"],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000002\",\"name\":\"子\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000003\",\"mediaId\":\"00000003-0000-4000-8000-000000000003\",\"type\":\"bilibili\",\"title\":\"曲3\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa3/\"}],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000003\",\"name\":\"独立\",\"icon\":\"\",\"entries\":[],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":false}]}",
+    "action": {
+     "type": "delete",
+     "playlistId": "00000001-0000-4000-8000-000000000001"
+    },
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003",
+     "aaaaaaaa-0000-4000-8000-000000000004",
+     "aaaaaaaa-0000-4000-8000-000000000005",
+     "aaaaaaaa-0000-4000-8000-000000000006"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "text": "{\n  \"version\": 3,\n  \"identityVersion\": 2,\n  \"videoAliases\": [],\n  \"activePlaylistId\": \"00000001-0000-4000-8000-000000000002\",\n  \"rootPlaylistIds\": [\n    \"00000001-0000-4000-8000-000000000002\",\n    \"00000001-0000-4000-8000-000000000003\"\n  ],\n  \"playlists\": [\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000002\",\n      \"name\": \"子\",\n      \"icon\": \"\",\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000003\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\n          \"type\": \"bilibili\",\n          \"title\": \"曲3\",\n          \"addedAt\": \"\",\n          \"url\": \"https://www.bilibili.com/video/BV1aaaaaaaa3/\"\n        }\n      ],\n      \"childIds\": [],\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000003\",\n      \"name\": \"独立\",\n      \"icon\": \"\",\n      \"entries\": [],\n      \"childIds\": [],\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": false\n    }\n  ]\n}"
+  }
+ },
+ {
+  "name": "library app: apply reorder lists at the root",
+  "call": "LibraryApply",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000001\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\",\"00000001-0000-4000-8000-000000000003\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"曲1\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa1/\"},{\"id\":\"00000002-0000-4000-8000-000000000002\",\"mediaId\":\"00000003-0000-4000-8000-000000000002\",\"type\":\"bilibili\",\"title\":\"曲2\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa2/\"}],\"childIds\":[\"00000001-0000-4000-8000-000000000002\"],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000002\",\"name\":\"子\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000003\",\"mediaId\":\"00000003-0000-4000-8000-000000000003\",\"type\":\"bilibili\",\"title\":\"曲3\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa3/\"}],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000003\",\"name\":\"独立\",\"icon\":\"\",\"entries\":[],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":false}]}",
+    "action": {
+     "type": "playlist-reorder",
+     "playlistId": "00000001-0000-4000-8000-000000000003",
+     "targetId": "00000001-0000-4000-8000-000000000001"
+    },
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003",
+     "aaaaaaaa-0000-4000-8000-000000000004",
+     "aaaaaaaa-0000-4000-8000-000000000005",
+     "aaaaaaaa-0000-4000-8000-000000000006"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "text": "{\n  \"version\": 3,\n  \"identityVersion\": 2,\n  \"videoAliases\": [],\n  \"activePlaylistId\": \"00000001-0000-4000-8000-000000000001\",\n  \"rootPlaylistIds\": [\n    \"00000001-0000-4000-8000-000000000003\",\n    \"00000001-0000-4000-8000-000000000001\"\n  ],\n  \"playlists\": [\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000001\",\n      \"name\": \"親\",\n      \"icon\": \"\",\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000001\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"title\": \"曲1\",\n          \"addedAt\": \"\",\n          \"url\": \"https://www.bilibili.com/video/BV1aaaaaaaa1/\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000002\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\n          \"type\": \"bilibili\",\n          \"title\": \"曲2\",\n          \"addedAt\": \"\",\n          \"url\": \"https://www.bilibili.com/video/BV1aaaaaaaa2/\"\n        }\n      ],\n      \"childIds\": [\n        \"00000001-0000-4000-8000-000000000002\"\n      ],\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000002\",\n      \"name\": \"子\",\n      \"icon\": \"\",\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000003\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\n          \"type\": \"bilibili\",\n          \"title\": \"曲3\",\n          \"addedAt\": \"\",\n          \"url\": \"https://www.bilibili.com/video/BV1aaaaaaaa3/\"\n        }\n      ],\n      \"childIds\": [],\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000003\",\n      \"name\": \"独立\",\n      \"icon\": \"\",\n      \"entries\": [],\n      \"childIds\": [],\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": false\n    }\n  ]\n}"
+  }
+ },
+ {
+  "name": "library app: apply an unsupported action returns an error",
+  "call": "LibraryApply",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000001\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\",\"00000001-0000-4000-8000-000000000003\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"曲1\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa1/\"},{\"id\":\"00000002-0000-4000-8000-000000000002\",\"mediaId\":\"00000003-0000-4000-8000-000000000002\",\"type\":\"bilibili\",\"title\":\"曲2\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa2/\"}],\"childIds\":[\"00000001-0000-4000-8000-000000000002\"],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000002\",\"name\":\"子\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000003\",\"mediaId\":\"00000003-0000-4000-8000-000000000003\",\"type\":\"bilibili\",\"title\":\"曲3\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa3/\"}],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000003\",\"name\":\"独立\",\"icon\":\"\",\"entries\":[],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":false}]}",
+    "action": {
+     "type": "add",
+     "playlistId": "00000001-0000-4000-8000-000000000001"
+    },
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003",
+     "aaaaaaaa-0000-4000-8000-000000000004",
+     "aaaaaaaa-0000-4000-8000-000000000005",
+     "aaaaaaaa-0000-4000-8000-000000000006"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "error": "対応していない操作です。"
+  }
+ },
+ {
+  "name": "library app: apply an invalid move returns an error and no text",
+  "call": "LibraryApply",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000001\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\",\"00000001-0000-4000-8000-000000000003\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"曲1\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa1/\"},{\"id\":\"00000002-0000-4000-8000-000000000002\",\"mediaId\":\"00000003-0000-4000-8000-000000000002\",\"type\":\"bilibili\",\"title\":\"曲2\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa2/\"}],\"childIds\":[\"00000001-0000-4000-8000-000000000002\"],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000002\",\"name\":\"子\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000003\",\"mediaId\":\"00000003-0000-4000-8000-000000000003\",\"type\":\"bilibili\",\"title\":\"曲3\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa3/\"}],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000003\",\"name\":\"独立\",\"icon\":\"\",\"entries\":[],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":false}]}",
+    "action": {
+     "type": "playlist-move",
+     "playlistId": "00000001-0000-4000-8000-000000000001",
+     "parentId": "00000001-0000-4000-8000-000000000002"
+    },
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003",
+     "aaaaaaaa-0000-4000-8000-000000000004",
+     "aaaaaaaa-0000-4000-8000-000000000005",
+     "aaaaaaaa-0000-4000-8000-000000000006"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "error": "自分自身や子孫を親にはできません。"
+  }
+ },
+ {
+  "name": "library app: apply create fails when no ids are supplied",
+  "call": "LibraryApply",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000001\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\",\"00000001-0000-4000-8000-000000000003\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"曲1\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa1/\"},{\"id\":\"00000002-0000-4000-8000-000000000002\",\"mediaId\":\"00000003-0000-4000-8000-000000000002\",\"type\":\"bilibili\",\"title\":\"曲2\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa2/\"}],\"childIds\":[\"00000001-0000-4000-8000-000000000002\"],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000002\",\"name\":\"子\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000003\",\"mediaId\":\"00000003-0000-4000-8000-000000000003\",\"type\":\"bilibili\",\"title\":\"曲3\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaa3/\"}],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000003\",\"name\":\"独立\",\"icon\":\"\",\"entries\":[],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":false}]}",
+    "action": {
+     "type": "create",
+     "name": "x"
+    },
+    "ids": [],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "error": "新しい識別番号を用意できません。"
+  }
  }
 ]

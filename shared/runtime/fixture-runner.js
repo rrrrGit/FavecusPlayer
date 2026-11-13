@@ -15,6 +15,7 @@ const share = require('../core/library-share.cjs');
 const importIdentity = require('../core/import-identity.cjs');
 const iconData = require('../core/playlist-icon-data.cjs');
 const actions = require('../core/library-actions.cjs');
+const libraryApp = require('../core/library-app.cjs');
 const tree = require('../ui/library-tree.js');
 const search = require('../ui/library-search.js');
 
@@ -63,6 +64,8 @@ const CALLS = {
   },
   // 名前順などの並び（Intl.Collator('ja')）。NodeとiOSのICUの違いを検出する。
   TreeOrder: spec => ({ ids: tree.Ordered(Plain(spec.library), spec.ids, spec.mode) }),
+  LibraryOpen: options => libraryApp.Open(options),
+  LibraryApply: options => libraryApp.Apply(options),
   SyncClock: steps => steps.map(step => step.op === 'tick' ? syncClock.Tick(step.last, step.now, step.device) : syncClock.Observe(step.last, step.remote, step.now, step.device)),
   SyncOrder: spec => ({ between: (spec.pairs || []).map(([a, b]) => syncOrder.Between(a, b)), spread: syncOrder.Spread(spec.spread || 0) }),
   SyncMerge: changes => { const merged = changes.reduce((state, change) => syncState.Merge(state, [change]).state, syncState.NewState()); return JSON.parse(syncState.Canonical(merged)); },
@@ -159,4 +162,7 @@ function Bench(json) {
   return JSON.stringify(result);
 }
 
-module.exports = { RunCases, Observe, Bench };
+// iPhone版の入口（JSON文字列の入出力）。
+const LibraryOpen = json => JSON.stringify(libraryApp.Open(JSON.parse(json)));
+const LibraryApply = json => JSON.stringify(libraryApp.Apply(JSON.parse(json)));
+module.exports = { RunCases, Observe, Bench, LibraryOpen, LibraryApply };
