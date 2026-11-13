@@ -27,6 +27,8 @@ final class DownloadService: ObservableObject, MediaProvider {
     private var running: [String: Task<Void, Never>] = [:]
     private var finishing: Set<String> = []       // 仕上げ中のジョブID（重ねて仕上げない）
     private var cancelRequested: Set<String> = [] // 仕上げ中に取り消された記録ID
+    private var started = false                  // 記録を読み込み終えるまで、取得の結果を処理しない（読み込み前に仕上げて、記録を失わないため）
+    private var jobRecords: [String: String] = [:] // ジョブID → 記録ID（進み具合の表示用）
     private var fetching: [String: Task<URL, Error>] = [:]
     private var served: [URL] = []                // 直近に再生へ渡した一時ファイル（容量の整理で消さない）
     private static let cacheLimit: Int64 = 500 * 1024 * 1024
@@ -60,11 +62,16 @@ final class DownloadService: ObservableObject, MediaProvider {
             for name in (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [] where name.hasPrefix(".dl-") && !owned.contains(name) {
                 try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
             }
+            // 起動直後に始まったオンライン再生の作業フォルダを消さないよう、古いものだけを片付ける
             for name in (try? FileManager.default.contentsOfDirectory(atPath: cacheDirectory.path)) ?? [] where name.hasPrefix(".dl-") {
-                try? FileManager.default.removeItem(at: cacheDirectory.appendingPathComponent(name))
+                let target = cacheDirectory.appendingPathComponent(name)
+                let modified = (try? FileManager.default.attributesOfItem(atPath: target.path)[.modificationDate] as? Date) ?? .distantPast
+                if Date().timeIntervalSince(modified) > 3600 { try? FileManager.default.removeItem(at: target) }
             }
             try await catalog.load(keeping: Set(jobs.map { $0.recordId }))
             await publish()
+            for job in jobs { jobRecords[job.id] = job.recordId }
+            started = true
             for job in jobs { await evaluate(job.id, live: live) }
         } catch {
             message = "保存の記録を読み込めません：\(error)"
@@ -73,6 +80,7 @@ final class DownloadService: ObservableObject, MediaProvider {
 
     /// 前面へ戻ったとき：取得が終わっているジョブ、仕上げが途中で止まったジョブを続ける。
     func resume() async {
+        guard started else { return }
         for job in transfers.jobs() { await evaluate(job.id) }
     }
 
@@ -81,9 +89,8 @@ final class DownloadService: ObservableObject, MediaProvider {
     }
 
     private func setProgress(jobId: String, _ value: Double) {
-        guard let job = transfers.job(jobId) else { return }
-        progress["\(job.key)|\(job.kind)"] = value
-        if job.kind == "audio" { progress["\(job.key)|audio"] = value }
+        guard let id = jobRecords[jobId] else { return }
+        progress[id] = value
     }
 
     // MARK: 参照
@@ -142,7 +149,16 @@ final class DownloadService: ObservableObject, MediaProvider {
     func cancel(key: String, kind: String = "audio") {
         let id = "\(key)|\(kind)"
         running[id]?.cancel()
-        guard let job = transfers.jobs().first(where: { $0.key == key && $0.kind == kind }) else { return }
+        guard let job = transfers.jobs().first(where: { $0.key == key && $0.kind == kind }) else {
+            // 通信もジョブもないのに「保存中」のまま残った記録は、取り消しで解消できる
+            if running[id] == nil, let record = record(key: key, kind: kind), record.state.inProgress {
+                var next = record
+                next.state = .cancelled
+                next.message = "取り消しました。"
+                Task { await self.update(next) }
+            }
+            return
+        }
         if finishing.contains(job.id) { cancelRequested.insert(id); return }
         Task { await self.abort(job, message: "取り消しました。", state: .cancelled) }
     }
@@ -156,8 +172,14 @@ final class DownloadService: ObservableObject, MediaProvider {
     }
 
     private func update(_ record: DeviceMediaRecord) async {
-        try? await catalog.upsert(record)
+        _ = await save(record)
+    }
+
+    private func save(_ record: DeviceMediaRecord) async -> Bool {
+        var saved = true
+        do { try await catalog.upsert(record) } catch { saved = false; message = "保存の記録を書き込めません：\(error)" }
         await publish()
+        return saved
     }
 
     /// 準備：配信先を決め、空き容量を確認し、取得（背面でも続く）を始める。ここで失敗したものは、失敗として記録する。
@@ -184,8 +206,10 @@ final class DownloadService: ObservableObject, MediaProvider {
             let streams = media.streams.enumerated().map { index, stream in
                 JobStream(urls: stream.urls, size: stream.size, ext: media.layout == "dash" && media.streams.count == 2 && index == 1 ? "m4a" : "mp4")
             }
+            try Task.checkCancellation() // ここから先は、ジョブを作って取得を始める
             let made = DownloadJob(id: UUID().uuidString.lowercased(), key: key, kind: kind, title: title, quality: media.height ?? 0, duration: media.duration, layout: media.layout, streams: streams, createdAt: Date().timeIntervalSince1970)
             job = made
+            jobRecords[made.id] = made.recordId
             try transfers.start(made)
         } catch {
             if let job { await transfers.cancel(job.id); transfers.remove(job.id) }
@@ -204,7 +228,7 @@ final class DownloadService: ObservableObject, MediaProvider {
 
     /// 取得の状態を見て、失敗なら止め、揃っていれば仕上げる。通信中なら何もしない（live が分かるとき＝起動直後は、通信も作業もないジョブを失敗にする）。
     private func evaluate(_ id: String, live: Set<String>? = nil) async {
-        guard !finishing.contains(id), let job = transfers.job(id) else { return }
+        guard started, !finishing.contains(id), let job = transfers.job(id) else { return }
         let statuses = transfers.status(of: job)
         if let failed = statuses.compactMap({ status -> String? in if case .failed(let text, _) = status { return text } else { return nil } }).first {
             await abort(job, message: failed, state: .failed)
@@ -225,6 +249,7 @@ final class DownloadService: ObservableObject, MediaProvider {
     private func abort(_ job: DownloadJob, message: String, state: DeviceMediaState) async {
         guard !finishing.contains(job.id) else { return }
         finishing.insert(job.id)
+        cancelRequested.remove(job.recordId)
         await transfers.cancel(job.id)
         transfers.remove(job.id)
         var record = DeviceMediaRecord(key: job.key, kind: job.kind, state: state)
@@ -262,7 +287,9 @@ final class DownloadService: ObservableObject, MediaProvider {
                 do { duration = try await MediaProcessor.mergeVideo(video: files[0], audio: files[1], output: output, expectedDuration: job.duration) }
                 catch {
                     // 結合に失敗：音声だけの保存は残せるよう、音声の取得済みファイルを使う（映像の保存は失敗として記録する）
-                    if self.record(key: job.key, kind: "audio")?.state != .completed { await saveAudioFallback(key: job.key, audioFile: files[1], duration: job.duration, staging: staging) }
+                    let audio = self.record(key: job.key, kind: "audio")?.state
+                    let audioJob = transfers.jobs().contains { $0.key == job.key && $0.kind == "audio" }
+                    if !audioJob, audio == nil || audio == .failed || audio == .cancelled || audio == .notDownloaded { await saveAudioFallback(key: job.key, audioFile: files[1], duration: job.duration, staging: staging) }
                     throw error
                 }
             } else {
@@ -288,8 +315,12 @@ final class DownloadService: ObservableObject, MediaProvider {
         }
         cancelRequested.remove(id)
         progress[id] = nil
-        transfers.remove(job.id)
-        await update(record)
+        // 記録を保存できたときだけ、ジョブを消す（保存できなければ、取得したファイルとジョブを残し、次に続きから仕上げる）
+        if await save(record) {
+            transfers.remove(job.id)
+        } else if record.state == .completed, let name = record.fileName {
+            try? FileManager.default.moveItem(at: directory.appendingPathComponent(name), to: staging.appendingPathComponent(name))
+        }
     }
 
     private func saveAudioFallback(key: String, audioFile: URL, duration: Double, staging: URL) async {

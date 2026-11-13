@@ -12,7 +12,7 @@ final class ArtworkStore: ObservableObject {
     private let configuration: URLSessionConfiguration
     private var inFlight: Set<String> = []
     private let cache = NSCache<NSString, UIImage>()
-    private static let limit = 2 * 1024 * 1024
+    nonisolated private static let limit = 2 * 1024 * 1024
 
     init(directory: URL, configuration: URLSessionConfiguration = .ephemeral) {
         self.directory = directory
@@ -55,13 +55,7 @@ final class ArtworkStore: ObservableObject {
         defer { inFlight.remove(key) }
         var request = URLRequest(url: url)
         request.httpShouldHandleCookies = false
-        let session = URLSession(configuration: configuration, delegate: RefuseOtherHosts(), delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
-        // 大きすぎるものは、全部を読み込まずに打ち切る
-        guard let (bytes, response) = try? await session.bytes(for: request), let http = response as? HTTPURLResponse, http.statusCode == 200, http.expectedContentLength <= Int64(Self.limit) else { return }
-        var data = Data()
-        do { for try await byte in bytes { data.append(byte); if data.count > Self.limit { return } } } catch { return }
-        guard !data.isEmpty, let image = UIImage(data: data) else { return }
+        guard let data = await Self.download(request, configuration: configuration), let image = UIImage(data: data) else { return }
         let small = Self.shrink(image, side: 400)
         guard let jpeg = small.jpegData(compressionQuality: 0.8) else { return }
         do {
@@ -74,6 +68,16 @@ final class ArtworkStore: ObservableObject {
             cache.removeObject(forKey: key as NSString)
             revision += 1
         } catch {}
+    }
+
+    /// メインスレッドの外で読み込む。大きすぎるものは、全部を読み込まずに打ち切って通信も止める。
+    nonisolated private static func download(_ request: URLRequest, configuration: URLSessionConfiguration) async -> Data? {
+        let session = URLSession(configuration: configuration, delegate: RefuseOtherHosts(), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        guard let (bytes, response) = try? await session.bytes(for: request), let http = response as? HTTPURLResponse, http.statusCode == 200, http.expectedContentLength <= Int64(limit) else { return nil }
+        var data = Data()
+        do { for try await byte in bytes { data.append(byte); if data.count > limit { return nil } } } catch { return nil }
+        return data.isEmpty ? nil : data
     }
 
     private static func shrink(_ image: UIImage, side: CGFloat) -> UIImage {

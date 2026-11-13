@@ -12,6 +12,7 @@ struct LibraryRootView: View {
     let bilibili: BilibiliAccount?
     let downloads: DownloadService?
     let artwork: ArtworkStore
+    let observer: ServicesObserver
 
     @State private var tab = 0
     @State private var path = NavigationPath()
@@ -49,6 +50,7 @@ struct LibraryRootView: View {
                 }
             }
         }
+        .environmentObject(observer)
         .preferredColorScheme(.dark)
         .task {
             await store.load()
@@ -143,6 +145,7 @@ private enum LibraryFilter: String, CaseIterable, Identifiable {
 }
 
 private struct LibraryTab: View {
+    @EnvironmentObject private var observer: ServicesObserver // 保存の状態・サムネイルが変わったら描き直す
     @ObservedObject var store: LibraryStore
     let services: Services
     @Binding var path: NavigationPath
@@ -243,6 +246,7 @@ private struct LibraryTab: View {
 
 /// 親（nilなら最上位）の子リストの一覧。名前の変更・削除・並べ替えができる。
 private struct PlaylistList: View {
+    @EnvironmentObject private var observer: ServicesObserver
     @ObservedObject var store: LibraryStore
     let services: Services
     let parentId: String?
@@ -317,6 +321,7 @@ private struct PlaylistList: View {
 
 /// 1つのリストのページ：画像つきの見出し、シャッフル・再生、子のリスト、曲。
 private struct PlaylistDetail: View {
+    @EnvironmentObject private var observer: ServicesObserver
     @ObservedObject var store: LibraryStore
     let services: Services
     let parentId: String

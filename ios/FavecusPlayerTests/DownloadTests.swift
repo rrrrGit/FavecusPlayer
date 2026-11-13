@@ -99,7 +99,7 @@ final class DownloadTests: XCTestCase {
         let media = root.appendingPathComponent("downloads", isDirectory: true)
         let catalog = DownloadCatalog(url: root.appendingPathComponent("downloads.json"), mediaDirectory: media)
         let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
-        let service = DownloadService(catalog: catalog, bilibili: BilibiliService(core: biliCore), downloader: MediaDownloader(configuration: StubProtocol.session().configuration), transfers: BackgroundTransfers(configuration: StubProtocol.session().configuration, identifier: "test-(UUID().uuidString)", jobsDirectory: root.appendingPathComponent("download-jobs", isDirectory: true), stagingRoot: media), core: core, directory: media, cacheDirectory: root.appendingPathComponent("cache", isDirectory: true))
+        let service = DownloadService(catalog: catalog, bilibili: BilibiliService(core: biliCore), downloader: MediaDownloader(configuration: StubProtocol.session().configuration), transfers: BackgroundTransfers(configuration: StubProtocol.session().configuration, identifier: "test-\(UUID().uuidString)", jobsDirectory: root.appendingPathComponent("download-jobs", isDirectory: true), stagingRoot: media), core: core, directory: media, cacheDirectory: root.appendingPathComponent("cache", isDirectory: true))
         return (service, catalog)
     }
 
@@ -295,6 +295,20 @@ final class DownloadTests: XCTestCase {
         XCTAssertEqual(record.state, .failed)
         XCTAssertTrue(record.message?.contains("412") ?? false)
         XCTAssertFalse(StubProtocol.requests.contains { $0.url?.host == "upos.bilivideo.com" }, "拒否のあとに、別の要求を送らない")
+    }
+
+    func testNothingIsFinishedBeforeTheCatalogHasBeenLoaded() async throws {
+        let audio = try makeAudio(seconds: 2)
+        let key = "bili:BV1eeeeeeeee:p1"
+        let (service, _) = try environment(Fixture(audio: audio))
+        try await plantJob(service, id: "job-early", key: key, files: ["stream-0.m4a": audio])
+        let (relaunched, _) = try environment(Fixture(audio: audio))
+        await relaunched.resume() // start() より前に届いた通知：何も処理しない
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("download-jobs/job-early.json").path), "読み込み前に、ジョブを消さない")
+        XCTAssertNil(relaunched.savedFile(key: key))
+        await relaunched.start()
+        let record = try await wait(relaunched, key: key, [.completed, .failed])
+        XCTAssertEqual(record.state, .completed, record.message ?? "")
     }
 
     func testTheCatalogKeepsAnInProgressRecordThatStillHasAJob() async throws {

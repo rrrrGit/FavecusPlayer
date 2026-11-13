@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import UIKit
 
@@ -6,6 +7,20 @@ struct Services {
     let player: PlaybackEngine?
     let downloads: DownloadService?
     let artwork: ArtworkStore
+}
+
+/// 保存の状態・サムネイルの変化を、一覧へ知らせる（描き直しの合図）。進み具合は頻繁に変わるため、間引く。
+@MainActor
+final class ServicesObserver: ObservableObject {
+    private var cancellables = Set<AnyCancellable>()
+
+    init(downloads: DownloadService?, artwork: ArtworkStore) {
+        let signals: [ObservableObjectPublisher] = [downloads?.objectWillChange, Optional(artwork.objectWillChange)].compactMap { $0 }
+        Publishers.MergeMany(signals)
+            .throttle(for: .milliseconds(300), scheduler: DispatchQueue.main, latest: true)
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+    }
 }
 
 /// 曲・リストの画像。サムネイルがなければ、名前から決めた色の代わりの画像（先頭の1文字）を出す。

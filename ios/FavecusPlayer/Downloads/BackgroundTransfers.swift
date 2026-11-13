@@ -37,6 +37,12 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
     static let identifier = "app.favecus.player.downloads"
     /// AppDelegate が受け取った、背面で終わった通信の完了通知（identifier ごと。メインスレッドだけで触る）。
     nonisolated(unsafe) static var pendingCompletion: [String: () -> Void] = [:]
+    nonisolated(unsafe) private static var eventsFinished: Set<String> = []
+
+    /// AppDelegate から：背面の通信の完了通知を登録する（先に終了イベントが届いていれば、すぐ呼ぶ）。メインスレッドだけ。
+    static func register(identifier: String, completion: @escaping () -> Void) {
+        if eventsFinished.remove(identifier) != nil { completion() } else { pendingCompletion[identifier] = completion }
+    }
 
     static func backgroundConfiguration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.background(withIdentifier: identifier)
@@ -54,6 +60,7 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
     private let lock = NSLock()
     private var written: [String: [Int: Int64]] = [:]
     private var totals: [String: Int64] = [:]
+    private var cancelling: Set<String> = [] // アプリ自身が取り消したジョブ（それ以外の取り消し＝システムによる中断は、失敗として残す）
     /// 取得の状態が変わった（ジョブID）。
     var onChange: (@Sendable (String) -> Void)?
     /// 進み具合（ジョブID、0〜1）。
@@ -92,6 +99,10 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
 
     private func write(_ job: DownloadJob) throws {
         try FileManager.default.createDirectory(at: jobsDirectory, withIntermediateDirectories: true)
+        var folder = jobsDirectory
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true // 署名つきの配信URLを含むため、バックアップに入れない
+        try? folder.setResourceValues(values)
         try JSONEncoder().encode(job).write(to: jobFile(job.id), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 
@@ -103,13 +114,11 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
         try FileManager.default.createDirectory(at: staging(job.id), withIntermediateDirectories: true)
         try write(job)
         lock.lock(); totals[job.id] = Int64(job.streams.reduce(0) { $0 + $1.size }); lock.unlock()
-        for index in job.streams.indices {
-            var next = job
-            // 許可されたホストの候補だけを、順に試す
-            next.streams[index].urls = job.streams[index].urls.filter { URL(string: $0).map(MediaHostPolicy.isAllowed) == true }
-            if next != job { try write(next) }
-            try enqueue(next, index)
-        }
+        // 許可されたホストの候補だけを残して、1回で書き込んでから始める
+        var next = job
+        for index in next.streams.indices { next.streams[index].urls = next.streams[index].urls.filter { URL(string: $0).map(MediaHostPolicy.isAllowed) == true } }
+        if next != job { try write(next) }
+        for index in next.streams.indices { try enqueue(next, index) }
     }
 
     private func enqueue(_ job: DownloadJob, _ index: Int) throws {
@@ -142,6 +151,7 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
     }
 
     func cancel(_ id: String) async {
+        lock.lock(); cancelling.insert(id); lock.unlock()
         for task in await session.allTasks where Self.parse(task.taskDescription)?.id == id { task.cancel() }
     }
 
@@ -149,7 +159,7 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
     func remove(_ id: String) {
         try? FileManager.default.removeItem(at: jobFile(id))
         try? FileManager.default.removeItem(at: staging(id))
-        lock.lock(); written[id] = nil; totals[id] = nil; lock.unlock()
+        lock.lock(); written[id] = nil; totals[id] = nil; cancelling.remove(id); lock.unlock()
     }
 
     private static func parse(_ description: String?) -> (id: String, index: Int)? {
@@ -201,7 +211,11 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let error, let (id, index) = Self.parse(task.taskDescription) else { return }
-        if (error as? URLError)?.code == .cancelled { return }
+        if (error as? URLError)?.code == .cancelled {
+            lock.lock(); let own = cancelling.contains(id); lock.unlock()
+            if !own { fail(id, index, "中断されました。もう一度保存してください。", refused: false) } // システムによる取り消し（終了など）
+            return
+        }
         // 通信の失敗（拒否ではない）：次の候補があれば、そちらで試す。なければ失敗として残す。
         if var job = job(id), index < job.streams.count, job.streams[index].urlIndex + 1 < job.streams[index].urls.count {
             job.streams[index].urlIndex += 1
@@ -218,6 +232,8 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
 
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
         let identifier = identifier
-        DispatchQueue.main.async { BackgroundTransfers.pendingCompletion.removeValue(forKey: identifier)?() }
+        DispatchQueue.main.async {
+            if let completion = BackgroundTransfers.pendingCompletion.removeValue(forKey: identifier) { completion() } else { BackgroundTransfers.eventsFinished.insert(identifier) }
+        }
     }
 }
