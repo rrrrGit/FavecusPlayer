@@ -23,6 +23,20 @@ final class FakeBackend: PlayerBackend {
     func simulateFailure() { onFailed?("テスト用の失敗") }
 }
 
+/// 偽のメディア供給（Bilibiliの曲のファイルを用意する）。
+@MainActor
+final class FakeProvider: MediaProvider {
+    var file: URL?
+    var error: Error?
+    private(set) var requested: [String] = []
+
+    func playableFile(for entry: EntryItem) async throws -> URL {
+        requested.append(entry.title)
+        if let error { throw error }
+        return try XCTUnwrap(file)
+    }
+}
+
 /// 再生順は共通JS（Windows版と同じQueue）、再生の道具は偽物で確認する。実機のロック画面・割り込み・イヤホンの動作は、実機での確認項目。
 @MainActor
 final class PlaybackTests: XCTestCase {
@@ -183,6 +197,56 @@ final class PlaybackTests: XCTestCase {
         backend.simulateEnd()
         try await waitFor { !engine.isPlaying }
         XCTAssertEqual(backend.loaded.count, count, "1周したら止まる")
+    }
+
+    private func prepareWithProvider(_ provider: FakeProvider) async throws -> (LibraryStore, PlaybackEngine, FakeBackend) {
+        let (store, _, backend) = try await prepare()
+        let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let local = try XCTUnwrap(try entry(store, "ローカルA").fileName)
+        provider.file = store.mediaDirectory.appendingPathComponent(local)
+        return (store, PlaybackEngine(core: core, store: store, backend: backend, provider: provider), backend)
+    }
+
+    func testAnOnlineEntryIsFetchedThroughTheProviderAndPlayed() async throws {
+        let provider = FakeProvider()
+        let (store, engine, backend) = try await prepareWithProvider(provider)
+        let online = try entry(store, "曲1")
+        XCTAssertTrue(engine.canPlay(online))
+        await engine.play(entryId: online.id, scope: try parentId(store))
+        XCTAssertEqual(provider.requested, ["曲1"])
+        XCTAssertEqual(engine.current?.title, "曲1")
+        XCTAssertFalse(engine.isPreparing)
+        XCTAssertEqual(backend.loaded.last, provider.file)
+        XCTAssertTrue(backend.isPlaying)
+    }
+
+    func testAnOnlineFailureSkipsToTheNextEntryButARateLimitStopsEverything() async throws {
+        let provider = FakeProvider()
+        let (store, engine, backend) = try await prepareWithProvider(provider)
+        let scope = try parentId(store)
+        provider.error = DownloadError.message("配信先から取得できません（HTTP 403）。")
+        await engine.play(entryId: try entry(store, "曲1").id, scope: scope)
+        try await waitFor { engine.current?.title == "ローカルA" } // 取得できない曲は飛ばして、次（保存済みのローカル曲）へ
+        XCTAssertNotNil(engine.message)
+        XCTAssertTrue(backend.isPlaying)
+        // 続けても同じ結果になる失敗（混雑・リスク制御・ログイン要）は、次へ進まず止めて知らせる
+        provider.error = BilibiliError.failed("Bilibiliから情報を取得できません（HTTP 412）。", stopBatch: true)
+        engine.message = nil
+        await engine.play(entryId: try entry(store, "曲4").id, scope: scope)
+        try await waitFor { engine.current == nil }
+        XCTAssertTrue(engine.message?.contains("412") ?? false, engine.message ?? "")
+        XCTAssertTrue(backend.stopped)
+    }
+
+    func testChoosingAnotherEntryWhileOneIsBeingFetchedDropsTheOldResult() async throws {
+        let provider = FakeProvider()
+        let (store, engine, backend) = try await prepareWithProvider(provider)
+        let scope = try parentId(store)
+        let slow = Task { await engine.play(entryId: try! entry(store, "曲1").id, scope: scope) }
+        await engine.play(entryId: try entry(store, "ローカルB").id, scope: scope)
+        await slow.value
+        XCTAssertEqual(engine.current?.title, "ローカルB", "あとから選んだ曲が優先される")
+        XCTAssertTrue(backend.isPlaying)
     }
 
     /// 本物のAVPlayerで、実際のファイルを読み込めること（CIのシミュレーターには音声の出力装置がないため、時間の進み方は確認しない）。

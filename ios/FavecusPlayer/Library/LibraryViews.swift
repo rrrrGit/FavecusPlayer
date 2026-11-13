@@ -9,6 +9,9 @@ struct LibraryRootView: View {
     let exporter: ExportCoordinator?
     let player: PlaybackEngine?
     let sync: SyncCoordinator?
+    let bilibili: BilibiliAccount?
+    let downloads: DownloadService?
+    @State private var showBilibili = false
     @State private var showSync = false
     @State private var showDiagnostics = false
     @State private var showPicker = false
@@ -25,11 +28,11 @@ struct LibraryRootView: View {
                 case .blocked(let message):
                     BlockedView(message: message)
                 case .ready:
-                    PlaylistPage(store: store, player: player, parentId: nil)
+                    PlaylistPage(store: store, player: player, downloads: downloads, parentId: nil)
                 }
             }
             .navigationDestination(for: String.self) { id in
-                PlaylistPage(store: store, player: player, parentId: id)
+                PlaylistPage(store: store, player: player, downloads: downloads, parentId: id)
             }
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarLeading) {
@@ -37,6 +40,7 @@ struct LibraryRootView: View {
                     if importer != nil, store.isReady { Button("取り込み") { showPicker = true } }
                     if exporter != nil, store.isReady { Button("出力") { showExport = true } }
                     if sync != nil, store.isReady { Button("同期") { showSync = true } }
+                    if bilibili != nil { Button("Bilibili") { showBilibili = true } }
                 }
             }
         }
@@ -44,6 +48,7 @@ struct LibraryRootView: View {
         .task {
             await store.load()
             await sync?.start() // 同期が有効なら、状態を読み込んで同期を始める
+            await downloads?.start() // 保存の記録を読み込み、前回の途中のものを片付ける
             // 画面確認用（シミュレーターのスクリーンショット）：起動引数 -FavecusDemoPath <ID,ID...> で、指定の階層まで開く。通常の起動では何もしない。
             if let raw = UserDefaults.standard.string(forKey: "FavecusDemoPath"), path.isEmpty {
                 for id in raw.split(separator: ",") { path.append(String(id)) }
@@ -65,6 +70,9 @@ struct LibraryRootView: View {
             guard let importer, url.isFileURL, url.pathExtension.lowercased() == "zip" else { return }
             importer.begin(url: url)
             showImport = true
+        }
+        .sheet(isPresented: $showBilibili) {
+            if let bilibili { BilibiliSheet(account: bilibili, isPresented: $showBilibili) }
         }
         .sheet(isPresented: $showSync) {
             if let sync { SyncSheet(sync: sync, isPresented: $showSync) }
@@ -102,6 +110,7 @@ private struct BlockedView: View {
 private struct PlaylistPage: View {
     @ObservedObject var store: LibraryStore
     let player: PlaybackEngine?
+    let downloads: DownloadService?
     let parentId: String?
 
     @State private var creating = false
@@ -144,7 +153,7 @@ private struct PlaylistPage: View {
                 Section("曲") {
                     if entries.isEmpty { Text("曲はありません").foregroundStyle(.secondary) }
                     ForEach(entries) { entry in
-                        EntryRow(entry: entry, player: player, scope: parent.id)
+                        EntryRow(entry: entry, player: player, downloads: downloads, scope: parent.id)
                     }
                     .onDelete { offsets in
                         for index in offsets {

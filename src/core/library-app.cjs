@@ -4,7 +4,7 @@
 const Actions = require('./library-actions.cjs');
 const Tree = require('../ui/library-tree.js');
 const { ValidateLibrary, CleanText } = require('./library-data.cjs');
-const { ValidateIdentityVersion } = require('./library-identity.cjs');
+const { ValidateIdentityVersion, LibrarySyncKey } = require('./library-identity.cjs');
 const Transfer = require('./library-transfer.cjs');
 const { Queue } = require('./queue.cjs');
 
@@ -161,4 +161,11 @@ function QueueRun(spec) {
   }
   return { played };
 }
-module.exports = { Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueRun };
+// 端末間で曲を同じと見なすキー（SyncMediaKey：bili:<BV>:p<パート>）。保存した動画の記録は、このキーで引く（ファイル名・パスは使わない）。
+function MediaKeys(options) {
+  try {
+    const keyOf = LibrarySyncKey(options.aliases || []);
+    return { keys: (options.entries || []).map(entry => { try { return keyOf({ type: 'bilibili', url: entry.url }); } catch { return null; } }) };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueRun };

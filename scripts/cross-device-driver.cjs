@@ -65,7 +65,7 @@ async function main() {
   console.log('windows-1 done');
 
   // ---- iOSが取り込み、オフラインで編集するのを待つ
-  await WaitFor('ios-A.done');
+  await WaitFor('ios-A.done', 1700); // iOS側は、ビルドと他のテストの後に始まる（混雑したランナーでは遅い）ので、長く待つ
   // ---- windows-2：同時の編集
   store.Apply({ type: 'rename', playlistId: Id(store, '親B'), name: '親B(W改名)' });
   Add(store, '独立', 7, '曲W1');

@@ -17137,5 +17137,60 @@
    }
   ],
   "expectError": "試聴用・保護された動画は保存できません。"
+ },
+ {
+  "name": "media keys: BV with parts, av, an alias form and an invalid url",
+  "call": "MediaKeys",
+  "args": [
+   {
+    "entries": [
+     {
+      "url": "https://www.bilibili.com/video/BV1aaaaaaaaa/"
+     },
+     {
+      "url": "https://www.bilibili.com/video/BV1aaaaaaaaa/?p=3"
+     },
+     {
+      "url": "https://www.bilibili.com/video/av170001/"
+     },
+     {
+      "url": "https://example.com/x"
+     }
+    ],
+    "aliases": []
+   }
+  ],
+  "expect": {
+   "keys": [
+    "bili:BV1aaaaaaaaa:p1",
+    "bili:BV1aaaaaaaaa:p3",
+    "bili-av:170001:p1",
+    null
+   ]
+  }
+ },
+ {
+  "name": "media keys: a confirmed alias maps av to the BV form",
+  "call": "MediaKeys",
+  "args": [
+   {
+    "entries": [
+     {
+      "url": "https://www.bilibili.com/video/av170001/?p=2"
+     }
+    ],
+    "aliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ]
+   }
+  ],
+  "expect": {
+   "keys": [
+    "bili:BV1xx411c7mD:p2"
+   ]
+  }
  }
 ]

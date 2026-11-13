@@ -6,7 +6,7 @@ struct FavecusPlayerApp: App {
 
     var body: some Scene {
         WindowGroup {
-            LibraryRootView(store: environment.store, importer: environment.importer, exporter: environment.exporter, player: environment.player, sync: environment.sync)
+            LibraryRootView(store: environment.store, importer: environment.importer, exporter: environment.exporter, player: environment.player, sync: environment.sync, bilibili: environment.bilibili, downloads: environment.downloads)
         }
     }
 }
@@ -19,6 +19,8 @@ final class AppEnvironment: ObservableObject {
     let exporter: ExportCoordinator?
     let player: PlaybackEngine?
     let sync: SyncCoordinator?
+    let bilibili: BilibiliAccount?
+    let downloads: DownloadService?
 
     init() {
         do {
@@ -28,7 +30,20 @@ final class AppEnvironment: ObservableObject {
             self.store = store
             importer = ImportCoordinator(service: TransferService(core: core), store: store)
             exporter = ExportCoordinator(service: ExportService(core: core), store: store)
-            player = PlaybackEngine(core: core, store: store, backend: AVPlayerBackend(), makeSystem: { SystemAudio(controls: $0) })
+            // Bilibiliの情報取得は、別のJavaScriptCoreで動かす（ログイン情報はKeychain。api.bilibili.com 宛てだけにCookieを付ける）。
+            let cookies = BilibiliCookieVault()
+            let biliCore = try? BiliCore(bundle: .main, host: BilibiliHost(cookies: cookies))
+            bilibili = biliCore.map { BilibiliAccount(cookies: cookies, core: $0) }
+            let service = biliCore.map { BilibiliService(core: $0) }
+            // 保存（ダウンロード）とオンライン再生の取得。保存先は、バックアップ対象外のフォルダ。
+            let downloadsDirectory = store.syncDirectory.deletingLastPathComponent().appendingPathComponent("downloads", isDirectory: true)
+            let caches = (try? FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)) ?? FileManager.default.temporaryDirectory
+            let downloadService = service.map {
+                DownloadService(catalog: DownloadCatalog(url: downloadsDirectory.deletingLastPathComponent().appendingPathComponent("downloads.json"), mediaDirectory: downloadsDirectory),
+                                bilibili: $0, downloader: MediaDownloader(), core: core, directory: downloadsDirectory, cacheDirectory: caches.appendingPathComponent("online", isDirectory: true))
+            }
+            downloads = downloadService
+            player = PlaybackEngine(core: core, store: store, backend: AVPlayerBackend(), provider: downloadService, makeSystem: { SystemAudio(controls: $0) })
             // 同期は、再生などとは別のJavaScriptCoreで動かす。Keychainが使えない環境でも、起動は妨げない（同期の画面にエラーとして出る）。
             let vault = KeychainVault()
             let host = StoreSyncHost(store: store, directory: store.syncDirectory, vault: vault)
@@ -41,6 +56,8 @@ final class AppEnvironment: ObservableObject {
             exporter = nil
             player = nil
             sync = nil
+            bilibili = nil
+            downloads = nil
         }
     }
 }

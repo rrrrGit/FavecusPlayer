@@ -15,6 +15,7 @@ const syncEngine = require('../core/sync-engine.cjs');
 const syncStateFile = require('../core/sync-statefile.cjs');
 const syncSession = require('../core/sync-session.cjs');
 const syncRuntime = require('../core/sync-runtime.cjs');
+const biliRuntime = require('../core/bilibili-runtime.cjs');
 const share = require('../core/library-share.cjs');
 const importIdentity = require('../core/import-identity.cjs');
 const iconData = require('../core/playlist-icon-data.cjs');
@@ -68,6 +69,7 @@ const CALLS = {
   },
   // 名前順などの並び（Intl.Collator('ja')）。NodeとiOSのICUの違いを検出する。
   TreeOrder: spec => ({ ids: tree.Ordered(Plain(spec.library), spec.ids, spec.mode) }),
+  MediaKeys: options => libraryApp.MediaKeys(options),
   LibraryOpen: options => libraryApp.Open(options),
   LibraryApply: options => libraryApp.Apply(options),
   QueueRun: options => libraryApp.QueueRun(options),
@@ -189,6 +191,7 @@ function Bench(json) {
 
 // iPhone版の入口（JSON文字列の入出力）。
 const LibraryOpen = json => JSON.stringify(libraryApp.Open(JSON.parse(json)));
+const MediaKeys = json => JSON.stringify(libraryApp.MediaKeys(JSON.parse(json)));
 const LibraryApply = json => JSON.stringify(libraryApp.Apply(JSON.parse(json)));
 const QueueStart = json => JSON.stringify(libraryApp.QueueStart(JSON.parse(json)));
 const QueueMove = json => JSON.stringify(libraryApp.QueueMove(JSON.parse(json)));
@@ -204,9 +207,11 @@ const SyncState = () => JSON.stringify(syncRuntime.State());
 const SyncValidate = json => JSON.stringify(syncRuntime.ValidateConfig(JSON.parse(json)));
 const SyncSendCode = json => Json(syncRuntime.SendCode(JSON.parse(json)));
 const SyncVerifyCode = json => Json(syncRuntime.VerifyCode(JSON.parse(json)));
+const BiliResolveAsync = json => Json(biliRuntime.Resolve(JSON.parse(json)));
+const BiliProfile = () => Json(biliRuntime.Profile());
 const QueueSync = json => JSON.stringify(libraryApp.QueueSync(JSON.parse(json)));
 const QueuePeek = json => JSON.stringify(libraryApp.QueuePeek(JSON.parse(json)));
 const TransferPrepare = json => JSON.stringify(libraryApp.TransferPrepare(JSON.parse(json)));
 const TransferImport = json => JSON.stringify(libraryApp.TransferImport(JSON.parse(json)));
 const TransferExport = json => JSON.stringify(libraryApp.TransferExport(JSON.parse(json)));
-module.exports = { RunCases, Observe, Bench, LibraryOpen, LibraryApply, QueueStart, QueueMove, QueueSync, QueuePeek, SyncOpen, SyncEnable, SyncCycle, SyncUnblock, SyncChanged, SyncReset, SyncState, SyncValidate, SyncSendCode, SyncVerifyCode, TransferPrepare, TransferImport, TransferExport };
+module.exports = { RunCases, Observe, Bench, MediaKeys, LibraryOpen, LibraryApply, QueueStart, QueueMove, QueueSync, QueuePeek, SyncOpen, SyncEnable, SyncCycle, SyncUnblock, SyncChanged, SyncReset, SyncState, SyncValidate, SyncSendCode, SyncVerifyCode, BiliResolveAsync, BiliProfile, TransferPrepare, TransferImport, TransferExport };

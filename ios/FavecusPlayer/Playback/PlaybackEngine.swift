@@ -1,6 +1,12 @@
 import Combine
 import Foundation
 
+/// 再生に使う音声ファイルを用意する（Bilibiliの曲：保存済みならそのファイル、なければ一時ファイルへ取得）。失敗は理由つきで投げる（回避しない）。
+@MainActor
+protocol MediaProvider: AnyObject {
+    func playableFile(for entry: EntryItem) async throws -> URL
+}
+
 /// iPhone版のローカル再生（音声）。次に何を再生するかは共通JS（FavecusCore.QueueStart / QueueMove。Windows版と同じQueue）が決め、
 /// ここは「再生できる曲を集める」「選ばれた曲を道具（PlayerBackend）で鳴らす」「OSへ状態を伝える」だけ。
 /// 再生できる曲＝この端末にメディアの実体があるローカル曲。それ以外（Bilibiliのオンライン・実体のない曲）は順番に入れず、選ぶとお知らせを出す。
@@ -22,6 +28,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     @Published private(set) var isPlaying = false
     @Published private(set) var position: Double = 0
     @Published private(set) var duration: Double = 0
+    /// Bilibiliの曲のファイルを用意している間（取得中）。
+    @Published private(set) var isPreparing = false
     @Published var shuffle = false
     @Published var repeatMode: RepeatMode = .off
     @Published var message: String?
@@ -35,8 +43,10 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     /// 曲の切り替え・停止のたびに増やす。待っている間に状態が変わった古い処理の結果を捨てるため。
     private var generation = 0
     private var libraryObserver: AnyCancellable?
+    private let provider: MediaProvider?
 
-    init(core: SharedCore, store: LibraryStore, backend: PlayerBackend, makeSystem: ((PlaybackControls) -> SystemAudioHooks)? = nil) {
+    init(core: SharedCore, store: LibraryStore, backend: PlayerBackend, provider: MediaProvider? = nil, makeSystem: ((PlaybackControls) -> SystemAudioHooks)? = nil) {
+        self.provider = provider
         self.core = core
         self.store = store
         self.backend = backend
@@ -54,9 +64,10 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     // MARK: 再生できる曲
 
-    /// この端末で再生できる曲（実体のあるローカル曲）。
+    /// 再生できる曲：実体のあるローカル曲、または、Bilibiliの曲（保存済み、またはオンラインで取得して再生。取得できないときは、理由を知らせて次へ進む）。
     func canPlay(_ entry: EntryItem) -> Bool {
-        entry.type == "local" && entry.fileName.map { store.mediaFiles.contains($0) } == true
+        if entry.type == "local" { return entry.fileName.map { store.mediaFiles.contains($0) } == true }
+        return entry.type == "bilibili" && entry.url != nil && provider != nil
     }
 
     private func playableIds() -> [String] {
@@ -85,7 +96,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         }
         guard mine == generation else { return } // 待っている間に、別の曲を選ばれた・止められた
         self.scope = scope
-        load(id: id, playlistId: playlistId)
+        await load(id: id, playlistId: playlistId)
     }
 
     func next() { Task { await goNext() } }
@@ -123,6 +134,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     func stop() {
         generation += 1
+        isPreparing = false
         backend.stop()
         current = nil
         scope = nil
@@ -170,7 +182,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             refresh()
             return
         }
-        load(id: id, playlistId: playlistId)
+        await load(id: id, playlistId: playlistId)
     }
 
     /// ライブラリが変わったとき、再生中の曲が再生範囲に残っているかを確かめる（なくなったら止める）。
@@ -182,14 +194,44 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         stop()
     }
 
-    private func load(id: String, playlistId: String) {
-        guard let target = entry(id), let fileName = target.fileName else { return }
+    private func load(id: String, playlistId: String) async {
+        guard let target = entry(id) else { return }
         system?.activate()
         generation += 1
+        let mine = generation
         current = NowPlaying(entryId: id, playlistId: playlistId, title: target.title.isEmpty ? "（無題）" : target.title)
-        backend.load(url: store.mediaDirectory.appendingPathComponent(fileName))
+        let file: URL
+        if target.type == "local" {
+            guard let fileName = target.fileName else { return }
+            file = store.mediaDirectory.appendingPathComponent(fileName)
+        } else {
+            guard let provider else { return }
+            backend.pause()
+            isPreparing = true
+            refresh()
+            do { file = try await provider.playableFile(for: target) }
+            catch {
+                guard mine == generation else { return }
+                isPreparing = false
+                onlineFailed(error)
+                return
+            }
+            guard mine == generation else { return } // 取得している間に、別の曲を選ばれた・止められた
+            isPreparing = false
+        }
+        backend.load(url: file)
         backend.play()
         refresh()
+    }
+
+    /// ログイン要・リスク制御・混雑のような、続けても同じ結果になる失敗は、止めて知らせる。それ以外は、その曲を飛ばす。
+    private func onlineFailed(_ error: Error) {
+        if let known = error as? BilibiliError, known.stopBatch {
+            message = known.description
+            stop()
+            return
+        }
+        failed((error as? CustomStringConvertible)?.description ?? error.localizedDescription)
     }
 
     private func ended() {

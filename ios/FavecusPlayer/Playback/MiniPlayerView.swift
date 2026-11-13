@@ -1,14 +1,19 @@
 import SwiftUI
 
-/// 曲の1行。再生できる曲（この端末に実体のあるローカル曲）は押すと再生、それ以外は薄く表示し、押すと理由を出す。
+/// 曲の1行。再生できる曲は押すと再生、できない曲は薄く表示して理由を出す。Bilibiliの曲は、保存の状態を表示し、長押しで保存・削除できる。
 struct EntryRow: View {
     let entry: EntryItem
     let player: PlaybackEngine?
+    let downloads: DownloadService?
     let scope: String
 
     var body: some View {
         if let player {
-            PlayableEntryRow(entry: entry, player: player, scope: scope)
+            if entry.type == "bilibili", let downloads {
+                OnlineEntryRow(entry: entry, player: player, downloads: downloads, scope: scope)
+            } else {
+                PlayableEntryRow(entry: entry, player: player, scope: scope)
+            }
         } else {
             Text(entry.title.isEmpty ? "（無題）" : entry.title)
         }
@@ -39,6 +44,60 @@ private struct PlayableEntryRow: View {
     }
 }
 
+/// Bilibiliの曲：オンラインでも再生でき、保存すればオフラインで再生できる。
+private struct OnlineEntryRow: View {
+    let entry: EntryItem
+    @ObservedObject var player: PlaybackEngine
+    @ObservedObject var downloads: DownloadService
+    let scope: String
+    @State private var key: String?
+
+    private var isCurrent: Bool { player.current?.entryId == entry.id }
+    private var record: DeviceMediaRecord? { key.flatMap { downloads.record(key: $0) } }
+
+    var body: some View {
+        Button {
+            Task { await player.play(entryId: entry.id, scope: scope) }
+        } label: {
+            HStack {
+                if isCurrent { Image(systemName: player.isPlaying ? "speaker.wave.2.fill" : "speaker.fill").foregroundStyle(.tint) }
+                Text(entry.title.isEmpty ? "（無題）" : entry.title)
+                Spacer()
+                status
+            }
+        }
+        .buttonStyle(.plain)
+        .task { key = await downloads.key(for: entry) }
+        .contextMenu {
+            if let key {
+                if record?.state.inProgress == true {
+                    Button("保存を取り消す", role: .destructive) { downloads.cancel(key: key) }
+                } else if record?.state == .completed {
+                    Button("保存を削除", role: .destructive) { Task { await downloads.remove(key: key) } }
+                } else {
+                    Button("音声を保存") { downloads.save(entry: entry) }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var status: some View {
+        if let record {
+            switch record.state {
+            case .completed:
+                Image(systemName: "arrow.down.circle.fill").font(.caption).foregroundStyle(.green)
+            case .failed:
+                Image(systemName: "exclamationmark.circle").font(.caption).foregroundStyle(.orange)
+            case .cancelled, .notDownloaded:
+                EmptyView()
+            default:
+                if let value = key.flatMap({ downloads.progress["\($0)|audio"] }) { ProgressView(value: value).frame(width: 40) } else { ProgressView().controlSize(.mini) }
+            }
+        }
+    }
+}
+
 /// 画面下のミニプレイヤー（仮の最小画面。Step15で置き換える）。曲がないときは何も出さない。
 struct MiniPlayerBar: View {
     @ObservedObject var player: PlaybackEngine
@@ -50,6 +109,7 @@ struct MiniPlayerBar: View {
                 VStack(spacing: 6) {
                     HStack {
                         Text(current.title).font(.subheadline).lineLimit(1)
+                        if player.isPreparing { ProgressView().controlSize(.mini); Text("取得中…").font(.caption).foregroundStyle(.secondary) }
                         Spacer()
                         Button { player.previous() } label: { Image(systemName: "backward.fill") }
                         Button { player.toggle() } label: { Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").frame(width: 32) }
