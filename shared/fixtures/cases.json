@@ -11711,7 +11711,7 @@
   }
  },
  {
-  "name": "library app: open repairs an unknown active list to the first root list",
+  "name": "library app: open repairs an unknown active list to the first list",
   "call": "LibraryOpen",
   "args": [
    {
@@ -11843,7 +11843,7 @@
   }
  },
  {
-  "name": "library app: open reports a missing media id as invalid",
+  "name": "library app: open reports a missing media id as unsupported (the Windows store also stops)",
   "call": "LibraryOpen",
   "args": [
    {
@@ -11860,8 +11860,8 @@
    }
   ],
   "expect": {
-   "status": "invalid",
-   "message": "保存データを検証できません：メディア識別番号がありません。保存データは変更していません。"
+   "status": "unsupported",
+   "message": "メディア識別番号がありません。保存データは変更していません。"
   }
  },
  {
@@ -12035,6 +12035,101 @@
   ],
   "expect": {
    "error": "新しい識別番号を用意できません。"
+  }
+ },
+ {
+  "name": "library app: open treats an empty text as invalid, not as a new library",
+  "call": "LibraryOpen",
+  "args": [
+   {
+    "text": "",
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "status": "invalid",
+   "message": "保存データを読み取れません。"
+  }
+ },
+ {
+  "name": "library app: open treats whitespace only as invalid",
+  "call": "LibraryOpen",
+  "args": [
+   {
+    "text": " \n",
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "status": "invalid",
+   "message": "保存データを読み取れません。"
+  }
+ },
+ {
+  "name": "library app: open refuses a v3 file without identityVersion when it has entries",
+  "call": "LibraryOpen",
+  "args": [
+   {
+    "text": "{\"version\":3,\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\"],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000001\",\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"L\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"title\":\"曲\",\"addedAt\":\"\",\"type\":\"bilibili\",\"url\":\"https://www.bilibili.com/video/BV1aaaaaaaaa/\"}],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true}]}",
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "status": "unsupported",
+   "message": "メディア識別情報のない古い形式です。先にWindows版（v0.6.7以降）で開いて保存してください。保存データは変更していません。"
+  }
+ },
+ {
+  "name": "library app: open accepts a v3 file without identityVersion when it has no entries and sets identityVersion 2",
+  "call": "LibraryOpen",
+  "args": [
+   {
+    "text": "{\"version\":3,\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\"],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000001\",\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"L\",\"icon\":\"\",\"entries\":[],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true}]}",
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "status": "ok",
+   "text": "{\n  \"version\": 3,\n  \"rootPlaylistIds\": [\n    \"00000001-0000-4000-8000-000000000001\"\n  ],\n  \"activePlaylistId\": \"00000001-0000-4000-8000-000000000001\",\n  \"playlists\": [\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000001\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"L\",\n      \"createdAt\": \"\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": []\n    }\n  ],\n  \"identityVersion\": 2\n}"
+  }
+ },
+ {
+  "name": "library app: open reports an identity data error as unsupported, not invalid",
+  "call": "LibraryOpen",
+  "args": [
+   {
+    "text": "{\"version\":3,\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\"],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000001\",\"identityVersion\":2,\"videoAliases\":[{\"aid\":\"x\"}],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"L\",\"icon\":\"\",\"entries\":[],\"childIds\":[],\"createdAt\":\"\",\"lastAddedAt\":\"\",\"includeInAll\":true}]}",
+    "ids": [
+     "aaaaaaaa-0000-4000-8000-000000000001",
+     "aaaaaaaa-0000-4000-8000-000000000002",
+     "aaaaaaaa-0000-4000-8000-000000000003"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "status": "unsupported",
+   "message": "動画の対応情報が正しくありません。"
   }
  }
 ]

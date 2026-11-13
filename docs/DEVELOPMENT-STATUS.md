@@ -128,6 +128,8 @@ Step6完了（下記）。次はStep7（Supabase接続、Windows版の同期配�
 - 方針：ローカルDB＝Windows版と同じv3の `library.json`（SQLite等は使わない）。編集操作は `src/core/library-actions.cjs` へ共通化し、Windows版の `Store` が同じ処理を使う（Nodeの既存テストは変更せず、失敗は環境起因の既知9件のみ）。iPhone版の入口は `src/core/library-app.cjs`（Open/Apply）。共通テストデータは操作ごとのケース・名前順（Intl.Collator、かな/カナ/漢字/英数混在）・Open/Applyを追加し208件。
 - CIのBENCHに同期4項目と `actionMs` を追加。
 - 8-2・8-3：`ios/FavecusPlayer/Library/`（LibraryModel・LibraryStore・LibraryViews）、`LibraryStoreTests`。**Macがないためコンパイルはまだ未確認**（CIで確認）。画面は仮の最小画面で、シミュレーターのスクリーンショット（workflow_dispatch）と実機は別途。
+- iOS CI（`da326e8`）：Swiftのビルドと12テスト通過、共通テストデータ208件・失敗0（名前順のIntl.Collator混在ケースを含みNodeとJavaScriptCoreで一致）。BENCH（シミュレーター、999リスト・約1万登録）：同期 変換59ms・マージ47ms・導出212ms・差分74ms、編集操作 2ms。
+- checker（Opus）指摘の修正：空ファイル/本体欠落でも.bakを先に試す／識別・上限エラーは.bakへ戻さず停止（Windows版と同じ）／identityVersionのない旧形式（曲あり）は扱わず、曲なしなら識別バージョン2を付与／壊れたファイルは複製して残す（名前衝突なし）／.bakは複製してから置換／load並行呼び出しの防止／Applyの内部例外文を出さない。共通テストデータ213件、Swiftテスト4件追加（CI確認待ち）。
 - 申し送り（Step11）：端末ごとにランダムIDの既定リスト「お気に入り」が作られ、同期を有効にすると他端末でも重複する。初回の有効化で「既定リストだけの未編集のライブラリ」は送らない対応を行う。
 
 ### Step7の結果（途中）

@@ -113,6 +113,63 @@ final class LibraryStoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.backupURL.path))
     }
 
+    /// 2回編集して、.bak に実データがある状態にする（本体は「最後」まで、.bak は「残る」まで）。
+    private func storeWithABackup() async throws -> LibraryStore {
+        let store = try makeStore()
+        await store.load()
+        store.perform(["type": "create", "name": "残る", "select": false])
+        await store.waitUntilIdle()
+        store.perform(["type": "create", "name": "最後", "select": false])
+        await store.waitUntilIdle()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.backupURL.path))
+        return store
+    }
+
+    func testAnEmptyFileRestoresFromTheBackupAndKeepsTheBackupIntact() async throws {
+        let store = try await storeWithABackup()
+        try "".write(to: store.fileURL, atomically: true, encoding: .utf8)
+        let reloaded = try makeStore()
+        await reloaded.load()
+        XCTAssertEqual(reloaded.state, .ready)
+        let names = Set(reloaded.document?.playlists.map(\.name) ?? [])
+        XCTAssertTrue(names.contains("残る"))
+        XCTAssertFalse(names.contains("最後"))
+        XCTAssertTrue(try read("library.json.bak").contains("残る"))
+    }
+
+    func testAMissingFileRestoresFromTheBackup() async throws {
+        let store = try await storeWithABackup()
+        try FileManager.default.removeItem(at: store.fileURL)
+        let reloaded = try makeStore()
+        await reloaded.load()
+        XCTAssertEqual(reloaded.state, .ready)
+        XCTAssertTrue(reloaded.document?.playlists.contains { $0.name == "残る" } ?? false)
+        XCTAssertNotNil(reloaded.notice)
+    }
+
+    func testAnIdentityErrorBlocksInsteadOfFallingBackToAnOlderBackup() async throws {
+        let store = try await storeWithABackup()
+        let broken = "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[{\"aid\":\"x\"}],\"rootPlaylistIds\":[],\"playlists\":[]}"
+        try broken.write(to: store.fileURL, atomically: true, encoding: .utf8)
+        let reloaded = try makeStore()
+        await reloaded.load()
+        guard case .blocked = reloaded.state else { return XCTFail("blocked になるはず: \(reloaded.state)") }
+        XCTAssertEqual(try read("library.json"), broken)
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: directory.path).contains { $0.hasPrefix("library.json.damaged-") })
+    }
+
+    func testTheRestoredContentIsTheBackupAndTheDamagedFileIsKept() async throws {
+        let store = try await storeWithABackup()
+        try "{broken".write(to: store.fileURL, atomically: true, encoding: .utf8)
+        let reloaded = try makeStore()
+        await reloaded.load()
+        let names = Set(reloaded.document?.playlists.map(\.name) ?? [])
+        XCTAssertTrue(names.contains("残る"))
+        XCTAssertFalse(names.contains("最後"))
+        let damaged = try XCTUnwrap(try FileManager.default.contentsOfDirectory(atPath: directory.path).first { $0.hasPrefix("library.json.damaged-") })
+        XCTAssertEqual(try read(damaged), "{broken")
+    }
+
     func testMoveMapperTranslatesOnMoveIntoBeforeAndAfter() {
         let ids = ["a", "b", "c", "d"]
         XCTAssertEqual(MoveMapper.map(ids: ids, from: IndexSet(integer: 0), to: 3), MoveMapper.Result(id: "a", targetId: "c", after: true))

@@ -19,6 +19,7 @@ final class LibraryStore: ObservableObject {
     private let directory: URL
     private var text = ""
     private var chain: Task<Void, Never>?
+    private var loading = false
 
     var fileURL: URL { directory.appendingPathComponent("library.json") }
     var backupURL: URL { directory.appendingPathComponent("library.json.bak") }
@@ -38,11 +39,22 @@ final class LibraryStore: ObservableObject {
     // MARK: 読み込み
 
     func load() async {
-        guard let core, case .loading = state else { return }
+        guard let core, case .loading = state, !loading else { return }
+        loading = true
+        defer { loading = false }
         do {
             let fileText = try readFile(fileURL)
             var result = try await open(core, fileText)
             var restored = false
+            // 本体がない場合も、直前のバックアップがあれば先にそれを試す（Windows版のStore.Readと同じ順序）。
+            if result.status == "new", fileText == nil, let backup = try readFile(backupURL) {
+                let fromBackup = try await open(core, backup)
+                if fromBackup.status == "ok" {
+                    result = fromBackup
+                    restored = true
+                    notice = "保存データが見つからなかったため、バックアップから復元しました。"
+                }
+            }
             switch result.status {
             case "new", "ok":
                 break
@@ -51,7 +63,7 @@ final class LibraryStore: ObservableObject {
                 if fileText != nil, let backup = try readFile(backupURL) {
                     let fromBackup = try await open(core, backup)
                     if fromBackup.status == "ok" {
-                        try setAside(fileURL)
+                        try keepDamaged(fileURL)
                         result = fromBackup
                         restored = true
                         notice = "保存データを読み込めなかったため、バックアップから復元しました。"
@@ -164,14 +176,19 @@ final class LibraryStore: ObservableObject {
         let fm = FileManager.default
         try fm.createDirectory(at: directory, withIntermediateDirectories: true)
         if fm.fileExists(atPath: fileURL.path), !text.isEmpty {
-            try? fm.removeItem(at: backupURL)
-            try fm.copyItem(at: fileURL, to: backupURL)
+            // 新しい複製を作ってから置き換える（複製に失敗しても、これまでの.bakを失わない）。
+            let temporary = directory.appendingPathComponent("library.json.bak.tmp")
+            try? fm.removeItem(at: temporary)
+            try fm.copyItem(at: fileURL, to: temporary)
+            if fm.fileExists(atPath: backupURL.path) { _ = try fm.replaceItemAt(backupURL, withItemAt: temporary) }
+            else { try fm.moveItem(at: temporary, to: backupURL) }
         }
         try Data(newText.utf8).write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 
-    private func setAside(_ url: URL) throws {
-        let target = directory.appendingPathComponent("library.json.damaged-\(Int(Date().timeIntervalSince1970))")
-        try FileManager.default.moveItem(at: url, to: target)
+    /// 壊れたファイルは別名で複製して残す（元の位置には、復元後に原子的に置き換えるまで残す）。名前は衝突しない。
+    private func keepDamaged(_ url: URL) throws {
+        let target = directory.appendingPathComponent("library.json.damaged-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.copyItem(at: url, to: target)
     }
 }
