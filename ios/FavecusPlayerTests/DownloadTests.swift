@@ -52,7 +52,7 @@ final class DownloadTests: XCTestCase {
             CVPixelBufferCreate(nil, 160, 120, kCVPixelFormatType_32BGRA, nil, &buffer)
             let pixel = try XCTUnwrap(buffer)
             CVPixelBufferLockBaseAddress(pixel, [])
-            if let base = CVPixelBufferGetBaseAddress(pixel) { memset(base, 40 + index * 10, CVPixelBufferGetDataSize(pixel)) }
+            if let base = CVPixelBufferGetBaseAddress(pixel) { memset(base, Int32(40 + index * 10), CVPixelBufferGetDataSize(pixel)) }
             CVPixelBufferUnlockBaseAddress(pixel, [])
             XCTAssertTrue(adaptor.append(pixel, withPresentationTime: CMTime(value: CMTimeValue(index), timescale: 10)))
         }
