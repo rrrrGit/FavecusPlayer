@@ -85,9 +85,9 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 | Step8 iOS基本アプリとローカルDB | 完了（実機での画面・操作感は未確認） | ローカルDB、プレイリスト階層の表示・編集・並び替え。画面はユーザーのUI案を受けて決定 |
 | Step9 iOSローカル再生 | 完了（シミュレーター・CI。実機の再生・ロック画面は未確認） | AVPlayerによる再生、ミニプレイヤー、バックグラウンド音声、ロック画面操作、再生順 |
 | Step10 メディアZIPの取り込み・出力 | 未着手 | 既存ZIP形式の拡張、Windows出力→iPhone取り込み→iPhone出力→Windows取り込み、重複防止、Filesアプリ・共有シートからの選択 |
-| Step11 iOS同期とWindows/iPhone間同期の検証 | 実装済み（Nodeでの検証済み）／Swiftのビルド・iOS CIでの確認は未実施（GitHub Actionsの課金上限で止まっている）／実Supabase・実機は未確認 | iOS側の同期接続。双方向・同時変更・オフライン・再接続・深い階層・共有子リストを実通信で確認 |
-| Step12 iOSのBilibiliログインとオンライン再生 | 未着手 | 必要な箇所だけWKWebView、認証情報はKeychain。通常の方法でアクセスできる配信のみ |
-| Step13 iOSダウンロード | 未着手 | IOSMediaDownloadService、URLSession、状態管理、Passthrough結合と安全なフォールバック、検証、サムネイル |
+| Step11 iOS同期とWindows/iPhone間同期の検証 | 完了（Node・iOS CI：Windows役のNodeとiPhone役のXCTestを偽のSupabase経由で接続した端末間シナリオ）。実Supabase・実機は未確認 | iOS側の同期接続。双方向・同時変更・オフライン・再接続・深い階層・共有子リストを実通信で確認 |
+| Step12 iOSのBilibiliログインとオンライン再生 | 実装済み（CI・模擬通信で確認）。実Bilibili・実機は未確認 | 必要な箇所だけWKWebView、認証情報はKeychain。通常の方法でアクセスできる配信のみ |
+| Step13 iOSダウンロード | 実装済み（CI・模擬通信で確認、前面のみ）。サムネイルは未実装。実Bilibili・実機は未確認 | IOSMediaDownloadService、URLSession、状態管理、Passthrough結合と安全なフォールバック、検証、サムネイル |
 | Step14 バックグラウンドダウンロード | 未着手 | background構成、中断・再開・キャンセル・通信切断・容量不足・アプリ再起動 |
 | Step15 iOS画面の仕上げ | 未着手 | ユーザーのUI案に沿った再生画面・ダウンロード・設定・同期状態の画面 |
 | Step16 AltStore実機導入手順 | 未着手 | AltServerの自動起動、同一Wi-Fi、信頼済み、必要なApple関連部品、Background Refreshの確認手順。アプリデータを保ったままのRefresh確認。PCを再起動しないとRefreshできないのかを実機で確認 |
@@ -134,13 +134,24 @@ Step6完了（下記）。次はStep7（Supabase接続、Windows版の同期配�
 - 公開中の注意：実在のURL・キー・メール・Cookie・個人データ・ローカルパスをコミットしない／CIのログに出さない（CIは偽のSupabaseのみ使用）。ワークフローの成果物（署名なしIPA、スクリーンショット）は、公開リポジトリでは、GitHubにログインした誰でも取得できる（秘密は含まない）。
 - 非公開へ戻すときの確認：公開期間中に秘密を含むコミットがないか再点検し、戻した後に、Actionsの課金（macランナー）が再び消費されることを認識しておく。
 
+### Step12・13の結果（2026-11-14、前面のダウンロードまで）
+
+- **共通JS**：`bilibili-resolve.cjs`（MD5・WBI署名・配信先の選択・view→playurl→WBIの順の解決。Windows版も同じ規則を使う）、`bilibili-runtime.cjs`（JavaScriptCoreの入口。通信はSwiftのhost）、`MediaKeys`（同期用メディアキー `bili:<BV>:p<part>`）。フィクスチャは293件。
+- **ログイン**：公式ページをWKWebViewで表示（パスワードは扱わない、ログイン用の保存領域は非永続）。許可した5つのCookieだけをKeychainへ。Cookieは `api.bilibili.com` 宛てにだけ付け、リダイレクトには追従しない。配信先・サムネイルには付けない。ログイン情報を消すのは未ログインの応答（-101）のときだけ。リスク制御（-352・-412・-509、HTTP 401・412・429）では、消さず、再試行もせず、止めて知らせる。
+- **オンライン再生**：一時ファイル（`Caches/online`、上限500MBのLRU）へ取得してAVPlayerで再生。通信不可・配信先の拒否（401・403・412・429）では次の曲へ進まず止める。保護された動画・試聴用は扱わない。配信先は許可リスト（bilivideo・hdslb・akamaized）のみ。
+- **ダウンロード（音声・動画）**：バックアップ対象外の `downloads/` と記録 `downloads.json`（メディアキー＋種別）。状態：未保存・準備・保存中・処理中・検証中・完了・失敗・取り消し。動画は映像と音声をAVMutableCompositionのpassthroughで結合し、失敗しても音声だけの保存は残す。検証（再生可能・トラック・長さ）と空き容量の確認あり。記録が読めない間は書き込まず、元の記録を上書きしない。再起動で途中の記録は「失敗」になる。
+- **Opusレビュー（Step11〜13）の指摘と対応**：記録の上書き／リスク制御でのログイン情報の削除／配信先拒否後の別候補・次曲への連続要求／ログイン用WebViewの永続Cookie／リダイレクト時のCookie／ステータス200・206のみ許可／取り消し後の完了化／通信エラーの詳細（署名つきURL）を記録に残さない、を修正。**残る低優先**：再生中の一時ファイルと同じ曲の重複取得の整理（キャッシュ）、`MediaKeys` を別表記の対応表なしで呼んでいる点、動画の結合判定を `layout` で行う点、`saveSession` のエラー表示、`cache` に残る `.dl-*` の掃除。
+- **検証**：Node（共通テスト・`bilibili-runtime`など）／iOS CI（Swift約60件、模擬通信の `StubProtocol`、生成した音声・映像）。
+- **未確認（ユーザー指示により、実機での確認はStep12・13の後）**：実際のBilibiliへの通信・ログイン画面での実ログイン、実際の配信の保存・再生、WebKit・URLSessionの実機での挙動（リダイレクト、非永続の保存領域）、AltStoreの更新後のKeychain、背景でのダウンロード（Step14）、サムネイル取得。
+
 ### Step11の進捗（2026-11-14）
 
 - 事前確認（CI、シミュレーター）：JavaScriptCoreで、Swiftが遅れて解決するPromiseを `await` できる（共通のasync同期をそのまま動かせる）／署名なしのテストホストではKeychainが `-34018` で使えず、ad-hoc署名（`CODE_SIGN_IDENTITY=-`）で使える／ATSは `http://127.0.0.1` を許可。
 - 11-1（共通JS、Windows版の動作は不変）：`sync-session.cjs`（Cycle・Reconcile・Apply・初回有効化・停止規則）、`sync-statefile.cjs`（状態ファイルの検証と書き出し）、`sync-merge.cjs`（受信の反映の規則）へ切り出し。**既定のままの空のライブラリは同期に送らず、共通の既定リスト（導出）に置き換えてから受信する**（既定リストの重複を解消、Windows版にも適用）。**同期データがあるのにライブラリが既定の空に見えるとき（ファイルの消失など）は、削除を送らず停止**（Windows版にも適用）。既存の同期テストは無修正で通過、新規テスト・共通テストデータ256件（JavaScriptCoreでも一致を確認済み）。
 - 11-2（iPhone）：`sync-runtime.cjs`（JavaScriptCoreの入口。hostはSwift）、`SyncCore`（再生用とは別の `JSVirtualMachine`）、`StoreSyncHost`（ライブラリ・状態ファイル・通信）、`KeychainVault`（`AfterFirstUnlockThisDeviceOnly`）、`SyncCoordinator`（設定・サインイン・有効化・タイマー。前面にいる間だけ：起動時・前面に戻ったとき・編集の後・5分ごと。バックグラウンド同期はしない）、仮の設定画面。Node側は `test/sync-runtime.test.cjs`（偽のhost＋偽のSupabase＋Windows版の実際のSyncService）6件で検証済み。
 - 11-3（端末間、CI）：`scripts/fake-supabase-server.cjs`（偽のSupabaseをHTTPで）、`scripts/cross-device-driver.cjs`（Windows側：実際のStore＋SyncService）、`ios/FavecusPlayerTests/SyncTests.swift`（iPhone側）。深い階層・共有の子リスト→iPhoneが取り込み→オフライン編集→Windowsが同時に編集→iPhoneが再接続→両端末の見た目が一致、を確認する構成。Node側の代役（iPhone役をsync-runtimeで実行）では、このシナリオ全体を通過済み。
-- **未確認**：Swiftのビルドと `SyncTests`（GitHub Actionsのmacランナーが課金上限で起動せず、iOS CIを実行できていない。ユーザーの設定変更か月次の枠の更新を待つ）／実Supabaseとiphoneの実通信（Step12・13の後に実施）／AltStoreの更新（Refresh）後にKeychainのサインイン情報が残るか。
+- **CI結果**：公開化後にiOS CIが通った（Swift全件・端末間同期の確認を含む）。レビュー指摘（停止の永続化・古い反映の拒否・接続先の確認の順序など）は修正済み。
+- **未確認**：実Supabaseとiphoneの実通信（Step12・13の後に実施）／AltStoreの更新（Refresh）後にKeychainのサインイン情報が残るか。
 
 ### Step9の結果（Step10の後に実施、2026-11-13）
 
