@@ -25,7 +25,7 @@ final class ArtworkStore: ObservableObject {
     }
 
     /// 配信先（サムネイル）として許可するURL。
-    static func isAllowed(_ url: URL) -> Bool {
+    nonisolated static func isAllowed(_ url: URL) -> Bool {
         guard url.scheme == "https", url.user == nil, url.password == nil, url.port == nil, let host = url.host?.lowercased() else { return false }
         return host == "hdslb.com" || host.hasSuffix(".hdslb.com")
     }
