@@ -9,7 +9,20 @@
 - `src/`（Windows版）は移動しません。端末非依存の共通JS（library-data / library-identity / media-identity / library-share / import-identity / queue / urls / library-tree / library-search 等）を規則の正本とします。
 - `shared/spec/`（スキーマ）と `shared/fixtures/`（期待値付きの共通テストデータ）を追加し、NodeとiOSの両方で同じデータを実行して仕様のずれを検出します。
 - iOSは `ios/`（XcodeGenの `project.yml`、App / Features / Domain / Platform の層）に置きます。保存・通信・再生・認証はPlatform層でネイティブ実装し、データ規則はDomain層がJavaScriptCoreの共通JSまたはSwift再実装（共通テストデータで一致保証）で担います。
-- JavaScriptCoreで実行する範囲は構造検証・階層・識別・検索・共有形式・同期のマージです。`library-data.cjs` が `require('../ui/library-tree.js')` で別ディレクトリを参照しており、JavaScriptCoreには `require` がありません。束ね方（単一ファイルへのバンドル）をStep3で決めます。`atob`・`TextEncoder` 等がJavaScriptCoreで使えるかは主張せず、Step3で実機相当のシミュレーターで検証します。
+- JavaScriptCoreで実行する範囲は構造検証・階層・識別・検索・共有形式・同期のマージです。`library-data.cjs` が `require('../ui/library-tree.js')` で別ディレクトリを参照しており、JavaScriptCoreには `require` がありません。束ね方はStep3で決定済みです（下記）。`atob`・`TextEncoder` 等がJavaScriptCoreで使えるかは主張せず、Step3で実機相当のシミュレーターで検証します。
+
+### 共通JSのiOS実行（Step3）
+
+- **実行環境：JSContext（JavaScriptCore）。** 同期のマージ・検証は同期処理が必要なためWKWebViewは使いません（WKWebViewはログイン等に限定）。データ規則はSwiftへ再実装せず、共通JSを正本にします。
+- **束ね方：** `scripts/build-shared-bundle.cjs` が許可リスト（`src/core` の library-data / library-identity / media-identity / urls / library-share / import-identity / playlist-icon-data / queue、`src/ui` の library-tree / library-search、`shared/runtime` の prelude / fixture-runner）を単一の `shared/dist/favecus-core.js` にまとめます。生成物はGitに入れず、CIとローカルで生成します。非相対・許可リスト外のrequireはビルドで失敗します。
+- **JSCに無いAPI：** `URL`・`atob`・`structuredClone` は `shared/runtime/prelude.js` の自前実装を、各モジュールのラッパー関数の引数として渡します（グローバルを使わないため、将来JSCが同名APIを持ってもiOSでは検証済みの実装を使います）。
+  - URL：http/httpsの絶対URLのみ。**Node（WHATWG）と結果が異なるURLは許容しません**。Nodeが受理しpreludeが拒否する入力は既知の相違として許容します（http/https以外、相対URL、IPv6、IPv4として解釈される数値ホスト、非ASCIIホスト）。このうち非ASCIIホストには、全角の `ｗｗｗ．ｂｉｌｉｂｉｌｉ．ｃｏｍ` のようにNodeが許可ホストへ正規化する入力が含まれます。**この入力はWindows版は受理し、iOS版は拒否します**（逆はない）。登録時にはASCIIへ正規化したURLを保存するため、同期されたデータのMediaKeyには影響しませんが、iOSで貼り付けるときだけ拒否されます。
+  - atob：WHATWG forgiving-base64と一致（約2万件の乱択と固定ケースでNodeと照合）。
+  - structuredClone：検証済みJSON値の複製に限定（JSON往復。undefined値・NaN・Date・Mapの保持は対象外）。
+- **共通テストデータ：** `shared/fixtures/cases.json`（116件）。入力は手書き、期待値はNode本来のWeb APIで `scripts/update-shared-fixtures.cjs` が生成します（正本はWindows版の挙動）。同じファイルをNode（ECMAScriptのみのvm）とiOS（XCTest＋JSContext）が実行し、iOSでは全件一致を確認しました。`divergence: "ios-rejects"` は上の既知の相違だけに付け、iOS側の結果が 'Invalid URL' による拒否であることを検査します。
+- **差分検査：** `test/shared-runtime.test.cjs` が、約4万件のURL（固定の乱択）についてpreludeとNodeのURLを比較します。Nodeが拒否する入力をpreludeが受理すること、受理した結果が異なることを許容しません。
+- **iOSの呼び出し：** `ios/FavecusPlayer/Core/SharedCore.swift` がバンドルを読み、JSON文字列だけを入出力します（JSValueの木を渡さない）。JS例外は `exceptionHandler` で収集して失敗にします。1つのJSContextを複数スレッドで共有しません。
+- **未確認・後続で確認：** 実機（JITなし）での速度、`Intl.Collator('ja')`（library-tree.js）による名前順がNodeのICUとiOSのICUで異なる可能性（表示順のみ。Step8で確認）、ローカルMacでの `xcodegen`（先にバンドル生成が必要）。
 
 ### 識別：MediaKeyを端末間の正本にする
 

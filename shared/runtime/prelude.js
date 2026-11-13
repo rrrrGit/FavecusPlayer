@@ -4,8 +4,10 @@
 // 共通モジュールへはラッパー関数の引数として渡し、グローバルには依存しない。
 //
 // 対象：http/httpsの絶対URL（WHATWG URL Standardの特殊スキームの解析）。
-// 既知の相違（Nodeが受理し、ここでは例外にする）：http/https以外のスキーム、相対URL、IPv6ホスト、
-// 非ASCIIのホスト名（IDNA変換）、IPv4として解釈される数値ホスト。いずれも呼び出し側でホスト許可リストに一致しないため、結果は拒否で一致する。
+// 既知の相違（Nodeが受理し、ここでは例外 'Invalid URL' にする）：http/https以外のスキーム、相対URL、IPv6ホスト、
+// 非ASCIIのホスト名（IDNA変換。全角のwww．bilibili．comのようにNodeが許可ホストへ正規化する入力も含む）、
+// IPv4として解釈される数値ホスト。Windows版が受理して登録する全角等のURLを、iOS版は拒否する（逆はない）。
+// 拒否側に倒れるだけで、受理したURLの正規化結果（MediaKeyの根拠）はNodeと必ず一致する。
 // 「NodeとここでURL解析の結果が異なる」状態は許容しない。差分は test/shared-runtime.test.cjs で検証する。
 (function () {
   const DEFAULT_PORT = { 'http:': '80', 'https:': '443' };

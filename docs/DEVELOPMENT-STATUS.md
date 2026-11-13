@@ -2,7 +2,7 @@
 
 更新日：2026-11-13（日本時間）
 対象：v0.7.0 / `release/v0.7.0`
-現在地：Step2完了（CI検証とiPhone実機への導入・起動を確認）。次はStep3（共通処理のiOS実行）。
+現在地：Step3完了（共通JSのiOS実行をCIのシミュレーターで確認。実機の速度はユーザー確認待ち）。次はStep4（MediaKeyと端末依存情報の分離）。
 基準コミット：`79255411dfbcb240cbad064fa8d1ae0ca4e085d4`（`release/v0.6.7` 最新。配布済みv0.6.7 startup-hotfix-1を含む）。
 v0.6.7の開発・検証記録は `docs/VALIDATION-067.md` に移しました。
 
@@ -77,7 +77,7 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 | Step0 開始と全体計画 | 完了 | `release/v0.7.0` 作成、v0.6.7記録の移動、全体計画・役割分担の記載 |
 | Step1 iOS版方針と共通データ仕様 | 完了 | 設計をDESIGN.md冒頭「v0.7.0」節へ確定（コード変更なし）。判断1〜3は確定済み |
 | Step2 iOSビルド基盤の検証 | 完了 | XcodeGenの最小SwiftUIアプリをCIでビルド・テストし、署名なしIPAを取得。AltStore経由でiPhone 16e（iOS 26.7.2）へ導入し起動を確認 |
-| Step3 共通処理のiOS実行 | 未着手 | 共通JSの束ね方と読み込みを決め、共通テストデータをNodeとiOSシミュレーターの両方で実行。999リスト・10000登録での速度を確認 |
+| Step3 共通処理のiOS実行 | 完了（実機の速度は確認待ち） | 共通JSの束ね方とJSContextでの実行を実装し、共通テストデータ116件をNodeとiOSシミュレーターの両方で全件一致。999リスト・約1万登録の速度をシミュレーターで計測 |
 | Step4 MediaKeyと端末依存情報の分離 | 未着手 | 端末非依存のMediaKeyとDeviceMediaをWindows版へ導入。既存JSON・DLカタログ・ZIPの互換と移行時の原本保護を確認 |
 | Step5 Windows版の改善 | 指示待ち | ユーザーが提示する改善項目。内容に応じてStep5-1、5-2…に分割し、他のStepの間へ挿入することもある |
 | Step6 同期の共通基盤 | 未着手 | 変更レコード、親子の辺と並び順、Tombstone、競合解決、同期キューを共通JSで実装。SyncRepositoryの抽象とメモリ実装で、同時変更・オフライン編集・削除後の復活防止をテスト |
@@ -113,33 +113,15 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 
 ## 現在の工程
 
-Step2完了。次はStep3（共通処理のiOS実行）です。
+Step3完了。次はStep4（MediaKeyと端末依存情報の分離）です。
 
-### Step2の結果
+### Step3の結果
 
-- 追加：`ios/project.yml`（XcodeGen）、仮の最小SwiftUI画面（`ios/FavecusPlayer/`）、単体テスト2件（`ios/FavecusPlayerTests/`）、`.github/workflows/ios.yml`。`.pbxproj`・IPAはGitへ入れず、CIで生成します。Windows版・既存テスト・バージョン番号は変更していません。
-- CI実行（macos-15、Xcode 16.4、run 43327091224）：成功。シミュレーターでのビルド・テスト（2件成功・失敗0）、スクリーンショット、署名なしIPA（約11KB）を取得し、Artifact `ios-outputs`（保持14日）に保存しました。スクリーンショットは画面の表示（FavecusPlayer 0.7.0）を目視確認しました。
-- 実行条件：`release/v0.7.0` へのpushで `ios/**` またはworkflowが変わったときと、手動実行のみ。同一ブランチの古い実行は取り消します。
-- macOS実行時間：ジョブ全体で約11分（ビルド・テスト約2分22秒、スクリーンショット約6分46秒＝シミュレーター起動待ちが大半、IPA約27秒）。$0.062/分で換算すると約$0.7（概算）で、GitHub Freeの含有$12/月の約6%。GitHub側の実際の課金表示は未確認です。起動待ちの短縮はStep3以降で検討します。
-- **実機確認（2026-11-13、ユーザー）**：iPhone 16e（iOS 26.7.2）へAltStore経由で導入でき、起動して「FavecusPlayer 0.7.0」の画面が表示されました。AltStoreの「My Apps」ではAltStoreとFavecusPlayerがActiveで、どちらも期限7日、「8 App IDs Remaining」の表示でした。
-- 未確認：AltStore自体が有効アプリ3枠を使うか（表示だけでは判断不可）、7日後のRefresh（Step16・17）、デベロッパモードの項目が現れた時点と有効化の操作（ユーザーの操作の詳細は未記録）。
-
-### 実機導入の手順（Step2で確認。Step16で詳細化・整理）
-
-前提：Windows PC、iPhone、USBケーブル、Apple Account（無料、個人利用）。パスワードと確認コードは本人だけが入力し、記録・共有しない。
-
-1. **PCに部品を導入**（wingetで導入済み。いずれもApple・AltStore公式の配布物）：`Apple.iTunes`（Microsoft Store版ではない）、`Apple.iCloud`（Legacy 7.21、導入後にPC再起動）、`RileyTestut.AltServer`（1.8.00）。`winget install --id <ID> --exact --source winget --interactive` で、UACと使用許諾は本人が操作する。iCloudへのサインインは不要（求められたら「キャンセル」）。
-2. **IPAの取得**：GitHubの該当Actions実行ページ下部のArtifact `ios-outputs` をダウンロード・展開し、`FavecusPlayer-unsigned.ipa` を得る。
-3. **iPhoneをUSBでPCに接続**し、iPhone側で「このコンピュータを信頼」を選ぶ。iTunesがiPhoneを認識し、自動バックアップが始まるが、導入には不要（中止してよい）。
-4. **iTunesで「Wi-Fi経由でこのiPhoneと同期」を有効にして適用**（USB接続だけの初回導入には必須ではないが、Refreshに必要）。
-5. **AltServerを起動**（管理者として実行、プライベートネットワークの許可は「許可」）。タスクトレイのアイコンから「Install AltStore」を選び、iPhoneを選ぶ。Apple Accountのメールとパスワードを入力し、iPhoneに届く確認コードを、PCに出る入力画面へ入力する。入力画面が見えないときは、Alt+Tabやタスクバーで探す。時間切れのときはAltServerを終了して再起動し、やり直す。
-6. **iPhoneで開発者を信頼**：AltStoreは入るが、初回起動時に「信頼されていないデベロッパ」と出て開けない。「設定 → 一般 → VPNとデバイス管理」の「デベロッパAPP」の自分のApple Accountを開き「信頼」を押す。
-7. **デベロッパモード**：項目は導入前には表示されない。AltStore導入後に「設定 → プライバシーとセキュリティ」の一番下に現れる場合があり、求められたらオンにして再起動し、確認で有効化する。
-8. **AltStoreを起動**し、Apple Accountでサインインする。
-9. **FavecusPlayerのIPAを選ぶ**：IPAをiPhoneの「ファイル」アプリへ送る（今回はGoogleドライブにアップロードし、iPhoneのドライブアプリから「ファイルに保存」）。AltStoreの「My Apps」で `+` を押し、そのIPAを選ぶ。Apple Accountのパスワードを求められたら本人が入力する。
-10. ホーム画面のFavecusPlayerを起動し、表示を確認する。
-
-### PC再起動後の動作（確認済みの登録）
-
-- 自動で起動する：`AltServer`（ユーザーのログオン時）、`iTunesHelper`、`iCloudServices`。いずれもスタートアップ（Run）に登録済み。AltServerは通常権限で起動する。
-- 毎回の操作は不要。ただし、7日ごとのRefresh（AltStoreの「Refresh All」またはBackground Refresh）にはPCが起動していてAltServerが動き、iPhoneと同じWi-Fiにあることが必要（公式FAQの記載）。管理者権限でないと動作しない場合は、「管理者として実行」へ切り替える（Step16で確認）。
+- 設計と判断は `docs/DESIGN.md` の「共通JSのiOS実行（Step3）」に記載しました（重複して書きません）。
+- 追加：`scripts/build-shared-bundle.cjs`、`scripts/update-shared-fixtures.cjs`、`shared/runtime/`（prelude / fixture-runner）、`shared/fixtures/cases.json`（116件）、`test/shared-runtime.test.cjs`、`ios/FavecusPlayer/Core/SharedCore.swift`、`ios/FavecusPlayerTests/SharedCoreTests.swift`。画面に実機計測用の仮ボタンを追加。`shared/dist/` は生成物でGit管理外。Windows版の `src/` は変更していません。
+- Nodeの検証：新規9件すべて成功（ECMAScriptのみのvmでの全フィクスチャ、Node本来のURLでの期待値の再現、約4万件のURL差分、atob 約2万件、999リストの計測）。`node scripts/check.cjs`：120ファイル成功。全テスト469件のうち、成功457・失敗9・スキップ3。失敗9件はこのWindows環境で symlink作成の権限(EPERM)がないこと、FFmpegの実行、ZIP64の別リーダー検証に起因するもので、変更前の木でも再現する2件を確認しました。残りは同じ原因と考えられますが、1件ずつの切り分けは未実施です（Step11はLinuxで458件成功）。
+- iOSシミュレーター（CI run 43380258343、macos-15・Xcode 16.4）：成功。XCTest 2件（SharedCoreTests）を含め全件成功、フィクスチャ116件が失敗0。999リスト・9,990登録の計測（シミュレーター、Macの速度）：検証385ms、共有出力839ms、検索インデックス31ms、検索1ページ6ms、取り込み計画124ms。同じデータのNode（V8、JSContext相当環境）は検証約470ms、共有出力約440ms、検索インデックス27〜30ms、取り込み約130ms（3回計測）。
+- macOS実行時間：ジョブ全体で約9分（ビルド・テスト約8分）、概算$0.56（$0.062/分）。Step2と合わせて約20分、概算$1.2（GitHub Free含有$12/月の約10%）。スクリーンショットは手動実行の選択制にしました。`paths` に共通JSの正本とshared/を追加し、共通処理の変更でiOS検証が必ず走ります。
+- checkerによるStep2・3の確認：確定した欠陥は、非ASCIIホスト（全角など）をNodeが許可ホストへ正規化して受理する場合にpreludeが拒否する点の、コメントと分類基準の不正確さでした。コメントを事実に合わせ、divergenceケースを 'Invalid URL' による拒否に限定して検査するよう修正しました。この相違そのものは許容します（Windowsは受理・iOSは拒否）。ファズ約60万件の追加比較で、結果が異なる入力は見つかりませんでした。
+- 未確認：実機（JITなし）での速度、AltStore経由の最新ビルドの導入、`Intl.Collator` の順序差（Step8）、ローカルMacでのxcodegen。
+- 実機での速度確認（任意）：GitHub Actionsの該当実行のArtifact `ios-outputs`（保持14日）から `FavecusPlayer-unsigned.ipa` を取得し、AltStoreで入れ直して（同じアプリの更新）、「共通処理の速度を計測」ボタンを押すと数値が表示されます。

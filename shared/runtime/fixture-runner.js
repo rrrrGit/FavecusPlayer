@@ -55,8 +55,8 @@ function RunCases(json) {
   for (const testCase of cases) {
     const actual = Execute(testCase);
     if (testCase.divergence === 'ios-rejects') {
-      // 既知の相違：Node（Windows）は受理し、この実行環境は拒否する。結果が拒否でなければ失敗。
-      if (!actual.error) failures.push({ name: testCase.name, expected: 'error(divergence)', actual: Canonical(actual) });
+      // 既知の相違：Node（Windows）は受理し、この実行環境は拒否する。polyfillの 'Invalid URL' 以外の理由で拒否された場合も失敗。
+      if (!actual.error || !actual.error.includes('Invalid URL')) failures.push({ name: testCase.name, expected: 'error:Invalid URL(divergence)', actual: Canonical(actual) });
     } else if (Object.prototype.hasOwnProperty.call(testCase, 'expectError')) {
       if (!actual.error || !actual.error.includes(testCase.expectError)) failures.push({ name: testCase.name, expected: `error:${testCase.expectError}`, actual: Canonical(actual) });
     } else if (actual.error || Canonical(actual.ok) !== Canonical(testCase.expect)) {
