@@ -9,6 +9,7 @@ const MODULES = {
   'core/library-data.cjs': 'src/core/library-data.cjs',
   'core/library-identity.cjs': 'src/core/library-identity.cjs',
   'core/device-media.cjs': 'src/core/device-media.cjs',
+  'core/library-actions.cjs': 'src/core/library-actions.cjs',
   'core/sync-clock.cjs': 'src/core/sync-clock.cjs',
   'core/sync-order.cjs': 'src/core/sync-order.cjs',
   'core/sync-state.cjs': 'src/core/sync-state.cjs',

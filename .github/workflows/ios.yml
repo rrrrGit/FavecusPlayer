@@ -13,6 +13,7 @@ on:
       - "src/core/library-data.cjs"
       - "src/core/library-identity.cjs"
       - "src/core/device-media.cjs"
+      - "src/core/library-actions.cjs"
       - "src/core/sync-clock.cjs"
       - "src/core/sync-order.cjs"
       - "src/core/sync-state.cjs"

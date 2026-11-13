@@ -95,6 +95,12 @@
 - **端末と同期**（`sync-engine.cjs`）：編集→状態とoutboxへ→通信可能時にPull→取り込み→Push。マージは冪等です。SyncRepositoryはPush/Pullの抽象で、メモリ実装（テスト用）と整理（Compact、保持90日）を含みます。Supabase実装と `sync/state.json` への保存はStep7です。
 - **共通テストデータ**：`shared/fixtures/cases.json` の `sync …` 14件（時計・並び順・マージ・変換・端末同士の筋書き）をNodeとJavaScriptCoreの両方で実行します。
 
+### iPhone版のローカルDBと編集操作（Step8）
+
+- **ローカルDB = Windows版と同じv3の `library.json`**（Application Support内、原子的に保存し `.bak` を保持）。SQLite・SwiftData・Core Dataは使いません（データ規則をSwiftへ持ち込まないため）。同期の状態は別ファイル（Windowsの `sync/state.json` に相当）です。
+- **編集操作は共通JS**：Windows版のStoreにあった階層・名前・並び順・曲の削除/並べ替えの規則を `src/core/library-actions.cjs`（端末APIなし。ID生成・時刻・曲名整形は注入）へ移し、StoreとiPhone版（JavaScriptCore）が同じ処理を使います。URLからの追加、移動/コピー（Transfer）、ZIP、設定は端末側の処理です。共通テストデータに操作ごとのケース（正常・拒否）と、名前順（Intl.Collator）の混在ケースを追加し、NodeとiOSで比較します。
+- 保存の流れ：編集のたびに全体検証はせず、Storeと同じく階層の検証＋保存。全体検証は読み込み時のみ。
+
 ### Supabaseの構成（Step7-1・7-2）
 
 - **サーバーは追記だけの変更ログ**：`supabase/schema.sql` を、利用者がSupabaseのSQL Editorで1回実行します。表は `sync_changes`（行：利用者・連番・レコードID・項目`f`・端末・重複防止キー）と `sync_meta`（連番の末尾・整理の境界）。LWW・整理の規則はサーバーへ複製せず、共通JS（`src/core/sync-state.cjs`）に置きます。

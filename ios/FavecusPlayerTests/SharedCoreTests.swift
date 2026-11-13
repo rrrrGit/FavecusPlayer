@@ -8,6 +8,7 @@ final class SharedCoreTests: XCTestCase {
     private struct Bench: Decodable {
         let lists: Int; let entries: Int; let validatedLists: Int; let searchTotal: Int
         let validateMs: Int; let shareMs: Int; let searchIndexMs: Int; let searchPageMs: Int; let importMs: Int
+        let syncConvertMs: Int; let syncMergeMs: Int; let syncMaterializeMs: Int; let syncDiffMs: Int; let syncRecords: Int; let actionMs: Int
     }
 
     private func core() throws -> SharedCore {
@@ -32,6 +33,6 @@ final class SharedCoreTests: XCTestCase {
         XCTAssertEqual(bench.validatedLists, 999)
         XCTAssertGreaterThan(bench.searchTotal, 0)
         // シミュレーター（Macの速度）の値。実機の値とは異なる。
-        print("FAVECUS_BENCH sim lists=\(bench.lists) entries=\(bench.entries) validateMs=\(bench.validateMs) shareMs=\(bench.shareMs) searchIndexMs=\(bench.searchIndexMs) searchPageMs=\(bench.searchPageMs) importMs=\(bench.importMs)")
+        print("FAVECUS_BENCH sim lists=\(bench.lists) entries=\(bench.entries) validateMs=\(bench.validateMs) shareMs=\(bench.shareMs) searchIndexMs=\(bench.searchIndexMs) searchPageMs=\(bench.searchPageMs) importMs=\(bench.importMs) syncConvertMs=\(bench.syncConvertMs) syncMergeMs=\(bench.syncMergeMs) syncMaterializeMs=\(bench.syncMaterializeMs) syncDiffMs=\(bench.syncDiffMs) syncRecords=\(bench.syncRecords) actionMs=\(bench.actionMs)")
     }
 }

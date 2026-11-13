@@ -14,6 +14,8 @@ const syncEngine = require('../core/sync-engine.cjs');
 const share = require('../core/library-share.cjs');
 const importIdentity = require('../core/import-identity.cjs');
 const iconData = require('../core/playlist-icon-data.cjs');
+const actions = require('../core/library-actions.cjs');
+const tree = require('../ui/library-tree.js');
 const search = require('../ui/library-search.js');
 
 function Counter() {
@@ -52,6 +54,15 @@ const CALLS = {
   SyncKeyForms: (entry, aliases) => libraryIdentity.LibrarySyncKeyForms(aliases || [])(entry),
   AuditIds: playlists => libraryIdentity.AuditIds(playlists),
   RestoredState: state => deviceMedia.RestoredState(state),
+  // 編集操作：操作を順に適用し、各操作の後に階層を検証（Storeと同じ）、最後に全体を検証する。IDと時刻は決定的。
+  LibraryAction: spec => {
+    const library = Plain(spec.library), createId = Counter(), ctx = { createId, now: () => '2026-11-13T00:00:00.000Z', cleanTitle: text => String(text).trim() }, handled = [];
+    for (const action of spec.steps) { handled.push(actions.Apply(library, action, ctx)); tree.ValidateGraph(library.playlists, library.rootPlaylistIds); }
+    data.ValidateLibrary(Plain(library), false, Counter());
+    return { handled, library };
+  },
+  // 名前順などの並び（Intl.Collator('ja')）。NodeとiOSのICUの違いを検出する。
+  TreeOrder: spec => ({ ids: tree.Ordered(Plain(spec.library), spec.ids, spec.mode) }),
   SyncClock: steps => steps.map(step => step.op === 'tick' ? syncClock.Tick(step.last, step.now, step.device) : syncClock.Observe(step.last, step.remote, step.now, step.device)),
   SyncOrder: spec => ({ between: (spec.pairs || []).map(([a, b]) => syncOrder.Between(a, b)), spread: syncOrder.Spread(spec.spread || 0) }),
   SyncMerge: changes => { const merged = changes.reduce((state, change) => syncState.Merge(state, [change]).state, syncState.NewState()); return JSON.parse(syncState.Canonical(merged)); },
@@ -141,6 +152,9 @@ function Bench(json) {
   [result.syncMaterializeMs, view] = timed(() => syncLibrary.Materialize(state));
   const edited = JSON.parse(JSON.stringify(view.library)); edited.playlists[3].name = '改名'; edited.playlists[5].entries.reverse();
   let tick = 0; [result.syncDiffMs] = timed(() => syncLibrary.Diff(view.library, edited, state, () => syncClock.Format(1800000000000, ++tick, 'bench')));
+  // 編集操作（改名・曲の並べ替え・リストの並べ替え＋階層の検証）。Storeと同じく、編集のたびに全体検証はしない。
+  const working = JSON.parse(JSON.stringify(view.library)), actionContext = { createId: Counter(), now: () => '2026-11-13T00:00:00.000Z', cleanTitle: text => text };
+  [result.actionMs] = timed(() => { actions.Apply(working, { type: 'rename', playlistId: working.playlists[3].id, name: '改名' }, actionContext); actions.Apply(working, { type: 'reorder', playlistId: working.playlists[5].id, entryId: working.playlists[5].entries[0].id, targetId: working.playlists[5].entries[9].id, after: true }, actionContext); tree.ValidateGraph(working.playlists, working.rootPlaylistIds); });
   result.syncRecords = records.length; result.syncLists = view.library.playlists.length;
   return JSON.stringify(result);
 }

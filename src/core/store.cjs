@@ -13,6 +13,7 @@ const { Repository, DriveURL } = require('./releases.cjs');
 const { VideoIdentity } = require('./media-identity.cjs');
 const { IDENTITY_SCHEMA_VERSION, MEDIA_ID, IdentityError, ValidateIdentityVersion, PlanMediaIds, VideoAliases, LibraryMediaKey } = require('./library-identity.cjs');
 const LibraryData = require('./library-data.cjs');
+const Actions = require('./library-actions.cjs');
 const { MAX_PLAYLISTS, MAX_ENTRIES, MEDIA_NAME, CleanText, ValidatePlaylistCount } = LibraryData;
 const MAX_JSON = 32 * 1024 * 1024;
 const DEFAULT_SETTINGS = { releaseRepository: '', discordThumbnailSize: 'small', weightedShuffle: true, discordThumbnail: true, discordVideoLink: true, discordEnabled: false, discordClientId: '', discordImageKey: 'favecus_player_music', hideWhenPaused: true, thumbnailMode: false, autoThumbnailEnabled: true, autoThumbnailMinutes: 5, taskbarEmbed: true, taskbarWidth: 500, taskbarOffset: 0, repeat: 'off', shuffle: false, volume: 1, sidebarWidth: 218 };
@@ -204,59 +205,15 @@ class Store {
     const before = structuredClone(this.data);
     try { return this.ApplyAction(action); } catch (error) { this.data = before; throw error; }
   }
+  ActionContext() { return { createId: randomUUID, now: () => new Date().toISOString(), cleanTitle: value => this.CleanTitle(value) }; }
   ApplyAction(action) {
     if (!action || typeof action !== 'object') throw new Error('操作が正しくありません。');
     const p = action.playlistId ? this.Playlist(action.playlistId) : null;
-    if (action.type === 'create') {
-      ValidatePlaylistCount(this.data.playlists.length + 1);
-      const parent = action.parentId ? this.Playlist(action.parentId) : null;
-      const created = NewPlaylist(action.name); this.data.playlists.push(created);
-      (parent ? parent.childIds : this.data.rootPlaylistIds).push(created.id);
-      if (parent) parent.lastAddedAt = created.createdAt;
-      if (action.select !== false) this.data.activePlaylistId = created.id;
-    } else if (action.type === 'select' && p) this.data.activePlaylistId = p.id;
-    else if (action.type === 'rename' && p) p.name = CleanText(action.name, 60) || p.name;
-    else if (action.type === 'playlist-properties' && p) {
-      if (typeof action.includeInAll !== 'boolean') throw new Error('全体再生の設定が正しくありません。');
-      p.name = CleanText(action.name, 60) || p.name; p.includeInAll = action.includeInAll;
-      if (Object.hasOwn(action, 'icon')) p.icon = ValidateIcon(action.icon);
-    }
-    else if (action.type === 'delete' && p) {
-      if (this.data.playlists.length === 1) throw new Error('最後の再生リストは削除できません。');
-      const parent = Tree.Parent(this.data, p.id);
-      this.data.playlists = this.data.playlists.filter(x => x.id !== p.id);
-      const promote = siblings => [...new Set(siblings.flatMap(id => id === p.id ? p.childIds : [id]))];
-      this.data.rootPlaylistIds = promote(this.data.rootPlaylistIds);
-      for (const list of this.data.playlists) list.childIds = promote(list.childIds);
-      if (this.data.activePlaylistId === p.id) this.data.activePlaylistId = p.childIds[0] || parent || this.data.playlists[0].id;
-    } else if (action.type === 'playlist-move' && p) {
-      this.Parent(p.id, action.parentId || null, true);
-    } else if (action.type === 'playlist-attach' && p) {
-      if (!Array.isArray(action.ids) || !action.ids.length || action.ids.length > MAX_PLAYLISTS) throw new Error('取り込むプレイリストを選んでください。');
-      const ids = [...new Set(action.ids)], descendants = new Set(ids.flatMap(id => Tree.RawWalk(this.data, [id]).slice(1).map(child => child.id)));
-      for (const id of ids.filter(id => !descendants.has(id))) this.Parent(id, p.id, action.removeOriginal === true);
-    } else if (action.type === 'playlist-reorder' && p) {
-      const siblings = action.parentId ? this.Playlist(action.parentId).childIds : this.data.rootPlaylistIds;
-      if (!siblings.includes(p.id) || !siblings.includes(action.targetId)) throw new Error('同じ階層のリストを指定してください。');
-      if (p.id !== action.targetId) { siblings.splice(siblings.indexOf(p.id), 1); siblings.splice(siblings.indexOf(action.targetId) + (action.after ? 1 : 0), 0, p.id); }
-    } else if (['add', 'add-videos', 'add-existing'].includes(action.type)) {
+    if (Actions.Apply(this.data, action, this.ActionContext())) { /* 階層・名前・並び順・曲の削除/並べ替えは共通の規則（library-actions.cjs） */ }
+    else if (['add', 'add-videos', 'add-existing'].includes(action.type)) {
       return this.AddItems(action.destinationIds ?? action.playlistId, this.InputItems(action));
-    } else if (action.type === 'remove' && p) p.entries = p.entries.filter(e => e.id !== action.entryId);
-    else if (action.type === 'title' && p) this.Entry(p.id, action.entryId).title = this.CleanTitle(action.title);
-    else if (action.type === 'move' && p) {
-      const index = p.entries.findIndex(e => e.id === action.entryId);
-      const target = index + (action.direction === -1 ? -1 : 1);
-      if (index >= 0 && target >= 0 && target < p.entries.length) [p.entries[index], p.entries[target]] = [p.entries[target], p.entries[index]];
-    } else if (action.type === 'reorder' && p) {
-      const index = p.entries.findIndex(e => e.id === action.entryId);
-      const target = p.entries.findIndex(e => e.id === action.targetId);
-      if (index < 0 || target < 0) throw new Error('並べ替える動画が見つかりません。');
-      if (index !== target) {
-        const [entry] = p.entries.splice(index, 1);
-        const insert = p.entries.findIndex(e => e.id === action.targetId) + (action.after === true ? 1 : 0);
-        p.entries.splice(insert, 0, entry);
-      }
-    } else if (action.type === 'settings') {
+    }
+    else if (action.type === 'settings') {
       const settings = ValidateSettings({ ...this.data.settings, ...action.settings }), before = structuredClone(this.data);
       try {
         this.data.settings = settings;
@@ -272,13 +229,7 @@ class Store {
     Tree.ValidateGraph(this.data.playlists, this.data.rootPlaylistIds);
     this.Save(); return this.Snapshot();
   }
-  Parent(id, parentId, move) {
-    this.Playlist(id); const parent = parentId ? this.Playlist(parentId) : null;
-    if (!Tree.CanParent(this.data, id, parentId)) throw new Error('自分自身や子孫を親にはできません。');
-    if (move) { this.data.rootPlaylistIds = this.data.rootPlaylistIds.filter(x => x !== id); for (const p of this.data.playlists) p.childIds = p.childIds.filter(x => x !== id); }
-    const siblings = parent ? parent.childIds : this.data.rootPlaylistIds;
-    if (!siblings.includes(id)) { siblings.push(id); if (parent) parent.lastAddedAt = new Date().toISOString(); }
-  }
+  Parent(id, parentId, move) { Actions.Parent(this.data, this.ActionContext(), id, parentId, move); }
   Entries(scope) { return Tree.Entries(this.data, scope); }
   async AddFiles(destinationIds, files) {
     const targets = this.Targets(destinationIds);
