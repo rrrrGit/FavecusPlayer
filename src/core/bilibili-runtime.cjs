@@ -35,7 +35,9 @@ async function Profile() {
     const result = await Requester()('/x/web-interface/nav', {});
     const data = result && result.data;
     if (result && result.code === 0 && data && data.isLogin && Number.isSafeInteger(data.mid)) return { loggedIn: true, uid: String(data.mid), name: String(data.uname || '').slice(0, 60) };
-    return { loggedIn: false };
+    // ログアウト扱い（保存したログイン情報を消す）のは、未ログインを示す -101 のときだけ。リスク制御・混雑などは、消さずに停止して知らせる。
+    if (result && (result.code === -101 || (result.code === 0 && data && data.isLogin === false))) return { loggedIn: false };
+    return { error: `Bilibiliから情報を取得できません（コード ${result && result.code}）。時間を置いて再実行してください。`, stopBatch: true };
   } catch (error) { return Fail(error); }
 }
 module.exports = { Resolve, Profile };

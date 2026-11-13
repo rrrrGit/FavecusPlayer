@@ -70,9 +70,22 @@ final class BilibiliHost: RequestHost, @unchecked Sendable {
     private let cookies: BilibiliCookieVault
     private let session: URLSession
 
-    init(cookies: BilibiliCookieVault, session: URLSession = .shared) {
+    /// 既定の通信は、保存（キャッシュ・Cookie）をしない専用の設定。リダイレクトは、どこへも追従しない（Cookieを他のホストへ送らない）。
+    init(cookies: BilibiliCookieVault, session: URLSession? = nil) {
         self.cookies = cookies
-        self.session = session
+        if let session { self.session = session } else {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.httpCookieStorage = nil
+            configuration.httpShouldSetCookies = false
+            configuration.urlCache = nil
+            self.session = URLSession(configuration: configuration)
+        }
+    }
+
+    private final class RefuseRedirect: NSObject, URLSessionTaskDelegate {
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+            completionHandler(nil)
+        }
     }
 
     func request(method: String, url: String, json: String) async throws -> String {
@@ -87,7 +100,7 @@ final class BilibiliHost: RequestHost, @unchecked Sendable {
         }
         if let header = cookies.header() { request.setValue(header, forHTTPHeaderField: "Cookie") }
         request.httpShouldHandleCookies = false
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: RefuseRedirect())
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         let parsed = (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) ?? NSNull()
         let output = try JSONSerialization.data(withJSONObject: ["status": status, "json": parsed], options: [.fragmentsAllowed])

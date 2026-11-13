@@ -52,4 +52,10 @@ test('profile reports the login state without exposing anything else', async () 
   assert.deepEqual(await Bili.Profile(), { loggedIn: true, uid: '4242', name: 'テスト' });
   Host(() => ({ status: 200, json: { code: -101 } }));
   assert.deepEqual(await Bili.Profile(), { loggedIn: false });
+  // リスク制御・混雑では、ログアウト扱いにしない（Swift側は error のときログイン情報を消さない）
+  for (const code of [-352, -412, -509]) {
+    Host(() => ({ status: 200, json: { code } }));
+    const result = await Bili.Profile();
+    assert.equal(result.loggedIn, undefined); assert.ok(result.error); assert.equal(result.stopBatch, true);
+  }
 });

@@ -226,7 +226,7 @@ final class PlaybackTests: XCTestCase {
         let provider = FakeProvider()
         let (store, engine, backend) = try await prepareWithProvider(provider)
         let scope = try parentId(store)
-        provider.error = DownloadError.message("配信先から取得できません（HTTP 403）。")
+        provider.error = DownloadError.message("配信先の応答を確認できません。")
         await engine.play(entryId: try entry(store, "曲1").id, scope: scope)
         try await waitFor { engine.current?.title == "ローカルA" } // 取得できない曲は飛ばして、次（保存済みのローカル曲）へ
         XCTAssertNotNil(engine.message)
@@ -238,6 +238,23 @@ final class PlaybackTests: XCTestCase {
         try await waitFor { engine.current == nil }
         XCTAssertTrue(engine.message?.contains("412") ?? false, engine.message ?? "")
         XCTAssertTrue(backend.stopped)
+    }
+
+    func testARefusedOrOfflineFetchStopsInsteadOfTryingTheNextEntries() async throws {
+        let provider = FakeProvider()
+        let (store, engine, backend) = try await prepareWithProvider(provider)
+        let scope = try parentId(store)
+        provider.error = DownloadError.refused("配信先から取得できません（HTTP 403）。")
+        await engine.play(entryId: try entry(store, "曲1").id, scope: scope)
+        try await waitFor { engine.current == nil }
+        XCTAssertEqual(provider.requested, ["曲1"], "次の曲を続けて要求しない")
+        XCTAssertTrue(backend.stopped)
+        provider.error = URLError(.notConnectedToInternet)
+        engine.message = nil
+        await engine.play(entryId: try entry(store, "曲4").id, scope: scope)
+        try await waitFor { engine.current == nil }
+        XCTAssertEqual(provider.requested, ["曲1", "曲4"])
+        XCTAssertNotNil(engine.message)
     }
 
     func testChoosingAnotherEntryWhileOneIsBeingFetchedDropsTheOldResult() async throws {

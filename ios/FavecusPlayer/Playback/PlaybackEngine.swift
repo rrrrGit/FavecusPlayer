@@ -203,6 +203,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         let file: URL
         if target.type == "local" {
             guard let fileName = target.fileName else { return }
+            isPreparing = false
             file = store.mediaDirectory.appendingPathComponent(fileName)
         } else {
             guard let provider else { return }
@@ -228,6 +229,12 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     private func onlineFailed(_ error: Error) {
         if let known = error as? BilibiliError, known.stopBatch {
             message = known.description
+            stop()
+            return
+        }
+        // 配信先の拒否・通信できない状態も、続けて他の曲を要求せずに止める（曲数ぶんの要求を連続して送らない）。
+        if (error as? DownloadError)?.isRefusal == true || error is URLError {
+            message = (error as? CustomStringConvertible)?.description ?? error.localizedDescription
             stop()
             return
         }

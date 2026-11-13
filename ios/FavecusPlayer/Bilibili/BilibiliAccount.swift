@@ -50,7 +50,7 @@ final class BilibiliAccount: ObservableObject {
     func capture(from store: WKHTTPCookieStore) async -> Bool {
         let all = await store.allCookies()
         var picked: [String: String] = [:]
-        for cookie in all where cookie.domain.hasSuffix("bilibili.com") && BilibiliCookieVault.allowed.contains(cookie.name) { picked[cookie.name] = cookie.value }
+        for cookie in all where (cookie.domain == "bilibili.com" || cookie.domain.hasSuffix(".bilibili.com")) && BilibiliCookieVault.allowed.contains(cookie.name) { picked[cookie.name] = cookie.value }
         guard picked["SESSDATA"] != nil else { return false }
         do {
             try cookies.store(picked)
@@ -84,10 +84,17 @@ struct BilibiliLoginView: UIViewRepresentable {
     let account: BilibiliAccount
     let onFinished: () -> Void
 
+    /// ログインのCookieは、WebKitの保存領域に残さない（取り出してKeychainへ移した後は、この画面と一緒に捨てる）。
+    private static func configuration() -> WKWebViewConfiguration {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        return configuration
+    }
+
     func makeCoordinator() -> Coordinator { Coordinator(account: account, onFinished: onFinished) }
 
     func makeUIView(context: Context) -> WKWebView {
-        let view = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let view = WKWebView(frame: .zero, configuration: Self.configuration())
         view.navigationDelegate = context.coordinator
         if let url = URL(string: "https://passport.bilibili.com/login") { view.load(URLRequest(url: url)) }
         return view

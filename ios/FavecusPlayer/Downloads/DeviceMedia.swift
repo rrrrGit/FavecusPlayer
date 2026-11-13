@@ -41,9 +41,13 @@ actor DownloadCatalog {
     private let mediaDirectory: URL
     private var records: [String: DeviceMediaRecord] = [:]
 
+    /// 記録のファイルがあるのに、まだ読み込めていない（または読み込みに失敗した）間は、書き込まない（元の記録を上書きしない）。
+    private var ready: Bool
+
     init(url: URL, mediaDirectory: URL) {
         self.url = url
         self.mediaDirectory = mediaDirectory
+        self.ready = !FileManager.default.fileExists(atPath: url.path)
     }
 
     /// 読み込み。読めない・未知の版のときは、上書きせず、空のまま使わない（throw）。
@@ -52,7 +56,14 @@ actor DownloadCatalog {
         let data = try Data(contentsOf: url)
         let file = try JSONDecoder().decode(File.self, from: data)
         guard file.version == 1 else { throw TransferError.message("この版では扱えない保存記録です。保存記録は変更していません。") }
-        records = Dictionary(uniqueKeysWithValues: file.records.map { ($0.id, $0) })
+        var loaded: [String: DeviceMediaRecord] = [:]
+        for record in file.records {
+            // 改ざん・破損への備え：ファイル名はフォルダ直下の1つの名前だけ。同じIDが重なっても落とさない。
+            if let name = record.fileName, name.isEmpty || name != (name as NSString).lastPathComponent || name.hasPrefix(".") { continue }
+            loaded[record.id] = record
+        }
+        records = loaded
+        ready = true
         var changed = false
         for (id, record) in records {
             var next = record
@@ -74,6 +85,7 @@ actor DownloadCatalog {
     func record(key: String, kind: String) -> DeviceMediaRecord? { records["\(key)|\(kind)"] }
 
     func upsert(_ record: DeviceMediaRecord) throws {
+        guard ready else { throw TransferError.message("保存記録を読み込めていないため、保存できません。") }
         var next = record
         next.updatedAt = Date().timeIntervalSince1970
         records[next.id] = next
@@ -81,6 +93,7 @@ actor DownloadCatalog {
     }
 
     func remove(key: String, kind: String) throws {
+        guard ready else { throw TransferError.message("保存記録を読み込めていません。") }
         records["\(key)|\(kind)"] = nil
         try save()
     }
@@ -91,6 +104,7 @@ actor DownloadCatalog {
     }
 
     private func save() throws {
+        guard ready else { throw TransferError.message("保存記録を読み込めていません。") }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let data = try JSONEncoder().encode(File(records: records.values.sorted { $0.id < $1.id }))
         try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])

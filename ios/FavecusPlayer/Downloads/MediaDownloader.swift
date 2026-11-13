@@ -12,11 +12,15 @@ enum MediaHostPolicy {
 
 enum DownloadError: Error, CustomStringConvertible {
     case message(String)
+    /// 配信先の拒否・制限（401/403/412/429）。続けても同じ結果になるので、別の候補・次の曲へ進まず止める。
+    case refused(String)
     case cancelled
+
+    var isRefusal: Bool { if case .refused = self { return true } else { return false } }
 
     var description: String {
         switch self {
-        case .message(let text): return text
+        case .message(let text), .refused(let text): return text
         case .cancelled: return "取り消しました。"
         }
     }
@@ -62,6 +66,7 @@ final class MediaDownloader: @unchecked Sendable {
                 throw DownloadError.cancelled
             } catch let error as DownloadError {
                 if case .cancelled = error { throw error }
+                if error.isRefusal { throw error } // 配信先の拒否・制限（401/403/412/429）は、別の候補で試し直さない
                 lastError = error
             } catch {
                 lastError = error
@@ -86,7 +91,9 @@ final class MediaDownloader: @unchecked Sendable {
             }
         } onCancel: { task.cancel() }
         defer { try? FileManager.default.removeItem(at: received.0) }
-        guard (200...206).contains(received.1.statusCode) else {
+        guard received.1.statusCode == 200 || received.1.statusCode == 206 else {
+            let text = "配信先から取得できません（HTTP (received.1.statusCode)）。時間を置いて再実行してください。"
+            if [401, 403, 412, 429].contains(received.1.statusCode) { throw DownloadError.refused(text) }
             throw DownloadError.message("配信先から取得できません（HTTP \(received.1.statusCode)）。時間を置いて再実行してください。")
         }
         let size = (try? FileManager.default.attributesOfItem(atPath: received.0.path)[.size] as? NSNumber)?.int64Value ?? -1

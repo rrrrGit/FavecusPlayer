@@ -150,6 +150,7 @@ final class DownloadService: ObservableObject, MediaProvider {
             } else {
                 duration = try await MediaProcessor.finalizeAudio(input: files[0], output: output, expectedDuration: media.duration)
             }
+            try Task.checkCancellation() // 仕上げの間に取り消されたら、完了にしない
             let destination = directory.appendingPathComponent(name)
             try FileManager.default.moveItem(at: output, to: destination)
             record.state = .completed
@@ -166,7 +167,9 @@ final class DownloadService: ObservableObject, MediaProvider {
                 record.message = "取り消しました。"
             } else {
                 record.state = .failed
-                record.message = (error as? CustomStringConvertible)?.description ?? error.localizedDescription
+                // 記録（downloads.json）には、署名つきの配信URLを含みうる通信エラーの詳細を残さない。
+                if let urlError = error as? URLError { record.message = "通信に失敗しました（(urlError.code.rawValue)）。" }
+                else { record.message = (error as? CustomStringConvertible)?.description ?? "保存に失敗しました。" }
             }
             record.fileName = nil
             await update(record)
