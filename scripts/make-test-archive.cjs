@@ -40,7 +40,7 @@ async function main() {
   const bytes = Buffer.from(fs.readFileSync(path.join(out, 'windows-media.zip'))), at = bytes.indexOf(Buffer.from('RIFF'));
   if (at < 0) throw new Error('メディアの位置が見つかりません。');
   bytes[at + 100] ^= 0xff; fs.writeFileSync(path.join(out, 'corrupt-media.zip'), bytes);
-  fs.writeFileSync(path.join(out, 'expected.json'), JSON.stringify({ lists: ['親', '子', '独立'], rootLists: ['親', '独立'], localSizes: { A: wavA.length, B: wavB.length }, mediaZipLocals: [localA] }, null, 2));
+  fs.writeFileSync(path.join(out, 'expected.json'), JSON.stringify({ lists: ['親', '子', '独立'], rootLists: ['親', '独立'], localSizes: { A: wavA.length, B: wavB.length }, mediaZipLocals: [localA, localB] }, null, 2));
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('wrote', out);
 }

@@ -69,16 +69,16 @@ final class TransferTests: XCTestCase {
         await coordinator.commit(ids: plan.lists.map(\.id))
         guard case .done(let outcome) = coordinator.phase else { return XCTFail("取り込めませんでした: \(coordinator.phase)") }
         XCTAssertEqual(outcome.imported, 3)
-        XCTAssertEqual(outcome.copied, 1)
-        XCTAssertEqual(outcome.missing, 1)
+        XCTAssertEqual(outcome.copied, 2)
+        XCTAssertEqual(outcome.missing, 0)
         let names = Set(store.document?.playlists.map(\.name) ?? [])
         XCTAssertTrue(["親", "子", "独立"].allSatisfy(names.contains))
         // 同梱されていたローカル曲の実体が、元のIDではない新しい名前で保存されている
         let files = mediaFiles(store)
-        XCTAssertEqual(files.count, 1)
-        let size = try FileManager.default.attributesOfItem(atPath: store.mediaDirectory.appendingPathComponent(files[0]).path)[.size] as? Int
-        XCTAssertEqual(size, try expected().localSizes.A)
-        XCTAssertFalse(files[0].hasPrefix("00000004-"))
+        XCTAssertEqual(files.count, 2)
+        let sizes = try files.map { try XCTUnwrap(FileManager.default.attributesOfItem(atPath: store.mediaDirectory.appendingPathComponent($0).path)[.size] as? Int) }
+        XCTAssertEqual(Set(sizes), Set([try expected().localSizes.A, try expected().localSizes.B]))
+        XCTAssertTrue(files.allSatisfy { !$0.hasPrefix("00000004-") })
         // 再起動後も残る
         let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
         let reloaded = LibraryStore(core: core, directory: directory)
@@ -91,7 +91,7 @@ final class TransferTests: XCTestCase {
         var plan = try await choose(coordinator, "windows-media.zip")
         await coordinator.commit(ids: plan.lists.map(\.id))
         let firstFiles = mediaFiles(store)
-        let firstBytes = try Data(contentsOf: store.mediaDirectory.appendingPathComponent(firstFiles[0]))
+        let firstBytes = try firstFiles.map { try Data(contentsOf: store.mediaDirectory.appendingPathComponent($0)) }
         coordinator.cancel()
         plan = try await choose(coordinator, "windows-media.zip")
         await coordinator.commit(ids: plan.lists.map(\.id))
@@ -100,9 +100,11 @@ final class TransferTests: XCTestCase {
         XCTAssertTrue(names.contains("親"))
         XCTAssertTrue(names.contains { $0.hasPrefix("親（取り込み") })
         let files = mediaFiles(store)
-        XCTAssertEqual(files.count, 2)
-        XCTAssertTrue(files.contains(firstFiles[0]))
-        XCTAssertEqual(try Data(contentsOf: store.mediaDirectory.appendingPathComponent(firstFiles[0])), firstBytes, "既存のメディアは変更しない")
+        XCTAssertEqual(files.count, 4)
+        XCTAssertTrue(firstFiles.allSatisfy(files.contains))
+        for (name, bytes) in zip(firstFiles, firstBytes) {
+            XCTAssertEqual(try Data(contentsOf: store.mediaDirectory.appendingPathComponent(name)), bytes, "既存のメディアは変更しない")
+        }
     }
 
     func testAnInformationArchiveImportsOnlyTheStructure() async throws {
