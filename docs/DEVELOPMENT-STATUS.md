@@ -2,7 +2,7 @@
 
 更新日：2026-11-13（日本時間）
 対象：v0.7.0 / `release/v0.7.0`
-現在地：Step3完了（共通JSのiOS実行をCIのシミュレーターで確認。実機の速度はユーザー確認待ち）。次はStep4（MediaKeyと端末依存情報の分離）。
+現在地：Step3完了（共通JSのiOS実行をシミュレーターと実機で確認）。次はStep4（MediaKeyと端末依存情報の分離）。
 基準コミット：`79255411dfbcb240cbad064fa8d1ae0ca4e085d4`（`release/v0.6.7` 最新。配布済みv0.6.7 startup-hotfix-1を含む）。
 v0.6.7の開発・検証記録は `docs/VALIDATION-067.md` に移しました。
 
@@ -77,7 +77,7 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 | Step0 開始と全体計画 | 完了 | `release/v0.7.0` 作成、v0.6.7記録の移動、全体計画・役割分担の記載 |
 | Step1 iOS版方針と共通データ仕様 | 完了 | 設計をDESIGN.md冒頭「v0.7.0」節へ確定（コード変更なし）。判断1〜3は確定済み |
 | Step2 iOSビルド基盤の検証 | 完了 | XcodeGenの最小SwiftUIアプリをCIでビルド・テストし、署名なしIPAを取得。AltStore経由でiPhone 16e（iOS 26.7.2）へ導入し起動を確認 |
-| Step3 共通処理のiOS実行 | 完了（実機の速度は確認待ち） | 共通JSの束ね方とJSContextでの実行を実装し、共通テストデータ116件をNodeとiOSシミュレーターの両方で全件一致。999リスト・約1万登録の速度をシミュレーターで計測 |
+| Step3 共通処理のiOS実行 | 完了 | 共通JSの束ね方とJSContextでの実行を実装し、共通テストデータ116件をNodeとiOSシミュレーターの両方で全件一致。999リスト・約1万登録の速度をシミュレーターで計測 |
 | Step4 MediaKeyと端末依存情報の分離 | 未着手 | 端末非依存のMediaKeyとDeviceMediaをWindows版へ導入。既存JSON・DLカタログ・ZIPの互換と移行時の原本保護を確認 |
 | Step5 Windows版の改善 | 指示待ち | ユーザーが提示する改善項目。内容に応じてStep5-1、5-2…に分割し、他のStepの間へ挿入することもある |
 | Step6 同期の共通基盤 | 未着手 | 変更レコード、親子の辺と並び順、Tombstone、競合解決、同期キューを共通JSで実装。SyncRepositoryの抽象とメモリ実装で、同時変更・オフライン編集・削除後の復活防止をテスト |
@@ -116,6 +116,7 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 - 保存先：マイドライブの `FavecusPlayer/ios`（PCのGoogle Drive for desktopの同期フォルダー。Windowsでは `G:マイドライブFavecusPlayerios`）。ファイル名は `FavecusPlayer-<コミット7桁>-run<ID>.ipa`。
 - 実行する場面：実機のiPhoneで検証が必要なStepで、iOSのCIが成功し署名なしIPAが生成されたごとに、Claudeが `node scripts/fetch-ipa.cjs` を実行して保存し、ユーザーへ知らせる（実機検証が不要なStepでは実行しない）。ユーザーはiPhoneの「ファイル」アプリでドライブのIPAを選び、AltStoreの `+` から導入する。
 - 認証情報はGitHub（gh CLIの既存ログイン）とDriveのPC側サインインのみ。クラウドへのGoogle認証情報の保存・CIからのアップロードは行わない。同名のIPAがある場合は上書きしない。古いIPAは自動削除しない（ユーザーが整理する）。
+- **導入は、iPhoneをUSBでPCにつないだ状態で行う**（2026-11-13にユーザーが確認。USBなしではAltServerが端末を見つけられず、エラー2003「AltServer could not find this device」になった。Wi-Fi経由には、iTunesのWi-Fi同期の有効化・iTunesHelperの常駐・PCのネットワークの種類（プライベート）・同一ネットワークが必要で、未達成）。
 - 保存先が見つからないとき（Driveの未サインインなど）は `--dir` で指定する。Artifactの保持期間は14日。
 
 ## 現在の工程
@@ -131,5 +132,6 @@ Step3完了。次はStep4（MediaKeyと端末依存情報の分離）です。
 - 同じ検証の再実行（run 43381507980、検証ロジックの厳密化後）も成功し、フィクスチャ116件は失敗0でした。計測値はCIの共有ランナー上でばらつきが大きく、検証は385ms（1回目）と1,111ms（2回目）、取り込み計画は124msと264msでした。単発の値を性能の根拠にせず、実機の計測でも複数回の値を見ます。
 - macOS実行時間：ジョブ全体で約9分（ビルド・テスト約8分）、概算$0.56（$0.062/分）。Step2と、Step3の2回の実行を合わせて約29分、概算$1.8（GitHub Free含有$12/月の約15%）。スクリーンショットは手動実行の選択制にしました。`paths` に共通JSの正本とshared/を追加し、共通処理の変更でiOS検証が必ず走ります。
 - checkerによるStep2・3の確認：確定した欠陥は、非ASCIIホスト（全角など）をNodeが許可ホストへ正規化して受理する場合にpreludeが拒否する点の、コメントと分類基準の不正確さでした。コメントを事実に合わせ、divergenceケースを 'Invalid URL' による拒否に限定して検査するよう修正しました。この相違そのものは許容します（Windowsは受理・iOSは拒否）。ファズ約60万件の追加比較で、結果が異なる入力は見つかりませんでした。
-- 未確認：実機（JITなし）での速度、AltStore経由の最新ビルドの導入、`Intl.Collator` の順序差（Step8）、ローカルMacでのxcodegen。
-- 実機での速度確認（任意）：GitHub Actionsの該当実行のArtifact `ios-outputs`（保持14日）から `FavecusPlayer-unsigned.ipa` を取得し、AltStoreで入れ直して（同じアプリの更新）、「共通処理の速度を計測」ボタンを押すと数値が表示されます。
+- 未確認：`Intl.Collator` の順序差（Step8）、ローカルMacでのxcodegen。
+- **実機（iPhone 16e、AltStore経由、2026-11-13、ユーザー）**：999リスト・9,990登録で、検証1,095ms、共有出力1,141ms、検索インデックス23ms、検索1ページ3ms、取り込み計画286ms（1回の計測）。検証・共有はシミュレーター・Nodeより遅い（約2倍）が1秒台で、取り込み計画も含め実用範囲と判断します。検索は十分高速です。複数回の値、JITの有無、電源状態の影響は未確認です。
+- 実機への導入手順（参考）：GitHub Actionsの該当実行のArtifact `ios-outputs`（保持14日）から `FavecusPlayer-unsigned.ipa` を取得し、AltStoreで入れ直して（同じアプリの更新）、「共通処理の速度を計測」ボタンを押すと数値が表示されます。
