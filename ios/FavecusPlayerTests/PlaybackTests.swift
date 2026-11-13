@@ -29,9 +29,11 @@ final class FakeProvider: MediaProvider {
     var file: URL?
     var error: Error?
     private(set) var requested: [String] = []
+    var delayed: Set<String> = []
 
     func playableFile(for entry: EntryItem) async throws -> URL {
         requested.append(entry.title)
+        if delayed.contains(entry.title) { try await Task.sleep(nanoseconds: 400_000_000) }
         if let error { throw error }
         return try XCTUnwrap(file)
     }
@@ -242,7 +244,9 @@ final class PlaybackTests: XCTestCase {
         let provider = FakeProvider()
         let (store, engine, backend) = try await prepareWithProvider(provider)
         let scope = try parentId(store)
+        provider.delayed = ["曲1"]
         let slow = Task { await engine.play(entryId: try! entry(store, "曲1").id, scope: scope) }
+        try await waitFor { provider.requested.contains("曲1") }
         await engine.play(entryId: try entry(store, "ローカルB").id, scope: scope)
         await slow.value
         XCTAssertEqual(engine.current?.title, "ローカルB", "あとから選んだ曲が優先される")

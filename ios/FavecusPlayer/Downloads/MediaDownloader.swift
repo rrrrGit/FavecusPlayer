@@ -39,7 +39,7 @@ final class MediaDownloader: @unchecked Sendable {
         var files: [URL] = []
         do {
             for (index, stream) in streams.enumerated() {
-                let destination = directory.appendingPathComponent("stream-\(index).bin")
+                let destination = directory.appendingPathComponent("stream-\(index).\(streams.count == 2 && index == 1 ? "m4a" : "mp4")")
                 try await fetch(stream, to: destination) { value in progress((Double(index) + value) / Double(streams.count)) }
                 files.append(destination)
             }
