@@ -141,6 +141,13 @@
 - DeviceMedia（端末ごとの保存情報）は、mediaKey、形式（動画/音声）、画質、保存状態、端末内パスを持ち、**同期しません**。
 - 状態：NotDownloaded / Preparing / Downloading / Processing / Validating / Completed / Failed / Cancelled。Windowsの既存カタログ（layout 4）はCompletedに相当します。再起動後、Completed以外のファイルは完成扱いにしません。サムネイルの失敗で本体を削除しません。
 
+### iPhone版のローカル再生（Step9：音声のみ）
+
+- **再生順は共通JS**：Windows版と同じ `Queue`（`src/core/queue.cjs`）を `library-app.cjs` の `QueueStart/QueueMove/QueuePeek` から使う（1つの `JSContext` が状態を持つ）。端末で再生できる曲（この端末にメディアの実体があるローカル曲）だけを `playable` として渡すため、再生できない曲は順番に入らず、自動送りで空回りしない。シャッフルの重み（再生回数）はWindows版のみで、iPhone版は均等。共通テストデータに順番のケース（リピート・シャッフル・再生できない曲・子リスト・全体・ライブラリの変更の反映）を追加。
+- **Swift側**：`PlaybackEngine`（再生できる曲の集約・JS呼び出し・状態）、`PlayerBackend`（AVPlayerの抽象。テストでは偽物）、`SystemAudio`（オーディオセッション `.playback`、割り込み、イヤホンを抜いたら一時停止、ロック画面・コントロールセンターの操作と曲情報）。`UIBackgroundModes=audio` は `project.yml` の `info:` で宣言し、ビルドされたInfo.plistにあることをCIで確認する。
+- **範囲**：音声のみ（動画の表示は含まない）。Bilibiliのオンライン再生はStep12、ダウンロード済みはStep13。メディアのファイル保護は `completeUntilFirstUserAuthentication`（ロック中の再生のため）で、Step13以降も同じ。
+- **挙動**：曲を選ぶと、その曲のあるリスト（子を含む）が再生範囲。再生位置が3秒を超えているときの「前へ」は曲の頭へ戻る。読み込み・再生に失敗した曲は飛ばし、続けて失敗しても無限に回らず止める。
+
 ### ZIPの出力・取り込みの仕様（Step10：実装から確定した形式）
 
 - **外側のZIP**：すべて無圧縮（method 0）、フラグ0x808（データ記述子・UTF-8）。サイズが4GB以上のときはZIP64。読み取りは中央ディレクトリのサイズを使い、method 0と8（deflate）を受け付ける。許可する名前は `[a-zA-Z0-9_./-]` 200文字以内で、先頭の/・`.`・`..`・空要素は不可（`SafeName`、共通JS）。構成：`playlists.fvpa`、`media/<fileName>`（ローカル曲の実体）、DL済みメディアの部分（出力方式 media のとき。iPhoneへの取り込みはStep13）。
