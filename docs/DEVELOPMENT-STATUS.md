@@ -111,6 +111,13 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 - 2台のPC（Aデスクトップ・Bノート）のどちらからでも、1台のiPhoneのAltStoreの期限更新ができるかは不明。Bで別途サインインすると、無料Apple Accountの開発用証明書の上限により、Aで作成した証明書が失効し、アプリが次のRefreshまで動かなくなる可能性がある（第三者資料のみ・公式未確認。証明書の上限数も未確認）。確認時は、Aで導入→Bでサインイン・更新→Aで再更新、アプリデータの保持、両PC同時起動時の挙動を見る。
 - PCを7日以上起動できない場合は、AltStoreでは期限が切れる。SideStore（iPhone単体で更新できるとされる）は公式資料を取得できておらず未評価。
 
+## IPAのGoogleドライブ出力（運用）
+
+- 保存先：マイドライブの `FavecusPlayer/ios`（PCのGoogle Drive for desktopの同期フォルダー。Windowsでは `G:マイドライブFavecusPlayerios`）。ファイル名は `FavecusPlayer-<コミット7桁>-run<ID>.ipa`。
+- 実行する場面：実機のiPhoneで検証が必要なStepで、iOSのCIが成功し署名なしIPAが生成されたごとに、Claudeが `node scripts/fetch-ipa.cjs` を実行して保存し、ユーザーへ知らせる（実機検証が不要なStepでは実行しない）。ユーザーはiPhoneの「ファイル」アプリでドライブのIPAを選び、AltStoreの `+` から導入する。
+- 認証情報はGitHub（gh CLIの既存ログイン）とDriveのPC側サインインのみ。クラウドへのGoogle認証情報の保存・CIからのアップロードは行わない。同名のIPAがある場合は上書きしない。古いIPAは自動削除しない（ユーザーが整理する）。
+- 保存先が見つからないとき（Driveの未サインインなど）は `--dir` で指定する。Artifactの保持期間は14日。
+
 ## 現在の工程
 
 Step3完了。次はStep4（MediaKeyと端末依存情報の分離）です。
