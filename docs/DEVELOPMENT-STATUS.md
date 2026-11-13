@@ -2,7 +2,7 @@
 
 更新日：2026-11-13（日本時間）
 対象：v0.7.0 / `release/v0.7.0`
-現在地：Step5-3の実装・Node検証まで完了（実Electron・Windows実機は未確認）。Step5の残りは実機確認とcheckerの反映。
+現在地：Step5（5-1〜5-3）完了。実Electron（Windows）で拡大・Esc・トレイ格納を確認済み。Bilibili実通信・実機の通常操作は未確認。次はStep6（同期の共通基盤）。
 基準コミット：`79255411dfbcb240cbad064fa8d1ae0ca4e085d4`（`release/v0.6.7` 最新。配布済みv0.6.7 startup-hotfix-1を含む）。
 v0.6.7の開発・検証記録は `docs/VALIDATION-067.md` に移しました。
 
@@ -79,7 +79,7 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 | Step2 iOSビルド基盤の検証 | 完了 | XcodeGenの最小SwiftUIアプリをCIでビルド・テストし、署名なしIPAを取得。AltStore経由でiPhone 16e（iOS 26.7.2）へ導入し起動を確認 |
 | Step3 共通処理のiOS実行 | 完了 | 共通JSの束ね方とJSContextでの実行を実装し、共通テストデータ116件をNodeとiOSシミュレーターの両方で全件一致。999リスト・約1万登録の速度をシミュレーターで計測 |
 | Step4 MediaKeyと端末依存情報の分離 | 完了 | SyncMediaKey・DeviceMediaを共通JSとWindows版（読み取り専用の投影）へ導入。保存形式は変更せず、共通テストデータ158件で確認 |
-| Step5 Windows版の改善 | 実装完了・実機確認待ち | ユーザー提示の8項目（`C:\Dev\v0.6.7改善点`）。5-1 ホーム・再生バー／5-2 ×でトレイ格納／5-3 オリジナルのプレイヤーUIと拡大（いずれも実装・Node検証済み。実Electron・Windows実機は未確認）。下記「Step5の計画」 |
+| Step5 Windows版の改善 | 完了（実Electronで主要動作を確認） | ユーザー提示の8項目（`C:\Dev\v0.6.7改善点`）。5-1 ホーム・再生バー／5-2 ×でトレイ格納／5-3 オリジナルのプレイヤーUIと拡大。実Electron 44.2.0で、拡大・Esc・×のトレイ格納を確認（Bilibili実通信・Windowsの実キー操作・シャットダウンは未確認）。下記「Step5の計画」 |
 | Step6 同期の共通基盤 | 未着手 | 変更レコード、親子の辺と並び順、Tombstone、競合解決、同期キューを共通JSで実装。SyncRepositoryの抽象とメモリ実装で、同時変更・オフライン編集・削除後の復活防止をテスト |
 | Step7 Supabase接続 | 未着手 | テーブル・行単位のアクセス制御・認証の設計、SupabaseSyncRepository。Windows版の同期接続と、トークンの安全な保存 |
 | Step8 iOS基本アプリとローカルDB | 未着手 | ローカルDB、プレイリスト階層の表示・編集・並び替え。画面はユーザーのUI案を受けて決定 |
@@ -134,7 +134,14 @@ Step4完了。次はStep5（Windows版の改善）です。Step5の内容はユ�
 - 下部の再生バーに拡大ボタンを追加（オンライン再生にもアプリ側のボタンがある）。
 - 検証：`test/main-040.test.cjs` に6件（拡大の出入り・Esc・stale状態の防止・Bilibili全画面・IPCの送信元検証・画質URLと要求）、`test/ui-046.test.cjs` に1件、`SavedURL` の代用DOMを更新。全493件のうち、成功481・失敗9・スキップ3で、失敗9件は既知の環境起因とテスト名が一致。`node scripts/check.cjs`：123ファイル成功。
 - 操作プレビュー（**模擬**）：一時的な確認ページで、模擬の長さ・位置・状態に `local.html` と `local.js` を動かし、操作部品・画質のメニューの見た目を確認した（動画・拡大・画質の実処理は含まない。確認用ページはGitに入れていない）。
-- **未確認（実Electron・Windows実機）**：実際の拡大（`WebContentsView` の大きさ、`titleBarOverlay` の全画面時の挙動、Esc）、Bilibili自身の全画面ボタンからの拡大、`favecus://` の動画での操作部品の動作、CSP、保存済み動画の再生位置と画質変更後の再生、実際のBilibiliでの動作。`node_modules` が無く、実Electronを起動できていない。
+- **実Electronでの確認（2026-11-13、Windows、electron 44.2.0、`npm ci` で導入）**：データは一時フォルダー（`FAVECUS_TEST_DIRECTORY`）だけを使い、ユーザーの実ライブラリには触れていない。テスト用のWebM（Electron自身で生成した動画＋音声）をローカル曲として再生し、本物の `main.cjs` を `NODE_OPTIONS=--require` の運転スクリプトで操作した（スクリプト・生成物はGit管理外）。確認できたこと：
+  - ローカル再生画面で独自の操作が表示される（標準の `controls` は無効、`favecusPlayer` は `fullscreen`/`changeQuality` のみ公開、コンソールのエラー・CSP違反なし）。スクリーンショットで、再生・時間・再生位置・拡大の表示を確認。
+  - 再生バーの拡大ボタン（renderer→main）：ウィンドウが全画面になり、動画ビューが全体（1920×1080）に広がる。Esc（動画側）で元の枠（584×600）に戻り、ウィンドウの全画面も解除される。
+  - ローカル再生画面自身の拡大ボタン（`contextBridge`→`media:fullscreen`）：入る・戻るとも成功。
+  - HTML全画面（Bilibili自身の全画面ボタンと同じ `requestFullscreen` の経路）：`WebContentsView` では動画ビューは自動では広がらないが、`enter-html-full-screen` を受けた `main` がビューを全体へ広げ、Escで `document.fullscreenElement` も窓の全画面も解除された。
+  - ×ボタン（`win.close()`）：ウィンドウは破棄されず非表示になり、再表示できた（トレイのアイコンが作成されている）。
+  - 確認中に、テスト動画（約6秒）の再生終了で再生ビューが閉じる動作に当たったが、これは通常動作（動画の入れ替え・停止で拡大が解除される）であり不具合ではない。
+- **未確認**：Bilibili実通信（Bilibili自身のプレイヤーと全画面ボタン）、実際のキーボード・マウス操作（今回は `sendInputEvent` と `executeJavaScript`）、保存済み動画（`favecus://offline`）での画質チップと「別の画質で保存し直す」の実画面、ホームのカードのhoverとサムネイル（実Electron）、Windowsのシャットダウン・ログオフ・Patch実行、複数ディスプレイ・DPI。
 
 ### Step5-2の結果
 
@@ -146,7 +153,7 @@ Step4完了。次はStep5（Windows版の改善）です。Step5の内容はユ�
 - checker（Sonnet）の指摘を反映：`session-end` で30秒タイマーを解除（以後は戻さない）。「アプリを閉じてから」と案内する他の箇所（`native/main.c` のミューテックス検出時のエラー、`scripts/package-release.py` の説明文、アプリ内「バージョン更新」の注記）にも「×では通知領域に残る。通知領域のアイコンから終了」を追記した。**`native/main.c` はこの環境でコンパイルできず未確認**（文字列のみの変更。Windowsのビルドと検証はStep20で行う）。`package-release.py` もPython未導入のため未実行。
 - 知っておく挙動：×で隠した状態は「前面から外れた」扱いのため、設定した時間（自動切り替えが有効な場合）の後に既存の仕組みで曲モードへ自動切替し、通知を出す。最小化と同じ既存動作で、今回は変更していない。Restart Manager（close-app）が隠れたプロセスへ閉じる要求を送るか、シャットダウン取消し時に `session-end` が発火するかは、実機で未確認。タスクマネージャーの「タスクの終了」（強制でない終了要求）は×と同じく閉じる要求が取り消され、アプリが残る（仕様上の割り切り）。
 - 検証：`test/main-040.test.cjs` に4件（格納・終了中・OS終了要求・トレイなし）と、`test/update-030.test.cjs` に1件（`CanHideToTray`）。関連76件成功。全486件のうち、成功474・失敗9・スキップ3で、失敗9件は既知の環境起因とテスト名が一致。`node scripts/check.cjs`：123ファイル成功。
-- 未確認（実Electron・Windows実機）：実際の×ボタンでの格納、トレイからの復帰、隠れている間の再生継続と曲モード自動切替（一定時間後）、実際のシャットダウン・ログオフ・Patch実行時の挙動、explorer再起動でトレイのアイコンが消えた場合（検出できない）。
+- 実Electronでの確認（5-3と同じ運転スクリプト）：×（close）でウィンドウが破棄されず非表示になり、再表示できた。未確認：トレイのアイコン操作（クリック・右クリックメニュー）、隠れている間の再生継続と曲モード自動切替（一定時間後）、実際のシャットダウン・ログオフ・Patch実行時の挙動、explorer再起動でトレイのアイコンが消えた場合（検出できない）。
 
 ### Step5-1の結果
 
