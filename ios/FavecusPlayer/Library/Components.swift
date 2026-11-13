@@ -46,6 +46,39 @@ struct ArtworkTile: View {
     }
 }
 
+/// 正方形のカード用の画像（ホーム）。サムネイルは中央を切り出して全面に敷く。
+struct SquareCover: View {
+    let image: UIImage?
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                Theme.panel
+                if let image {
+                    Image(uiImage: image).resizable().scaledToFill().frame(width: proxy.size.width, height: proxy.size.height).clipped()
+                } else {
+                    Image(systemName: "music.note.list").font(.system(size: proxy.size.width * 0.28)).foregroundStyle(Color(hex: 0x50586F))
+                }
+            }
+        }
+        .aspectRatio(1, contentMode: .fit)
+    }
+}
+
+/// リストの画像：そのリストの先頭の曲のサムネイル。曲がなければ（または画像がなければ）、子のリストの先頭から探す。
+@MainActor
+func firstCover(of list: PlaylistItem, document: LibraryDocument?, services: Services, depth: Int = 0) -> UIImage? {
+    _ = services.artwork.revision
+    for entry in list.entries {
+        if let key = services.downloads?.entryKeys[entry.id], let image = services.artwork.image(for: key) { return image }
+    }
+    guard depth < 4, let document else { return nil }
+    for child in document.children(of: list.id) {
+        if let image = firstCover(of: child, document: document, services: services, depth: depth + 1) { return image }
+    }
+    return nil
+}
+
 /// 時間の表示（m:ss）。
 func formatTime(_ seconds: Double) -> String {
     guard seconds.isFinite, seconds >= 0 else { return "0:00" }
@@ -53,7 +86,78 @@ func formatTime(_ seconds: Double) -> String {
     return String(format: "%d:%02d", total / 60, total % 60)
 }
 
-/// 曲の1行。再生できる曲は押すと再生、できない曲は薄く表示して理由を出す。Bilibiliの曲は、保存の状態を表示し、メニューから保存・削除できる。
+// MARK: 曲の行
+
+/// 曲の「…」を押したときの操作（アイコン・名前・実行）。
+struct RowAction: Identifiable {
+    let id = UUID()
+    let icon: String
+    let title: String
+    var destructive = false
+    let run: () -> Void
+}
+
+/// 曲の「…」の画面：曲の画像・名前と、できる操作の一覧。
+struct SongActionSheet: View {
+    let title: String
+    let subtitle: String
+    let image: UIImage?
+    let actions: [RowAction]
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 14) {
+                ArtworkTile(image: image, title: title, side: 112, corner: 8)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title.isEmpty ? "（無題）" : title).font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(3)
+                    Text(subtitle).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            Divider().overlay(Theme.line)
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(actions) { action in
+                        Button {
+                            dismiss()
+                            // シートを閉じてから実行する（閉じる途中で、一覧が変わらないように）
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { action.run() }
+                        } label: {
+                            HStack(spacing: 14) {
+                                Image(systemName: action.icon).frame(width: 26)
+                                Text(action.title)
+                                Spacer()
+                            }
+                            .font(.system(size: 16))
+                            .foregroundStyle(action.destructive ? Color(hex: 0xFF8A8A) : Theme.text)
+                            .padding(.horizontal, 20).padding(.vertical, 14)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        Divider().overlay(Theme.rowLine)
+                    }
+                }
+            }
+        }
+        .background(Theme.panel.ignoresSafeArea())
+        .presentationDetents([.medium, .large])
+    }
+}
+
+/// 画面確認用（スクリーンショット）：起動引数 -FavecusDemoMenu YES で、最初の曲の「…」の画面を1回だけ開く。通常の起動では何もしない。
+@MainActor
+private enum DemoMenu {
+    static var consumed = false
+    static func take() -> Bool {
+        guard !consumed, UserDefaults.standard.bool(forKey: "FavecusDemoMenu") else { return false }
+        consumed = true
+        return true
+    }
+}
+
+/// 曲の1行。再生できる曲は押すと再生、できない曲は薄く表示して理由を出す。Bilibiliの曲は、保存の状態を表示する。「…」で、保存・削除などの操作の画面を開く。
 struct SongRow: View {
     let entry: EntryItem
     let scope: String
@@ -66,7 +170,7 @@ struct SongRow: View {
             if entry.type == "bilibili", let downloads = services.downloads {
                 BiliSongRow(entry: entry, scope: scope, player: player, downloads: downloads, artwork: services.artwork, onRemove: onRemove)
             } else {
-                LocalSongRow(entry: entry, scope: scope, player: player, artwork: services.artwork, onRemove: onRemove)
+                LocalSongRow(entry: entry, scope: scope, player: player, onRemove: onRemove)
             }
         } else {
             Text(entry.title.isEmpty ? "（無題）" : entry.title)
@@ -74,16 +178,19 @@ struct SongRow: View {
     }
 }
 
-private struct RowLayout<Actions: View>: View {
+private struct RowLayout: View {
     let title: String
     let subtitle: String
     let image: UIImage?
     let current: Bool
     let playing: Bool
     let dimmed: Bool
+    /// 保存済み（曲名の下に、白いチェックマークを出す）。
+    let saved: Bool
     let progress: Double?
+    let actions: [RowAction]
     let tap: () -> Void
-    @ViewBuilder let menu: () -> Actions
+    @State private var showActions = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -101,7 +208,8 @@ private struct RowLayout<Actions: View>: View {
                         .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(current ? Theme.accent : (dimmed ? Theme.muted : Theme.text))
                         .lineLimit(2)
-                    HStack(spacing: 6) {
+                    HStack(spacing: 5) {
+                        if saved { Image(systemName: "checkmark.circle.fill").font(.system(size: 11)).foregroundStyle(.white) }
                         Text(subtitle).font(.system(size: 11)).foregroundStyle(Theme.faint).lineLimit(1)
                         if let progress { ProgressView(value: progress).tint(Theme.accent).frame(width: 48) }
                     }
@@ -110,13 +218,18 @@ private struct RowLayout<Actions: View>: View {
             }
             .contentShape(Rectangle())
             .onTapGesture(perform: tap)
-            Menu { menu() } label: {
+            Button { showActions = true } label: {
                 Image(systemName: "ellipsis").foregroundStyle(Theme.muted).frame(width: 36, height: 44).contentShape(Rectangle())
             }
+            .buttonStyle(.borderless)
         }
         .padding(.vertical, 2)
         .listRowBackground(current ? Theme.currentRow : Theme.background)
         .listRowSeparatorTint(Theme.rowLine)
+        .sheet(isPresented: $showActions) {
+            SongActionSheet(title: title, subtitle: subtitle, image: image, actions: actions)
+        }
+        .onAppear { if DemoMenu.take() { showActions = true } }
     }
 }
 
@@ -124,16 +237,16 @@ private struct LocalSongRow: View {
     let entry: EntryItem
     let scope: String
     @ObservedObject var player: PlaybackEngine
-    @ObservedObject var artwork: ArtworkStore
     var onRemove: (() -> Void)?
 
     var body: some View {
         let playable = player.canPlay(entry)
-        RowLayout(title: entry.title, subtitle: playable ? "この端末のファイル" : "この端末にファイルがありません", image: nil,
-                  current: player.current?.entryId == entry.id, playing: player.isPlaying, dimmed: !playable, progress: nil,
-                  tap: { Task { await player.play(entryId: entry.id, scope: scope) } }) {
-            if let onRemove { Button("このリストから外す", role: .destructive, action: onRemove) }
-        }
+        var actions: [RowAction] = []
+        if playable { actions.append(RowAction(icon: "play.fill", title: "再生") { Task { await player.play(entryId: entry.id, scope: scope) } }) }
+        if let onRemove { actions.append(RowAction(icon: "minus.circle", title: "このリストから外す", destructive: true, run: onRemove)) }
+        return RowLayout(title: entry.title, subtitle: playable ? "この端末のファイル" : "この端末にファイルがありません", image: nil,
+                         current: player.current?.entryId == entry.id, playing: player.isPlaying, dimmed: !playable, saved: false, progress: nil, actions: actions,
+                         tap: { Task { await player.play(entryId: entry.id, scope: scope) } })
     }
 }
 
@@ -146,34 +259,42 @@ private struct BiliSongRow: View {
     var onRemove: (() -> Void)?
 
     private var key: String? { downloads.entryKeys[entry.id] }
-    private var record: DeviceMediaRecord? { key.flatMap { downloads.record(key: $0) } }
+    private func record(_ kind: String) -> DeviceMediaRecord? { key.flatMap { downloads.record(key: $0, kind: kind) } }
 
     private var subtitle: String {
-        guard let record else { return "Bilibili・オンライン" }
-        switch record.state {
-        case .completed: return "Bilibili・保存済み"
-        case .failed: return "Bilibili・保存に失敗"
-        case .cancelled, .notDownloaded: return "Bilibili・オンライン"
-        default: return "Bilibili・保存中"
+        let audio = record("audio"), video = record("video")
+        if video?.state == .completed { return "Bilibili・動画を保存済み" }
+        if audio?.state == .completed { return "Bilibili・保存済み" }
+        if audio?.state.inProgress == true || video?.state.inProgress == true { return "Bilibili・保存中" }
+        if audio?.state == .failed || video?.state == .failed { return "Bilibili・保存に失敗" }
+        return "Bilibili・オンライン"
+    }
+
+    private var actions: [RowAction] {
+        var result = [RowAction(icon: "play.fill", title: "再生") { Task { await player.play(entryId: entry.id, scope: scope) } }]
+        if let key {
+            for (kind, label) in [("audio", "音声"), ("video", "動画")] {
+                let state = record(kind)?.state
+                if state?.inProgress == true {
+                    result.append(RowAction(icon: "xmark.circle", title: "\(label)の保存を取り消す", destructive: true) { downloads.cancel(key: key, kind: kind) })
+                } else if state == .completed {
+                    result.append(RowAction(icon: "trash", title: "\(label)の保存を削除", destructive: true) { Task { await downloads.remove(key: key, kind: kind) } })
+                } else {
+                    result.append(RowAction(icon: kind == "video" ? "film" : "arrow.down.circle", title: "\(label)を保存") { downloads.save(entry: entry, kind: kind) })
+                }
+            }
         }
+        if let onRemove { result.append(RowAction(icon: "minus.circle", title: "このリストから外す", destructive: true, run: onRemove)) }
+        return result
     }
 
     var body: some View {
         _ = artwork.revision // 画像が増えたら描き直す
+        let saved = record("audio")?.state == .completed || record("video")?.state == .completed
         return RowLayout(title: entry.title, subtitle: subtitle, image: artwork.image(for: key),
-                         current: player.current?.entryId == entry.id, playing: player.isPlaying, dimmed: false,
-                         progress: record?.state.inProgress == true ? key.flatMap { downloads.progress["\($0)|audio"] } : nil,
-                         tap: { Task { await player.play(entryId: entry.id, scope: scope) } }) {
-            if let key {
-                if record?.state.inProgress == true {
-                    Button("保存を取り消す", role: .destructive) { downloads.cancel(key: key) }
-                } else if record?.state == .completed {
-                    Button("保存を削除", role: .destructive) { Task { await downloads.remove(key: key) } }
-                } else {
-                    Button("音声を保存") { downloads.save(entry: entry) }
-                }
-            }
-            if let onRemove { Button("このリストから外す", role: .destructive, action: onRemove) }
-        }
+                         current: player.current?.entryId == entry.id, playing: player.isPlaying, dimmed: false, saved: saved,
+                         progress: record("audio")?.state.inProgress == true ? key.flatMap { downloads.progress["\($0)|audio"] } : nil,
+                         actions: actions,
+                         tap: { Task { await player.play(entryId: entry.id, scope: scope) } })
     }
 }

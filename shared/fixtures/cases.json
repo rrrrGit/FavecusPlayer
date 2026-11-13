@@ -17192,5 +17192,482 @@
     "bili:BV1xx411c7mD:p2"
    ]
   }
+ },
+ {
+  "name": "library action: add-video appends a Bilibili video once, with title and duration",
+  "call": "LibraryAction",
+  "args": [
+   {
+    "library": {
+     "version": 3,
+     "activePlaylistId": "00000001-0000-4000-8000-000000000001",
+     "rootPlaylistIds": [
+      "00000001-0000-4000-8000-000000000001",
+      "00000001-0000-4000-8000-000000000005"
+     ],
+     "playlists": [
+      {
+       "id": "00000001-0000-4000-8000-000000000001",
+       "name": "親",
+       "icon": "",
+       "entries": [
+        {
+         "id": "00000002-0000-4000-8000-000000000001",
+         "title": "曲1",
+         "addedAt": "2026-11-13T00:00:00.000Z",
+         "type": "bilibili",
+         "url": "https://www.bilibili.com/video/BV1aaaaaaaa1/"
+        },
+        {
+         "id": "00000002-0000-4000-8000-000000000002",
+         "title": "曲2",
+         "addedAt": "2026-11-13T00:00:00.000Z",
+         "type": "bilibili",
+         "url": "https://www.bilibili.com/video/BV1aaaaaaaa2/"
+        },
+        {
+         "id": "00000002-0000-4000-8000-000000000003",
+         "title": "曲3",
+         "addedAt": "2026-11-13T00:00:00.000Z",
+         "type": "bilibili",
+         "url": "https://www.bilibili.com/video/BV1aaaaaaaa3/"
+        },
+        {
+         "id": "00000002-0000-4000-8000-000000000004",
+         "title": "曲4",
+         "addedAt": "2026-11-13T00:00:00.000Z",
+         "type": "bilibili",
+         "url": "https://www.bilibili.com/video/BV1aaaaaaaa4/"
+        }
+       ],
+       "childIds": [
+        "00000001-0000-4000-8000-000000000002",
+        "00000001-0000-4000-8000-000000000003"
+       ],
+       "createdAt": "2026-11-01T00:00:01.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true
+      },
+      {
+       "id": "00000001-0000-4000-8000-000000000002",
+       "name": "子A",
+       "icon": "",
+       "entries": [
+        {
+         "id": "00000002-0000-4000-8000-000000000005",
+         "title": "曲5",
+         "addedAt": "2026-11-13T00:00:00.000Z",
+         "type": "bilibili",
+         "url": "https://www.bilibili.com/video/BV1aaaaaaaa5/"
+        }
+       ],
+       "childIds": [
+        "00000001-0000-4000-8000-000000000004"
+       ],
+       "createdAt": "2026-11-01T00:00:02.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true
+      },
+      {
+       "id": "00000001-0000-4000-8000-000000000003",
+       "name": "子B",
+       "icon": "",
+       "entries": [],
+       "childIds": [],
+       "createdAt": "2026-11-01T00:00:03.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true
+      },
+      {
+       "id": "00000001-0000-4000-8000-000000000004",
+       "name": "孫",
+       "icon": "",
+       "entries": [],
+       "childIds": [],
+       "createdAt": "2026-11-01T00:00:04.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true
+      },
+      {
+       "id": "00000001-0000-4000-8000-000000000005",
+       "name": "独立",
+       "icon": "",
+       "entries": [],
+       "childIds": [],
+       "createdAt": "2026-11-01T00:00:05.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true
+      }
+     ]
+    },
+    "steps": [
+     {
+      "type": "add-video",
+      "playlistId": "00000001-0000-4000-8000-000000000001",
+      "url": "https://www.bilibili.com/video/BV1zzzzzzzzz/?p=2",
+      "title": " 新しい曲 ",
+      "duration": 257
+     }
+    ]
+   }
+  ],
+  "expect": {
+   "handled": [
+    true
+   ],
+   "library": {
+    "version": 3,
+    "activePlaylistId": "00000001-0000-4000-8000-000000000001",
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001",
+     "00000001-0000-4000-8000-000000000005"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "icon": "",
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "title": "曲1",
+        "addedAt": "2026-11-13T00:00:00.000Z",
+        "type": "bilibili",
+        "url": "https://www.bilibili.com/video/BV1aaaaaaaa1/"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "title": "曲2",
+        "addedAt": "2026-11-13T00:00:00.000Z",
+        "type": "bilibili",
+        "url": "https://www.bilibili.com/video/BV1aaaaaaaa2/"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "title": "曲3",
+        "addedAt": "2026-11-13T00:00:00.000Z",
+        "type": "bilibili",
+        "url": "https://www.bilibili.com/video/BV1aaaaaaaa3/"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000004",
+        "title": "曲4",
+        "addedAt": "2026-11-13T00:00:00.000Z",
+        "type": "bilibili",
+        "url": "https://www.bilibili.com/video/BV1aaaaaaaa4/"
+       },
+       {
+        "type": "bilibili",
+        "videoId": "BV1zzzzzzzzz",
+        "part": 2,
+        "url": "https://www.bilibili.com/video/BV1zzzzzzzzz/?p=2",
+        "title": "新しい曲",
+        "duration": 257,
+        "id": "00000000-0000-4000-8000-000000900000",
+        "addedAt": "2026-11-13T00:00:00.000Z"
+       }
+      ],
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002",
+       "00000001-0000-4000-8000-000000000003"
+      ],
+      "createdAt": "2026-11-01T00:00:01.000Z",
+      "lastAddedAt": "2026-11-13T00:00:00.000Z",
+      "includeInAll": true
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子A",
+      "icon": "",
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000005",
+        "title": "曲5",
+        "addedAt": "2026-11-13T00:00:00.000Z",
+        "type": "bilibili",
+        "url": "https://www.bilibili.com/video/BV1aaaaaaaa5/"
+       }
+      ],
+      "childIds": [
+       "00000001-0000-4000-8000-000000000004"
+      ],
+      "createdAt": "2026-11-01T00:00:02.000Z",
+      "lastAddedAt": "",
+      "includeInAll": true
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000003",
+      "name": "子B",
+      "icon": "",
+      "entries": [],
+      "childIds": [],
+      "createdAt": "2026-11-01T00:00:03.000Z",
+      "lastAddedAt": "",
+      "includeInAll": true
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000004",
+      "name": "孫",
+      "icon": "",
+      "entries": [],
+      "childIds": [],
+      "createdAt": "2026-11-01T00:00:04.000Z",
+      "lastAddedAt": "",
+      "includeInAll": true
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000005",
+      "name": "独立",
+      "icon": "",
+      "entries": [],
+      "childIds": [],
+      "createdAt": "2026-11-01T00:00:05.000Z",
+      "lastAddedAt": "",
+      "includeInAll": true
+     }
+    ]
+   }
+  }
+ },
+ {
+  "name": "library action: add-video refuses a video already in the list",
+  "call": "LibraryAction",
+  "args": [
+   {
+    "library": {
+     "version": 3,
+     "activePlaylistId": "00000001-0000-4000-8000-000000000001",
+     "rootPlaylistIds": [
+      "00000001-0000-4000-8000-000000000001",
+      "00000001-0000-4000-8000-000000000005"
+     ],
+     "playlists": [
+      {
+       "id": "00000001-0000-4000-8000-000000000001",
+       "name": "親",
+       "icon": "",
+       "entries": [
+        {
+         "id": "00000002-0000-4000-8000-000000000001",
+         "title": "曲1",
+         "addedAt": "2026-11-13T00:00:00.000Z",
+         "type": "bilibili",
+         "url": "https://www.bilibili.com/video/BV1aaaaaaaa1/"
+        },
+        {
+         "id": "00000002-0000-4000-8000-000000000002",
+         "title": "曲2",
+         "addedAt": "2026-11-13T00:00:00.000Z",
+         "type": "bilibili",
+         "url": "https://www.bilibili.com/video/BV1aaaaaaaa2/"
+        },
+        {
+         "id": "00000002-0000-4000-8000-000000000003",
+         "title": "曲3",
+         "addedAt": "2026-11-13T00:00:00.000Z",
+         "type": "bilibili",
+         "url": "https://www.bilibili.com/video/BV1aaaaaaaa3/"
+        },
+        {
+         "id": "00000002-0000-4000-8000-000000000004",
+         "title": "曲4",
+         "addedAt": "2026-11-13T00:00:00.000Z",
+         "type": "bilibili",
+         "url": "https://www.bilibili.com/video/BV1aaaaaaaa4/"
+        }
+       ],
+       "childIds": [
+        "00000001-0000-4000-8000-000000000002",
+        "00000001-0000-4000-8000-000000000003"
+       ],
+       "createdAt": "2026-11-01T00:00:01.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true
+      },
+      {
+       "id": "00000001-0000-4000-8000-000000000002",
+       "name": "子A",
+       "icon": "",
+       "entries": [
+        {
+         "id": "00000002-0000-4000-8000-000000000005",
+         "title": "曲5",
+         "addedAt": "2026-11-13T00:00:00.000Z",
+         "type": "bilibili",
+         "url": "https://www.bilibili.com/video/BV1aaaaaaaa5/"
+        }
+       ],
+       "childIds": [
+        "00000001-0000-4000-8000-000000000004"
+       ],
+       "createdAt": "2026-11-01T00:00:02.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true
+      },
+      {
+       "id": "00000001-0000-4000-8000-000000000003",
+       "name": "子B",
+       "icon": "",
+       "entries": [],
+       "childIds": [],
+       "createdAt": "2026-11-01T00:00:03.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true
+      },
+      {
+       "id": "00000001-0000-4000-8000-000000000004",
+       "name": "孫",
+       "icon": "",
+       "entries": [],
+       "childIds": [],
+       "createdAt": "2026-11-01T00:00:04.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true
+      },
+      {
+       "id": "00000001-0000-4000-8000-000000000005",
+       "name": "独立",
+       "icon": "",
+       "entries": [],
+       "childIds": [],
+       "createdAt": "2026-11-01T00:00:05.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true
+      }
+     ]
+    },
+    "steps": [
+     {
+      "type": "add-video",
+      "playlistId": "00000001-0000-4000-8000-000000000001",
+      "url": "BV1aaaaaaaa1"
+     },
+     {
+      "type": "add-video",
+      "playlistId": "00000001-0000-4000-8000-000000000001",
+      "url": "https://www.bilibili.com/video/BV1aaaaaaaa1/"
+     }
+    ]
+   }
+  ],
+  "expectError": "この動画は、このリストにすでにあります。"
+ },
+ {
+  "name": "library action: add-video refuses a non-Bilibili URL",
+  "call": "LibraryAction",
+  "args": [
+   {
+    "library": {
+     "version": 3,
+     "activePlaylistId": "00000001-0000-4000-8000-000000000001",
+     "rootPlaylistIds": [
+      "00000001-0000-4000-8000-000000000001",
+      "00000001-0000-4000-8000-000000000005"
+     ],
+     "playlists": [
+      {
+       "id": "00000001-0000-4000-8000-000000000001",
+       "name": "親",
+       "icon": "",
+       "entries": [
+        {
+         "id": "00000002-0000-4000-8000-000000000001",
+         "title": "曲1",
+         "addedAt": "2026-11-13T00:00:00.000Z",
+         "type": "bilibili",
+         "url": "https://www.bilibili.com/video/BV1aaaaaaaa1/"
+        },
+        {
+         "id": "00000002-0000-4000-8000-000000000002",
+         "title": "曲2",
+         "addedAt": "2026-11-13T00:00:00.000Z",
+         "type": "bilibili",
+         "url": "https://www.bilibili.com/video/BV1aaaaaaaa2/"
+        },
+        {
+         "id": "00000002-0000-4000-8000-000000000003",
+         "title": "曲3",
+         "addedAt": "2026-11-13T00:00:00.000Z",
+         "type": "bilibili",
+         "url": "https://www.bilibili.com/video/BV1aaaaaaaa3/"
+        },
+        {
+         "id": "00000002-0000-4000-8000-000000000004",
+         "title": "曲4",
+         "addedAt": "2026-11-13T00:00:00.000Z",
+         "type": "bilibili",
+         "url": "https://www.bilibili.com/video/BV1aaaaaaaa4/"
+        }
+       ],
+       "childIds": [
+        "00000001-0000-4000-8000-000000000002",
+        "00000001-0000-4000-8000-000000000003"
+       ],
+       "createdAt": "2026-11-01T00:00:01.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true
+      },
+      {
+       "id": "00000001-0000-4000-8000-000000000002",
+       "name": "子A",
+       "icon": "",
+       "entries": [
+        {
+         "id": "00000002-0000-4000-8000-000000000005",
+         "title": "曲5",
+         "addedAt": "2026-11-13T00:00:00.000Z",
+         "type": "bilibili",
+         "url": "https://www.bilibili.com/video/BV1aaaaaaaa5/"
+        }
+       ],
+       "childIds": [
+        "00000001-0000-4000-8000-000000000004"
+       ],
+       "createdAt": "2026-11-01T00:00:02.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true
+      },
+      {
+       "id": "00000001-0000-4000-8000-000000000003",
+       "name": "子B",
+       "icon": "",
+       "entries": [],
+       "childIds": [],
+       "createdAt": "2026-11-01T00:00:03.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true
+      },
+      {
+       "id": "00000001-0000-4000-8000-000000000004",
+       "name": "孫",
+       "icon": "",
+       "entries": [],
+       "childIds": [],
+       "createdAt": "2026-11-01T00:00:04.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true
+      },
+      {
+       "id": "00000001-0000-4000-8000-000000000005",
+       "name": "独立",
+       "icon": "",
+       "entries": [],
+       "childIds": [],
+       "createdAt": "2026-11-01T00:00:05.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true
+      }
+     ]
+    },
+    "steps": [
+     {
+      "type": "add-video",
+      "playlistId": "00000001-0000-4000-8000-000000000001",
+      "url": "https://example.com/video/BV1aaaaaaaa1/"
+     }
+    ]
+   }
+  ],
+  "expectError": "Bilibiliの通常URLに対応しています。短縮URL（b23.tv）はブラウザーで開いた後のURLを使用してください。"
  }
 ]

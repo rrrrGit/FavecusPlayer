@@ -5,9 +5,11 @@
 // URLからの追加・移動/コピー（Transfer）・ZIP・設定は端末ごとの処理のため、ここには含めない。
 const Tree = require('../ui/library-tree.js');
 const { ValidateIcon } = require('./playlist-icon-data.cjs');
-const { MAX_PLAYLISTS, CleanText, ValidatePlaylistCount } = require('./library-data.cjs');
+const { MAX_PLAYLISTS, MAX_ENTRIES, CleanText, ValidatePlaylistCount } = require('./library-data.cjs');
+const { LibraryMediaKey, PlanMediaIds } = require('./library-identity.cjs');
+const { ParseBilibili } = require('./urls.cjs');
 
-const TYPES = new Set(['create', 'select', 'rename', 'playlist-properties', 'delete', 'playlist-move', 'playlist-attach', 'playlist-reorder', 'remove', 'title', 'move', 'reorder']);
+const TYPES = new Set(['create', 'select', 'rename', 'playlist-properties', 'delete', 'playlist-move', 'playlist-attach', 'playlist-reorder', 'remove', 'title', 'move', 'reorder', 'add-video']);
 
 function Playlist(data, id) {
   const result = data.playlists.find(p => p.id === id);
@@ -73,6 +75,15 @@ function Apply(data, action, ctx) {
     const index = p.entries.findIndex(e => e.id === action.entryId);
     const target = index + (action.direction === -1 ? -1 : 1);
     if (index >= 0 && target >= 0 && target < p.entries.length) [p.entries[index], p.entries[target]] = [p.entries[target], p.entries[index]];
+  } else if (action.type === 'add-video') {
+    // Bilibiliの動画1件を、このリストの末尾へ追加（iPhone版の「曲を追加」）。同じ動画（av/BVの別表記を含む）がこのリストにあれば追加しない。
+    const item = ParseBilibili(action.url), keyOf = LibraryMediaKey(data.videoAliases || []);
+    if (p.entries.some(e => keyOf(e) === keyOf(item))) throw new Error('この動画は、このリストにすでにあります。');
+    if (data.playlists.reduce((n, q) => n + q.entries.length, 0) >= MAX_ENTRIES) throw new Error('登録数の上限は全リスト合計10000件です。');
+    const duration = Number.isFinite(action.duration) && action.duration > 0 ? { duration: Math.min(action.duration, 604800) } : {};
+    p.entries.push({ ...item, title: ctx.cleanTitle(action.title) || item.videoId, ...duration, id: ctx.createId(), addedAt: ctx.now() });
+    p.lastAddedAt = ctx.now();
+    PlanMediaIds(data.playlists, ctx.createId, keyOf);
   } else if (action.type === 'reorder') {
     const index = p.entries.findIndex(e => e.id === action.entryId);
     const target = p.entries.findIndex(e => e.id === action.targetId);

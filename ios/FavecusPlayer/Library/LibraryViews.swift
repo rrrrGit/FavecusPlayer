@@ -65,6 +65,7 @@ struct LibraryRootView: View {
                 for id in raw.split(separator: ",") { path.append(String(id)) }
             }
             if defaults.object(forKey: "FavecusDemoTab") != nil { tab = defaults.integer(forKey: "FavecusDemoTab") }
+            if defaults.bool(forKey: "FavecusDemoSync") { showSync = true }
             if defaults.bool(forKey: "FavecusDemoPlayer") {
                 player?.showDemo(title: "朝のピアノ", position: 62, duration: 257)
                 showPlayer = true
@@ -137,14 +138,7 @@ extension View {
     }
 }
 
-// MARK: ライブラリ
-
-private enum LibraryFilter: String, CaseIterable, Identifiable {
-    case playlists = "プレイリスト"
-    case songs = "曲"
-    case offline = "オフライン"
-    var id: String { rawValue }
-}
+// MARK: ホーム（四角のカード）
 
 private struct LibraryTab: View {
     @EnvironmentObject private var observer: ServicesObserver // 保存の状態・サムネイルが変わったら描き直す
@@ -152,227 +146,215 @@ private struct LibraryTab: View {
     let services: Services
     @Binding var path: NavigationPath
     @Binding var showPlayer: Bool
-    @State private var filter: LibraryFilter = .playlists
+    @State private var editing = false
     @State private var creating = false
     @State private var newName = ""
+    @State private var renaming: PlaylistItem?
+    @State private var renameText = ""
+    @State private var pendingDelete: PlaylistItem?
 
     private var document: LibraryDocument? { store.document }
-
-    /// 全リストの曲（同じ曲は1回だけ。再生の範囲は、最初に見つかったリスト）。
-    private var allSongs: [(entry: EntryItem, scope: String)] {
+    private var roots: [PlaylistItem] { document?.children(of: nil) ?? [] }
+    private var songCount: Int {
         var seen = Set<String>()
-        var result: [(EntryItem, String)] = []
-        for list in document?.playlists ?? [] {
-            for entry in list.entries where seen.insert(entry.id).inserted { result.append((entry, list.id)) }
-        }
-        return result
+        for list in document?.playlists ?? [] { for entry in list.entries { seen.insert(entry.id) } }
+        return seen.count
     }
+    private let columns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
 
     var body: some View {
         NavigationStack(path: $path) {
-            VStack(spacing: 0) {
-                HStack(spacing: 8) {
-                    SectionLabel(text: "HOME")
-                    Text("\(allSongs.count)曲").font(.system(size: 12)).foregroundStyle(Theme.mint)
-                    Spacer()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 8) {
+                        SectionLabel(text: "HOME")
+                        Text("\(songCount)曲").font(.system(size: 12)).foregroundStyle(Theme.mint)
+                    }
+                    if editing {
+                        EditNotice(text: "編集中です。各カードの ✎ で名前を変更、ごみ箱で削除、◀ ▶ で並べ替えます。終わったら、右上のチェックを押します。")
+                    }
+                    if roots.isEmpty {
+                        Text("プレイリストはありません。右下の「新規作成」から作れます。").font(.system(size: 13)).foregroundStyle(Theme.muted).padding(.top, 20)
+                    }
+                    LazyVGrid(columns: columns, spacing: 10) {
+                        ForEach(Array(roots.enumerated()), id: \.element.id) { index, list in
+                            card(list, index: index)
+                        }
+                    }
                 }
-                .padding(.horizontal, 16).padding(.top, 4)
-                chips
-                switch filter {
-                case .playlists:
-                    PlaylistList(store: store, services: services, parentId: nil)
-                case .songs:
-                    songList(allSongs)
-                case .offline:
-                    songList(allSongs.filter { isOffline($0.entry) })
-                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 90)
             }
-            .navigationTitle("マイライブラリ")
             .background(Theme.background)
-            .toolbar { if filter == .playlists { ToolbarItem(placement: .navigationBarTrailing) { EditButton() } } }
+            .navigationTitle("マイライブラリ")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .navigationBarTrailing) { EditToggle(editing: $editing) } }
             .navigationDestination(for: String.self) { id in
                 PlaylistDetail(store: store, services: services, parentId: id)
             }
             .overlay(alignment: .bottomTrailing) {
-                if filter == .playlists {
-                    Button { newName = ""; creating = true } label: { Label("新規作成", systemImage: "plus") }
-                        .buttonStyle(PrimaryButtonStyle())
-                        .shadow(color: .black.opacity(0.4), radius: 8, y: 3)
-                        .padding(16)
-                }
+                Button { newName = ""; creating = true } label: { Label("新規作成", systemImage: "plus") }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .shadow(color: .black.opacity(0.4), radius: 8, y: 3)
+                    .padding(16)
             }
             .alert("新しいプレイリスト", isPresented: $creating) {
                 TextField("名前", text: $newName)
                 Button("作成") { store.perform(["type": "create", "name": newName, "select": false]) }
                 Button("キャンセル", role: .cancel) {}
             }
+            .alert("名前を変更", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+                TextField("名前", text: $renameText)
+                Button("変更") {
+                    if let renaming { store.perform(["type": "rename", "playlistId": renaming.id, "name": renameText]) }
+                    renaming = nil
+                }
+                Button("キャンセル", role: .cancel) { renaming = nil }
+            }
+            .confirmationDialog("プレイリストを削除", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), titleVisibility: .visible) {
+                Button("削除", role: .destructive) {
+                    if let pendingDelete { store.perform(["type": "delete", "playlistId": pendingDelete.id]) }
+                    pendingDelete = nil
+                }
+                Button("キャンセル", role: .cancel) { pendingDelete = nil }
+            } message: {
+                Text("「\(pendingDelete?.name ?? "")」を削除します。曲はこのリストから消え、子のプレイリストは1つ上へ移ります。")
+            }
         }
         .miniPlayer(services, showPlayer: $showPlayer)
-    }
-
-    private var chips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(LibraryFilter.allCases) { item in
-                    Button { filter = item } label: {
-                        Text(item.rawValue).font(.system(size: 14, weight: .medium)).padding(.horizontal, 16).padding(.vertical, 8)
-                            .background(RoundedRectangle(cornerRadius: 8).fill(filter == item ? Theme.accent : Theme.control))
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(filter == item ? Color.clear : Theme.controlLine, lineWidth: 1))
-                            .foregroundStyle(filter == item ? Theme.accentText : Theme.text)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-        }
-    }
-
-    private func isOffline(_ entry: EntryItem) -> Bool {
-        if entry.type == "bilibili" {
-            guard let key = services.downloads?.entryKeys[entry.id] else { return false }
-            return services.downloads?.savedFile(key: key) != nil
-        }
-        return services.player?.canPlay(entry) == true
+        .onAppear { if UserDefaults.standard.bool(forKey: "FavecusDemoHomeEdit") { editing = true } }
     }
 
     @ViewBuilder
-    private func songList(_ songs: [(entry: EntryItem, scope: String)]) -> some View {
-        if songs.isEmpty {
-            VStack { Spacer(); Text(filter == .offline ? "オフラインで再生できる曲はありません" : "曲はありません").foregroundStyle(.secondary); Spacer() }.frame(maxWidth: .infinity)
-        } else {
-            List {
-                ForEach(songs, id: \.entry.id) { item in
-                    SongRow(entry: item.entry, scope: item.scope, services: services)
-                }
+    private func card(_ list: PlaylistItem, index: Int) -> some View {
+        let face = ZStack(alignment: .bottom) {
+            SquareCover(image: firstCover(of: list, document: document, services: services))
+            LinearGradient(colors: [.clear, .black.opacity(0.78)], startPoint: .center, endPoint: .bottom)
+            HStack(alignment: .bottom, spacing: 4) {
+                Text(list.name).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).lineLimit(2).multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold)).foregroundStyle(.white.opacity(0.85))
             }
-            .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(Theme.background)
+            .padding(8)
         }
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.coverLine, lineWidth: 1))
+        if editing {
+            face.overlay(alignment: .top) { editControls(list, index: index) }
+        } else {
+            NavigationLink(value: list.id) { face }.buttonStyle(.plain)
+        }
+    }
+
+    private func editControls(_ list: PlaylistItem, index: Int) -> some View {
+        HStack(spacing: 4) {
+            round("pencil") { renaming = list; renameText = list.name }
+            round("trash") { pendingDelete = list }
+            Spacer(minLength: 0)
+            round("chevron.left", enabled: index > 0) { move(list, before: roots[index - 1].id) }
+            round("chevron.right", enabled: index < roots.count - 1) { move(list, after: roots[index + 1].id) }
+        }
+        .padding(6)
+    }
+
+    private func round(_ icon: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon).font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                .frame(width: 26, height: 26).background(Circle().fill(Color.black.opacity(0.65)))
+        }
+        .buttonStyle(.plain)
+        .opacity(enabled ? 1 : 0.3)
+        .disabled(!enabled)
+    }
+
+    private func move(_ list: PlaylistItem, before target: String) {
+        store.perform(["type": "playlist-reorder", "playlistId": list.id, "targetId": target, "after": false])
+    }
+
+    private func move(_ list: PlaylistItem, after target: String) {
+        store.perform(["type": "playlist-reorder", "playlistId": list.id, "targetId": target, "after": true])
     }
 }
 
-// MARK: プレイリスト
-
-/// 親（nilなら最上位）の子リストの一覧。名前の変更・削除・並べ替えができる。
-private struct PlaylistList: View {
-    @EnvironmentObject private var observer: ServicesObserver
-    @ObservedObject var store: LibraryStore
-    let services: Services
-    let parentId: String?
-    @ObservedObject private var artwork: ArtworkStore
-    @State private var renaming: PlaylistItem?
-    @State private var renameText = ""
-    @State private var pendingDelete: PlaylistItem?
-
-    init(store: LibraryStore, services: Services, parentId: String?) {
-        self.store = store
-        self.services = services
-        self.parentId = parentId
-        _artwork = ObservedObject(wrappedValue: services.artwork)
-    }
-
-    private var children: [PlaylistItem] { store.document?.children(of: parentId) ?? [] }
+/// 編集の説明（「編集中です。…」）。
+private struct EditNotice: View {
+    let text: String
 
     var body: some View {
-        List {
-            if children.isEmpty { Text("プレイリストはありません").foregroundStyle(.secondary) }
-            ForEach(children) { list in
-                NavigationLink(value: list.id) {
-                    HStack(spacing: 12) {
-                        ArtworkTile(image: cover(of: list), title: list.name, side: 80)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(list.name).font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
-                            Text("\(list.entries.count)曲" + (list.childIds.isEmpty ? "" : " ・ 子 \(list.childIds.count)")).font(.system(size: 12)).foregroundStyle(Theme.muted)
-                        }
-                    }
-                }
-                .listRowBackground(Theme.background)
-                .listRowSeparatorTint(Theme.rowLine)
-                .contextMenu {
-                    Button("名前を変更") { renaming = list; renameText = list.name }
-                    Button("削除", role: .destructive) { pendingDelete = list }
-                }
-            }
-            .onMove { source, destination in
-                guard let move = MoveMapper.map(ids: children.map(\.id), from: source, to: destination) else { return }
-                var action: [String: Any] = ["type": "playlist-reorder", "playlistId": move.id, "targetId": move.targetId, "after": move.after]
-                if let parentId { action["parentId"] = parentId }
-                store.perform(action)
-            }
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "pencil.circle.fill").foregroundStyle(Theme.accent)
+            Text(text).font(.system(size: 12)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(Theme.background)
-        .alert("名前を変更", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
-            TextField("名前", text: $renameText)
-            Button("変更") {
-                if let renaming { store.perform(["type": "rename", "playlistId": renaming.id, "name": renameText]) }
-                renaming = nil
-            }
-            Button("キャンセル", role: .cancel) { renaming = nil }
-        }
-        .confirmationDialog("プレイリストを削除", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), titleVisibility: .visible) {
-            Button("削除", role: .destructive) {
-                if let pendingDelete { store.perform(["type": "delete", "playlistId": pendingDelete.id]) }
-                pendingDelete = nil
-            }
-            Button("キャンセル", role: .cancel) { pendingDelete = nil }
-        } message: {
-            Text("「\(pendingDelete?.name ?? "")」を削除します。曲はこのリストから消え、子のプレイリストは1つ上へ移ります。")
-        }
-    }
-
-    /// リストの画像：最初に画像のある曲のもの。
-    private func cover(of list: PlaylistItem) -> UIImage? {
-        _ = artwork.revision
-        for entry in list.entries {
-            if let key = services.downloads?.entryKeys[entry.id], let image = artwork.image(for: key) { return image }
-        }
-        return nil
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.currentRow))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.controlLine, lineWidth: 1))
     }
 }
 
-/// 1つのリストのページ：画像つきの見出し、シャッフル・再生、子のリスト、曲。
+/// 右上の編集ボタン（ペンのマーク。編集中はチェックのマークで、押すと終わる）。
+private struct EditToggle: View {
+    @Binding var editing: Bool
+
+    var body: some View {
+        Button { withAnimation { editing.toggle() } } label: {
+            Image(systemName: editing ? "checkmark.circle.fill" : "pencil").font(.system(size: 17, weight: .semibold))
+        }
+        .accessibilityLabel(editing ? "編集を終わる" : "編集")
+    }
+}
+
+// MARK: プレイリストのページ
+
+/// 1つのリストのページ：先頭の曲のサムネイルを大きく出した見出し、再生・シャッフル、子のリスト、曲（PC版と同じ並び：リストが上、その下に曲）。
 private struct PlaylistDetail: View {
     @EnvironmentObject private var observer: ServicesObserver
     @ObservedObject var store: LibraryStore
     let services: Services
     let parentId: String
-    @ObservedObject private var artwork: ArtworkStore
-    @Environment(\.editMode) private var editMode
-
-    init(store: LibraryStore, services: Services, parentId: String) {
-        self.store = store
-        self.services = services
-        self.parentId = parentId
-        _artwork = ObservedObject(wrappedValue: services.artwork)
-    }
+    @State private var editMode: EditMode = .inactive
+    @State private var showAdd = false
 
     private var parent: PlaylistItem? { store.document?.playlist(parentId) }
     private var entries: [EntryItem] { parent?.entries ?? [] }
-    private var cover: UIImage? {
-        _ = artwork.revision
-        for entry in entries {
-            if let key = services.downloads?.entryKeys[entry.id], let image = artwork.image(for: key) { return image }
-        }
-        return nil
-    }
+    private var editing: Bool { editMode == .active }
+    private var cover: UIImage? { parent.flatMap { firstCover(of: $0, document: store.document, services: services) } }
 
     var body: some View {
         List {
-            header
+            hero
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
                 .listRowBackground(Theme.background)
+            controls
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Theme.background)
+            if editing {
+                EditNotice(text: "編集中です。曲と子のプレイリストは、右端のつまみ（≡）をドラッグして並べ替えます。曲を外すときは、曲の「…」から「このリストから外す」を選びます。終わったら、右上のチェックを押します。")
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Theme.background)
+            }
             if let parent, !parent.childIds.isEmpty {
                 Section {
                     PlaylistChildren(store: store, services: services, parentId: parentId)
-                } header: { SectionLabel(text: "子のプレイリスト") }
+                } header: { SectionLabel(text: "プレイリスト") }
             }
             Section {
-                if entries.isEmpty { Text("曲はありません").foregroundStyle(Theme.muted) }
+                Button { showAdd = true } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "plus").font(.system(size: 18, weight: .semibold)).foregroundStyle(Theme.text)
+                            .frame(width: 80, height: 45).background(RoundedRectangle(cornerRadius: 5).fill(Theme.control))
+                        Text("曲を追加").font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.text)
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+                .listRowBackground(Theme.background)
+                .listRowSeparatorTint(Theme.rowLine)
+                if entries.isEmpty { Text("曲はありません").foregroundStyle(Theme.muted).listRowBackground(Theme.background) }
                 ForEach(entries) { entry in
                     SongRow(entry: entry, scope: parentId, services: services) {
                         store.perform(["type": "remove", "playlistId": parentId, "entryId": entry.id])
@@ -387,24 +369,54 @@ private struct PlaylistDetail: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Theme.background)
+        .environment(\.editMode, $editMode)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .navigationBarTrailing) { EditButton() } }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                EditToggle(editing: Binding(get: { editing }, set: { editMode = $0 ? .active : .inactive }))
+            }
+        }
+        .sheet(isPresented: $showAdd) {
+            AddSongSheet(store: store, downloads: services.downloads, playlistId: parentId, playlistName: parent?.name ?? "", isPresented: $showAdd)
+        }
+        .onAppear {
+            let defaults = UserDefaults.standard
+            if defaults.bool(forKey: "FavecusDemoEdit") { editMode = .active }
+            if defaults.bool(forKey: "FavecusDemoAdd") { showAdd = true }
+        }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(breadcrumb).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
-            Text(parent?.name ?? "").font(.system(size: 28, weight: .bold)).foregroundStyle(Theme.text).lineLimit(2)
-            Text("\(entries.count)曲" + ((parent?.childIds.isEmpty ?? true) ? "" : " ・ 子のプレイリスト \(parent?.childIds.count ?? 0)") + " ・ 選んだ動画を、選んだ順番で。").font(.system(size: 12)).foregroundStyle(Theme.muted)
+    /// 見出し：先頭の曲のサムネイルを上に大きく、その上に、パンくずとタイトル。
+    private var hero: some View {
+        ZStack(alignment: .bottomLeading) {
+            Theme.panel
+            if let cover {
+                Image(uiImage: cover).resizable().scaledToFill().frame(maxWidth: .infinity).frame(height: 240).clipped()
+            } else {
+                Image(systemName: "music.note.list").font(.system(size: 56)).foregroundStyle(Color(hex: 0x50586F)).frame(maxWidth: .infinity).frame(height: 240)
+            }
+            LinearGradient(colors: [.clear, Theme.background], startPoint: .center, endPoint: .bottom)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(breadcrumb).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
+                Text(parent?.name ?? "").font(.system(size: 26, weight: .bold)).foregroundStyle(Theme.text).lineLimit(2)
+            }
+            .padding(.horizontal, 16).padding(.bottom, 8)
+        }
+        .frame(height: 240)
+        .clipped()
+    }
+
+    private var controls: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("\(entries.count)曲" + ((parent?.childIds.isEmpty ?? true) ? "" : " ・ 子のプレイリスト \(parent?.childIds.count ?? 0)")).font(.system(size: 12)).foregroundStyle(Theme.muted)
             HStack(spacing: 10) {
                 Button { play(shuffled: false) } label: { Label("再生", systemImage: "play.fill") }.buttonStyle(PrimaryButtonStyle())
                 Button { play(shuffled: true) } label: { Label("シャッフル", systemImage: "shuffle") }.buttonStyle(SecondaryButtonStyle())
             }
             .disabled(services.player == nil || entries.isEmpty)
-            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16).padding(.vertical, 12)
+        .padding(.horizontal, 16).padding(.vertical, 8)
     }
 
     /// パンくず（マイライブラリ / 親 / このリスト）。
@@ -427,7 +439,7 @@ private struct PlaylistDetail: View {
     }
 }
 
-/// 子のリスト（詳細ページの中）。
+/// 子のリスト（詳細ページの中）。先頭の曲のサムネイルを出す。
 private struct PlaylistChildren: View {
     @ObservedObject var store: LibraryStore
     let services: Services
@@ -439,9 +451,10 @@ private struct PlaylistChildren: View {
         ForEach(children) { list in
             NavigationLink(value: list.id) {
                 HStack(spacing: 12) {
+                    ArtworkTile(image: firstCover(of: list, document: store.document, services: services), title: list.name, side: 80)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(list.name).font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
-                        Text("\(list.entries.count)曲").font(.system(size: 11)).foregroundStyle(Theme.faint)
+                        Text("\(list.entries.count)曲" + (list.childIds.isEmpty ? "" : " ・ 子 \(list.childIds.count)")).font(.system(size: 11)).foregroundStyle(Theme.faint)
                     }
                 }
             }
@@ -454,4 +467,3 @@ private struct PlaylistChildren: View {
         }
     }
 }
-

@@ -59,3 +59,14 @@ test('profile reports the login state without exposing anything else', async () 
     assert.equal(result.loggedIn, undefined); assert.ok(result.error); assert.equal(result.stopBatch, true);
   }
 });
+
+test('info returns the title and length from the view API only (part title for later parts)', async () => {
+  const calls = Host(() => ({ status: 200, json: { code: 0, data: { bvid: 'BV1aaaaaaaaa', aid: 1, title: ' 曲名 ', duration: 300, pages: [{ page: 1, cid: 7, duration: 300, part: 'p1' }, { page: 2, cid: 8, duration: 120, part: '後編' }] } } }));
+  assert.deepEqual(await Bili.Info({ url: 'https://www.bilibili.com/video/BV1aaaaaaaaa/' }), { title: '曲名', duration: 300, thumbnailURL: null });
+  assert.deepEqual(await Bili.Info({ url: 'https://www.bilibili.com/video/BV1aaaaaaaaa/?p=2' }), { title: '曲名 P2 後編', duration: 120, thumbnailURL: null });
+  assert.ok(calls.every(call => call.url.includes('/x/web-interface/view')), 'view以外は呼ばない');
+  Host(() => ({ status: 412, json: {} }));
+  const refused = await Bili.Info({ url: 'BV1aaaaaaaaa' });
+  assert.ok(refused.error); assert.equal(refused.stopBatch, true);
+  assert.ok((await Bili.Info({ url: 'https://example.com/x' })).error);
+});

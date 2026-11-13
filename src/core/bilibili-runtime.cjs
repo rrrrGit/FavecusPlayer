@@ -3,7 +3,7 @@
 // （Cookieの付与・接続先の制限・通信そのものはSwift側。api.bilibili.com 宛てだけにCookieを付ける）。
 // 規則は、Windows版と共通の bilibili-resolve.cjs。ここは、ステータスの扱いと、結果の整形だけ。
 // 方針：ログイン要・リスク制御（412・-352など）では、方法を変えて再試行せず、停止して知らせる。保護された動画・試聴用は扱わない。
-const { ResolveWith } = require('./bilibili-resolve.cjs');
+const { ResolveWith, ApiData, ViewQuery, ImageURL } = require('./bilibili-resolve.cjs');
 const { ParseBilibili } = require('./urls.cjs');
 
 const Host = () => { const host = globalThis.__favecusHost; if (!host) throw new Error('通信の接続先（host）が用意されていません。'); return host; };
@@ -40,4 +40,16 @@ async function Profile() {
     return { error: `Bilibiliから情報を取得できません（コード ${result && result.code}）。時間を置いて再実行してください。`, stopBatch: true };
   } catch (error) { return Fail(error); }
 }
-module.exports = { Resolve, Profile };
+// 動画の情報（曲を追加するときの曲名・長さ）。viewだけを呼ぶ。options：{ url }。戻り値：{ title, duration } または { error }
+async function Info(options) {
+  try {
+    const video = ParseBilibili(options.url);
+    const details = ApiData(await Requester()('/x/web-interface/view', ViewQuery(video)));
+    const page = (details.pages || []).find(p => p.page === video.part) || {};
+    const base = String(details.title || '').trim();
+    const title = (video.part > 1 && page.part ? `${base} P${video.part} ${page.part}` : base).slice(0, 200);
+    let thumbnailURL = null; try { thumbnailURL = ImageURL(page.first_frame || details.pic); } catch { /* サムネイルは任意 */ }
+    return { title, duration: Number(page.duration || details.duration) || 0, thumbnailURL };
+  } catch (error) { return Fail(error); }
+}
+module.exports = { Resolve, Profile, Info };

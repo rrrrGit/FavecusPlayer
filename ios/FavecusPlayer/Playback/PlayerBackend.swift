@@ -16,6 +16,12 @@ protocol PlayerBackend: AnyObject {
     func pause()
     func seek(to seconds: Double)
     func stop()
+    /// 動画を映すためのプレイヤー（映像を持たない道具・テストではnil）。
+    var videoPlayer: AVPlayer? { get }
+}
+
+extension PlayerBackend {
+    var videoPlayer: AVPlayer? { nil }
 }
 
 @MainActor
@@ -25,6 +31,7 @@ final class AVPlayerBackend: PlayerBackend {
     var onTick: (() -> Void)?
 
     private let player = AVPlayer()
+    var videoPlayer: AVPlayer? { player }
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var failObserver: NSObjectProtocol?

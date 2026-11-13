@@ -18,4 +18,9 @@ const library = {
   ]
 };
 fs.writeFileSync(process.argv[2] || 'demo-library.json', JSON.stringify(library, null, 2));
+// 保存済みの表示の確認用（第3引数：downloads.json の出力先。実際のファイルは作らないので、CIのスクリーンショット用のファイルを別に用意する）
+if (process.argv[3]) {
+  const record = (n, kind) => ({ key: `bili:BV1${String(n).padStart(9, 'd')}:p1`, kind, quality: 720, state: 'Completed', fileName: `demo-${kind}-${n}.${kind === 'video' ? 'mp4' : 'm4a'}`, bytes: 1048576, duration: 200, updatedAt: 1760000000 });
+  fs.writeFileSync(process.argv[3], JSON.stringify({ version: 1, records: [record(1, 'audio'), record(2, 'video')] }, null, 2));
+}
 console.log('wrote', process.argv[2] || 'demo-library.json');

@@ -105,6 +105,21 @@ final class DownloadService: ObservableObject, MediaProvider {
         } catch { return nil }
     }
 
+    /// 曲を追加するときの動画情報（曲名・長さ）。
+    func videoInfo(url: String) async throws -> VideoInfo { try await bilibili.info(url: url) }
+
+    /// 追加した動画のサムネイルを取得して残す（hdslbのhttpsのみ。失敗しても曲の追加には影響しない）。
+    func fetchThumbnail(forVideoURL url: String, thumbnailURL: String?) async {
+        guard let artwork, let thumbnailURL, let key = await key(for: EntryItem(id: "", title: "", type: "bilibili", fileName: nil, url: url)) else { return }
+        await artwork.fetch(key: key, urlString: thumbnailURL)
+    }
+
+    /// 保存済みの動画ファイル（再生画面の「動画」表示）。
+    func savedVideoFile(for entry: EntryItem) async -> URL? {
+        guard let key = await key(for: entry) else { return nil }
+        return savedFile(key: key, kind: "video")
+    }
+
     /// 一覧の曲のキーを、共通JSで1回にまとめて求める。
     func refreshKeys(entries: [EntryItem]) async {
         let targets = entries.filter { $0.type == "bilibili" && $0.url != nil }

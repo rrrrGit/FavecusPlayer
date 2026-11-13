@@ -24,6 +24,7 @@ on:
       - "src/core/library-identity.cjs"
       - "src/core/device-media.cjs"
       - "src/core/library-actions.cjs"
+      - "src/core/urls.cjs"
       - "src/core/library-app.cjs"
       - "src/core/library-transfer.cjs"
       - "src/core/library-json.cjs"
@@ -169,7 +170,8 @@ jobs:
           DATA=$(xcrun simctl get_app_container "$SIM_UDID" dev.favecus.player data)
           DIR="$DATA/Library/Application Support/FavecusPlayer"
           mkdir -p "$DIR"
-          node ../scripts/demo-library.cjs "$DIR/library.json"
+          node ../scripts/demo-library.cjs "$DIR/library.json" "$DIR/downloads.json"
+          mkdir -p "$DIR/downloads"; : > "$DIR/downloads/demo-audio-1.m4a"; : > "$DIR/downloads/demo-video-2.mp4"
           shot() { # 名前 起動引数...
             NAME=$1; shift
             xcrun simctl launch "$SIM_UDID" dev.favecus.player "$@" > /dev/null
@@ -185,6 +187,11 @@ jobs:
           shot 4-downloads -FavecusDemoTab 1
           shot 5-settings -FavecusDemoTab 2
           shot 6-player -FavecusDemoPlayer YES
+          shot 7-menu -FavecusDemoPath $P1 -FavecusDemoMenu YES
+          shot 8-edit -FavecusDemoPath $P1 -FavecusDemoEdit YES
+          shot 9-add -FavecusDemoPath $P1 -FavecusDemoAdd YES
+          shot 10-home-edit -FavecusDemoHomeEdit YES
+          shot 11-sync -FavecusDemoSync YES
           ls -l out
 
       - name: Build unsigned IPA

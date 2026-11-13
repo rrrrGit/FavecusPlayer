@@ -1,3 +1,4 @@
+import AVFoundation
 import Combine
 import Foundation
 
@@ -5,6 +6,12 @@ import Foundation
 @MainActor
 protocol MediaProvider: AnyObject {
     func playableFile(for entry: EntryItem) async throws -> URL
+    /// 保存済みの動画ファイル（なければnil）。再生画面の「動画」表示に使う。
+    func savedVideoFile(for entry: EntryItem) async -> URL?
+}
+
+extension MediaProvider {
+    func savedVideoFile(for entry: EntryItem) async -> URL? { nil }
 }
 
 /// iPhone版のローカル再生（音声）。次に何を再生するかは共通JS（FavecusCore.QueueStart / QueueMove。Windows版と同じQueue）が決め、
@@ -30,6 +37,10 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     @Published private(set) var duration: Double = 0
     /// Bilibiliの曲のファイルを用意している間（取得中）。
     @Published private(set) var isPreparing = false
+    /// 再生中の曲に、動画として映せるファイルがある（保存済みのBilibili動画、映像のあるローカルファイル）。
+    @Published private(set) var videoAvailable = false
+    /// 再生画面で、サムネイルではなく動画を映している。
+    @Published private(set) var videoMode = false
     @Published var shuffle = false
     @Published var repeatMode: RepeatMode = .off
     @Published var message: String?
@@ -44,6 +55,11 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     private var generation = 0
     private var libraryObserver: AnyCancellable?
     private let provider: MediaProvider?
+    private var audioFile: URL?
+    private var videoFile: URL?
+    private var loadedFile: URL?
+    /// 動画を映すプレイヤー（画面の映像用）。
+    var videoPlayer: AVPlayer? { backend.videoPlayer }
 
     init(core: SharedCore, store: LibraryStore, backend: PlayerBackend, provider: MediaProvider? = nil, makeSystem: ((PlaybackControls) -> SystemAudioHooks)? = nil) {
         self.provider = provider
@@ -135,6 +151,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     func stop() {
         generation += 1
         isPreparing = false
+        videoMode = false
+        videoAvailable = false
         backend.stop()
         current = nil
         scope = nil
@@ -222,6 +240,40 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         }
         backend.load(url: file)
         backend.play()
+        audioFile = file
+        loadedFile = file
+        videoFile = nil
+        videoMode = false
+        videoAvailable = false
+        refresh()
+        Task { await updateVideoAvailability(for: target, file: file, generation: mine) }
+    }
+
+    private func updateVideoAvailability(for target: EntryItem, file: URL, generation mine: Int) async {
+        var found: URL?
+        if target.type == "local" {
+            let tracks = (try? await AVURLAsset(url: file).loadTracks(withMediaType: .video)) ?? []
+            if !tracks.isEmpty { found = file }
+        } else {
+            found = await provider?.savedVideoFile(for: target)
+        }
+        guard mine == generation else { return }
+        videoFile = found
+        videoAvailable = found != nil
+    }
+
+    /// サムネイルと動画を切り替える（同じ位置から続ける）。動画がないときは何もしない。
+    func setVideoMode(_ on: Bool) {
+        guard current != nil, on != videoMode else { return }
+        guard let target = on ? videoFile : audioFile else { return }
+        let position = backend.position, playing = backend.isPlaying
+        videoMode = on
+        if loadedFile != target {
+            backend.load(url: target)
+            backend.seek(to: position)
+            loadedFile = target
+        }
+        if playing { backend.play() }
         refresh()
     }
 

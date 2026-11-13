@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 /// 画面下のミニプレイヤー：画像・曲名・再生/一時停止・次へ。押すと再生画面が開く。曲がないときは何も出さない。
@@ -58,13 +59,37 @@ struct MiniPlayerBar: View {
     }
 }
 
-/// 再生画面：大きな画像、曲名、再生位置、操作（シャッフル・前へ・再生/一時停止・次へ・リピート）。
+/// 動画の映像（AVPlayerのプレイヤー層）。
+struct VideoSurface: UIViewRepresentable {
+    let player: AVPlayer?
+
+    final class LayerView: UIView {
+        override class var layerClass: AnyClass { AVPlayerLayer.self }
+        var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer } // swiftlint:disable:this force_cast
+    }
+
+    func makeUIView(context: Context) -> LayerView {
+        let view = LayerView()
+        view.backgroundColor = .black
+        view.playerLayer.videoGravity = .resizeAspect
+        view.playerLayer.player = player
+        return view
+    }
+
+    func updateUIView(_ view: LayerView, context: Context) {
+        if view.playerLayer.player !== player { view.playerLayer.player = player }
+    }
+}
+
+/// 再生画面：サムネイルと動画を切り替えられる黒い枠（動画は上下に黒い余白が出る）、曲名、再生位置、操作（シャッフル・前へ・再生/一時停止・次へ・リピート）。
+/// 動画に切り替えられるのは、保存済みのBilibili動画、または映像のあるローカルファイル。
 struct FullPlayerView: View {
     @ObservedObject var player: PlaybackEngine
     @ObservedObject private var artwork: ArtworkStore
     let services: Services
     @Binding var isPresented: Bool
     @State private var scrubbing: Double?
+    @State private var hint: String?
 
     init(player: PlaybackEngine, services: Services, isPresented: Binding<Bool>) {
         self.player = player
@@ -80,55 +105,109 @@ struct FullPlayerView: View {
     }
 
     var body: some View {
-        let side = UIScreen.main.bounds.width - 32
-        VStack(spacing: 20) {
-            HStack {
-                Button { isPresented = false } label: { Image(systemName: "chevron.down").font(.title3.weight(.semibold)).frame(width: 44, height: 44) }
-                Spacer()
-                SectionLabel(text: player.isPreparing ? "PLAYER ・ 取得中…" : "PLAYER")
-                Spacer()
-                Color.clear.frame(width: 44, height: 44)
-            }
-            .padding(.horizontal, 8)
-            ArtworkTile(image: image, title: title, side: side, corner: 12)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title.isEmpty ? "（再生していません）" : title).font(.system(size: 22, weight: .bold)).foregroundStyle(Theme.text).lineLimit(2)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 24)
-            VStack(spacing: 4) {
-                Slider(value: Binding(get: { scrubbing ?? min(player.position, max(player.duration, 1)) }, set: { scrubbing = $0 }), in: 0...max(player.duration, 1)) { editing in
-                    if !editing, let value = scrubbing { player.seek(to: value); scrubbing = nil }
+        let width = UIScreen.main.bounds.width
+        VStack(spacing: 0) {
+            topBar
+            Spacer(minLength: 10)
+            media(width: width)
+            Spacer(minLength: 14)
+            VStack(spacing: 18) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title.isEmpty ? "（再生していません）" : title).font(.system(size: 20, weight: .bold)).foregroundStyle(Theme.text).lineLimit(2)
+                    if let hint { Text(hint).font(.system(size: 12)).foregroundStyle(Theme.warning) }
                 }
-                .tint(Theme.accent)
-                HStack {
-                    Text(formatTime(scrubbing ?? player.position))
-                    Spacer()
-                    Text(formatTime(player.duration))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(spacing: 4) {
+                    Slider(value: Binding(get: { scrubbing ?? min(player.position, max(player.duration, 1)) }, set: { scrubbing = $0 }), in: 0...max(player.duration, 1)) { editing in
+                        if !editing, let value = scrubbing { player.seek(to: value); scrubbing = nil }
+                    }
+                    .tint(Theme.accent)
+                    HStack {
+                        Text(formatTime(scrubbing ?? player.position))
+                        Spacer()
+                        Text(formatTime(player.duration))
+                    }
+                    .font(.system(size: 10)).foregroundStyle(Theme.muted)
                 }
-                .font(.system(size: 10)).foregroundStyle(Theme.muted)
+                controls
             }
             .padding(.horizontal, 24)
-            HStack(spacing: 28) {
-                Button { player.shuffle.toggle() } label: { Image(systemName: "shuffle").foregroundStyle(player.shuffle ? Theme.accent : Theme.muted) }
-                Button { player.previous() } label: { Image(systemName: "backward.end.fill").font(.title) }
-                Button { player.toggle() } label: {
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 30)).foregroundStyle(Theme.accentText)
-                        .frame(width: 72, height: 72).background(Circle().fill(Theme.mainControl))
-                }
-                Button { player.next() } label: { Image(systemName: "forward.end.fill").font(.title) }
-                Button { cycleRepeat() } label: {
-                    Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").foregroundStyle(player.repeatMode == .off ? Theme.muted : Theme.accent)
-                }
-            }
-            .font(.title3)
-            .foregroundStyle(Theme.text)
-            .buttonStyle(.plain)
-            Spacer(minLength: 0)
+            Spacer(minLength: 28)
         }
         .background(
             LinearGradient(colors: [Color(hex: 0x241F3D), Theme.background], startPoint: .top, endPoint: .center).ignoresSafeArea()
         )
+    }
+
+    private var topBar: some View {
+        HStack {
+            Button { isPresented = false } label: { Image(systemName: "chevron.down").font(.title3.weight(.semibold)).frame(width: 44, height: 44) }
+            Spacer()
+            modeSwitch
+            Spacer()
+            Color.clear.frame(width: 44, height: 44)
+        }
+        .padding(.horizontal, 8)
+    }
+
+    /// サムネイル／動画の切り替え（PC版と同じ）。動画がない曲では、動画の側を薄くして、理由を出す。
+    private var modeSwitch: some View {
+        HStack(spacing: 0) {
+            segment(icon: "photo", label: "サムネイル", selected: !player.videoMode, enabled: true) { player.setVideoMode(false); hint = nil }
+            segment(icon: "play.rectangle.fill", label: "動画", selected: player.videoMode, enabled: player.videoAvailable) {
+                if player.videoAvailable { player.setVideoMode(true); hint = nil } else { hint = "この曲は動画を保存していません。曲の「…」から「動画を保存」すると、動画を表示できます。" }
+            }
+        }
+        .padding(3)
+        .background(Capsule().fill(Theme.control))
+        .overlay(Capsule().stroke(Theme.controlLine, lineWidth: 1))
+    }
+
+    private func segment(icon: String, label: String, selected: Bool, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon).font(.system(size: 12))
+                Text(label).font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(selected ? Theme.accentText : (enabled ? Theme.text : Theme.faint))
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .background(Capsule().fill(selected ? Theme.accent : Color.clear))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 黒い枠（サムネイルも動画も、枠の中に収める。上下・左右に黒い余白が出てよい）。
+    private func media(width: CGFloat) -> some View {
+        ZStack {
+            Color.black
+            if player.videoMode {
+                VideoSurface(player: player.videoPlayer)
+            } else if let image {
+                Image(uiImage: image).resizable().scaledToFit()
+            } else {
+                Image(systemName: "music.note").font(.system(size: 54)).foregroundStyle(Color(hex: 0x50586F))
+            }
+        }
+        .frame(width: width, height: min(width * 0.8, 340))
+        .clipped()
+    }
+
+    private var controls: some View {
+        HStack(spacing: 28) {
+            Button { player.shuffle.toggle() } label: { Image(systemName: "shuffle").foregroundStyle(player.shuffle ? Theme.accent : Theme.muted) }
+            Button { player.previous() } label: { Image(systemName: "backward.end.fill").font(.title) }
+            Button { player.toggle() } label: {
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 30)).foregroundStyle(Theme.accentText)
+                    .frame(width: 72, height: 72).background(Circle().fill(Theme.mainControl))
+            }
+            Button { player.next() } label: { Image(systemName: "forward.end.fill").font(.title) }
+            Button { cycleRepeat() } label: {
+                Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").foregroundStyle(player.repeatMode == .off ? Theme.muted : Theme.accent)
+            }
+        }
+        .font(.title3)
+        .foregroundStyle(Theme.text)
+        .buttonStyle(.plain)
     }
 
     private func cycleRepeat() {

@@ -1,5 +1,12 @@
 import Foundation
 
+/// 動画の情報（曲を追加するときの曲名・長さ）。
+struct VideoInfo: Equatable {
+    var title: String
+    var duration: Double
+    var thumbnailURL: String?
+}
+
 /// 共通JS（BiliResolve）が決めた、保存・再生用の配信先。URLは署名つきで短時間だけ有効（ログ・保存データには出さない）。
 struct ResolvedStream: Decodable, Equatable {
     var urls: [String]
@@ -39,6 +46,15 @@ final class BilibiliService: @unchecked Sendable {
         var resolved: ResolvedMedia?
         var error: String?
         var stopBatch: Bool?
+    }
+
+    /// 動画の情報だけを取得する（view API）。拒否・制限は、そのまま知らせる。
+    func info(url: String) async throws -> VideoInfo {
+        struct Reply: Decodable { var title: String?; var duration: Double?; var thumbnailURL: String?; var error: String?; var stopBatch: Bool? }
+        let request = String(decoding: try JSONSerialization.data(withJSONObject: ["url": url]), as: UTF8.self)
+        let reply = try JSONDecoder().decode(Reply.self, from: Data(try await core.call("BiliInfo", request).utf8))
+        if let message = reply.error { throw BilibiliError.failed(message, stopBatch: reply.stopBatch == true) }
+        return VideoInfo(title: reply.title ?? "", duration: reply.duration ?? 0, thumbnailURL: reply.thumbnailURL)
     }
 
     /// kind：audio または video。height：video のときの希望の高さ。拒否・制限の応答は、方法を変えて再試行せず、そのまま知らせる。
