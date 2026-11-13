@@ -100,10 +100,22 @@
 - **サーバーは追記だけの変更ログ**：`supabase/schema.sql` を、利用者がSupabaseのSQL Editorで1回実行します。表は `sync_changes`（行：利用者・連番・レコードID・項目`f`・端末・重複防止キー）と `sync_meta`（連番の末尾・整理の境界）。LWW・整理の規則はサーバーへ複製せず、共通JS（`src/core/sync-state.cjs`）に置きます。
 - **連番はコミット順**：同じ利用者の挿入は `pg_advisory_xact_lock` で直列化して連番を振ります（identity列はコミット順にならず、読み手が小さい番号を取りこぼすおそれがあるため使いません）。cursorは連番で、読み取り済みより前に後からコミットされる行はありません。
 - **再送が行を増やさない**：変更の内容から導く `batch_id` と一意制約（`on_conflict ... ignore-duplicates`）。
-- **アクセス制御（RLS）**：自分の行だけの SELECT / INSERT / DELETE。UPDATEは許可しません。`sync_meta` はクライアントから読み取りのみで、連番・境界は `security definer` の関数だけが更新します。匿名（anon）ロールは何も許可しません。
+- **アクセス制御（RLS）**：自分の行だけの SELECT / INSERT / DELETE。UPDATEは許可しません。クライアントのDELETE権限もなく（既定の権限は一度すべて外して付け直し）、削除は `sync_compact(ids, 読み取り末尾の連番)` だけが行い、読み取り後に同じレコードへ届いた行があるレコードは消しません。`sync_meta` はクライアントから読み取りのみで、連番・境界は `security definer` の関数だけが更新します。匿名（anon）ロールは何も許可しません。
 - **整理（Compact）**：`sync_compact(ids)` は、クライアントが共通の規則で選んだレコードIDの行を消し、削除があったときだけ境界を末尾へ進めます（復旧リストが参照するTombstoneは消さない規則はクライアント側）。
 - **クライアント**：`src/core/sync-supabase.cjs`（共通JS。通信は注入された `request`）。メールのワンタイムコードでサインインし、アクセストークンは期限前または401で更新します。Pushは500件ずつ、Pullは1000件ずつのページ取得。エラーは `offline / auth / paused / server / bad` に分類し、トークン・キーは文言に含めません。キーは anon / publishable のみ受け付け、service_role・secret は拒否します。URLは `https://<プロジェクト>.supabase.co` のみ。
 - **利用者が行うこと**：Supabaseのプロジェクト作成、`schema.sql` の実行、Authのメール（OTP）設定の確認、URLとanonキーをアプリへ入力。実Supabaseとの通信は、この準備の後の確認項目です。
+
+### Windows版の同期の運用（Step7-3：src/core/sync-service.cjs・sync-storage.cjs）
+
+- **既定はオフ**。設定の「プレイリストの同期」で、接続先（URLとanonキー）の保存→メールのコードでサインイン→「同期を有効にする」の順に進みます。有効化の直前に `library.pre-sync-<時刻>.json` へバックアップを残します。
+- **正本はlibrary.json**。同期の状態（`userData/sync/state.json`：端末ID・時計・cursor・同期状態・未送信の変更・保留した変更）は補助で、storeとの差分からいつでも作り直せます。接続設定は `sync/config.json`（URL・anonキー・メール・有効フラグ。トークンは含まない）。
+- **サインイン情報**：アクセス・更新トークンはElectronの `safeStorage`（OSの暗号化）で暗号化した `sync/session.bin` にだけ保存します。暗号化が使えない環境では保存せず、同期を使えません（平文へ代替しません）。設定・ログ・エラー文・診断には含めません。anonキー以外（service_role・secret）は拒否します。
+- **ローカルの編集の取り込み**：storeの現在の内容と、直前に同期した表示（base）との差分を変更として積みます（古いコピーで他端末の追加を削除しない）。同期中にstoreが変わったときは、同期前のbaseとの差分として取り込んでから反映します。
+- **書き込み順（DESIGN前半の「outboxが先」からの変更）**：受信した変更は先に `library.json` へ反映し、その後 `sync/state.json` を保存します。ローカルの編集は、storeの保存（library.json）が先で、同期状態はその差分から作ります。どちらの順で途中停止しても、次回の差分は削除・上書きにならず（再送は冪等）、失われる編集はありません。`state.json` が未知の `syncVersion`・壊れた内容のときは、上書きせず同期を停止します。
+- **同期しない端末固有の情報の保持**：アイコン、ローカルファイル曲のファイル名、既存の `mediaId`、設定、再生中の選択は、受信の反映でも保持します（同じ動画の `mediaId` は既存を共有）。リモートで削除された曲・リストは、手元の削除と同じ経路で保存され、保存済みメディアの整理も既存の仕組みに従います。
+- **失敗時**：オフライン・Supabaseの一時停止・未サインインでは、変更とoutboxを保持して「同期に失敗しました」と表示し、5分ごと・保存の1.5秒後・起動5秒後に再試行します。整理（Compact）は成功した同期の後、1日に1回までです。
+- **保護**：ストアが破損から復旧した状態（`store.recovered`）では同期を停止し、空のライブラリを削除として送りません。同期データは作成時の接続先URL・ユーザーを記録し、違う接続先・アカウントでは同期せず、「接続を初期化」で同期データを別名（`state.replaced-*.json`）に残して手元のライブラリから始め直します。接続先URLを変えるとサインイン情報は消えます。
+- **メインとの境界**：`main.cjs` は `sync:run`（status/configure/send-code/verify/enable/disable/now/sign-out）の窓口と、storeの保存通知（`committed`）、反映後の `state` 通知だけを持ちます。
 
 ### Tombstoneと長期オフライン
 

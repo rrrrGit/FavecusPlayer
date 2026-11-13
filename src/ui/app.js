@@ -491,7 +491,7 @@ function Settings() {
     </section>
     <nav id="settings-sections" class="settings-sections" aria-label="設定項目"></nav>`, null);
   // 新しい設定カテゴリはこの配列の末尾へ追加する。
-  for (const [name, open] of [['プレイリストの出力', Transfer], ['使い方', () => api.help()], ['自動消去単語設定', TitleWordsSettings], ['Discordアクティビティ', DiscordSettings], ['ミニプレイヤー、タスクバー', TaskbarSettings], ['再生・表示', PlaybackSettings], ['キーコンフィグ', KeySettings], ['シャッフルの再生回数', ShuffleSettings], ['バージョン更新', ReleaseSettings]]) {
+  for (const [name, open] of [['プレイリストの出力', Transfer], ['使い方', () => api.help()], ['自動消去単語設定', TitleWordsSettings], ['Discordアクティビティ', DiscordSettings], ['ミニプレイヤー、タスクバー', TaskbarSettings], ['再生・表示', PlaybackSettings], ['キーコンフィグ', KeySettings], ['シャッフルの再生回数', ShuffleSettings], ['バージョン更新', ReleaseSettings], ['プレイリストの同期', SyncSettings]]) {
     const button = Button(name, 'settings-category', open); button.append(Element('span', '', '›')); $('settings-sections').append(button);
   }
   SyncVolume(state.settings.volume); $('master-volume').oninput = () => VolumeInput($('master-volume'));
@@ -505,6 +505,59 @@ async function SaveSettingsSection(settings, expectedEpoch = modalEpoch) {
   const epoch = modalEpoch;
   await Action({ type: 'settings', settings });
   if (epoch === modalEpoch && $('modal').open) { Settings(); Toast('設定を保存しました。'); }
+}
+// ---- プレイリストの同期（設定）。接続先・サインイン・有効化。状態はmainからの 'sync' イベントで更新する。
+let syncStatus = null;
+function SyncLabel(status) {
+  if (!status) return '確認しています…';
+  const when = status.lastSyncAt ? new Date(status.lastSyncAt).toLocaleString('ja-JP') : '未同期';
+  const extra = (status.pending ? `・未送信 ${status.pending}件` : '') + (status.conflicts ? `・保留した変更 ${status.conflicts}件` : '');
+  if (status.state === 'blocked') return `同期を停止しています：${status.error}`;
+  if (!status.enabled) return `同期：オフ${status.signedIn ? `（サインイン済み：${status.email}）` : ''}`;
+  if (status.state === 'syncing') return '同期しています…';
+  if (status.state === 'error') return `同期に失敗しました：${status.error}（変更は保持しています。つながると自動で再試行します）${extra}`;
+  return `同期：オン・最終 ${when}${extra}`;
+}
+function PaintSync(status) {
+  syncStatus = status;
+  if (!$('sync-state') || !$('modal').open) return;
+  $('sync-state').textContent = SyncLabel(status);
+  const on = !!status?.enabled, ready = !!status?.configured, signed = !!status?.signedIn;
+  $('sync-url').disabled = $('sync-key').disabled = $('sync-save').disabled = on;
+  $('sync-send').disabled = !ready || !status?.encryption; $('sync-verify').disabled = !ready; $('sync-signout').disabled = !signed || on;
+  $('sync-enable').disabled = on || !signed; $('sync-disable').disabled = !on; $('sync-reset').disabled = on; $('sync-now').disabled = !on || status?.state === 'syncing';
+  $('sync-encryption').classList.toggle('hidden', !status || status.encryption);
+}
+function SyncSettings() {
+  OpenModal('プレイリストの同期', `
+    <p class="form-note">自分のSupabaseプロジェクトを使って、プレイリストの構成と曲の登録情報をWindows版・iPhone版で同期します。曲のファイル・保存したメディア・ログイン情報は同期しません。既定はオフです。</p>
+    <p id="sync-state" class="status-detail" role="status" aria-live="polite"></p>
+    <p id="sync-encryption" class="status-detail hidden">この環境ではサインイン情報を安全に保存できないため、同期を使えません。</p>
+    <section class="settings-block"><h3>1. 接続先</h3>
+      <label class="field">Project URL<input id="sync-url" maxlength="100" placeholder="https://xxxx.supabase.co" autocomplete="off" spellcheck="false"></label>
+      <label class="field">anon（publishable）キー<input id="sync-key" maxlength="4096" autocomplete="off" spellcheck="false"><small>公開してよいキーだけを入力します。service_role・secretキーは使えません。</small></label>
+      <div class="settings-actions"><button id="sync-save" type="button" class="button secondary">接続先を保存</button></div>
+    </section>
+    <section class="settings-block"><h3>2. サインイン（メールのワンタイムコード）</h3>
+      <label class="field">メールアドレス<input id="sync-email" type="email" maxlength="200" autocomplete="email"></label>
+      <div class="settings-actions"><button id="sync-send" type="button" class="button secondary">コードを送る</button></div>
+      <label class="field">届いたコード<input id="sync-code" inputmode="numeric" maxlength="10" autocomplete="one-time-code"></label>
+      <div class="settings-actions"><button id="sync-verify" type="button" class="button secondary">サインイン</button><button id="sync-signout" type="button" class="button secondary">サインアウト</button></div>
+    </section>
+    <section class="settings-block"><h3>3. 同期</h3>
+      <div class="settings-actions"><button id="sync-enable" type="button" class="button primary">同期を有効にする</button><button id="sync-now" type="button" class="button secondary">今すぐ同期</button><button id="sync-disable" type="button" class="button secondary">同期を止める</button><button id="sync-reset" type="button" class="button secondary">接続を初期化</button></div>
+      <p class="form-note">有効にする前に、現在のlibrary.jsonのバックアップをデータフォルダーへ残します。止めても、プレイリストや同期データは消えません。Supabaseの無料枠は、1週間ほど使われないと一時停止します（ダッシュボードで再開でき、データは残ります）。</p>
+    </section>`, null, '保存', Settings);
+  const call = (command, message) => Run(async () => { const status = await api.sync(command); PaintSync(status); if (message) Toast(message); });
+  $('sync-save').onclick = () => call({ action: 'configure', url: $('sync-url').value, anonKey: $('sync-key').value }, '接続先を保存しました。');
+  $('sync-send').onclick = () => call({ action: 'send-code', email: $('sync-email').value }, 'コードをメールで送りました。届いた数字を入力してください。');
+  $('sync-verify').onclick = () => call({ action: 'verify', email: $('sync-email').value, code: $('sync-code').value }, 'サインインしました。');
+  $('sync-signout').onclick = () => call({ action: 'sign-out' }, 'サインアウトしました。');
+  $('sync-enable').onclick = () => call({ action: 'enable' }, '同期を有効にしました。');
+  $('sync-disable').onclick = () => call({ action: 'disable' }, '同期を止めました。');
+  $('sync-reset').onclick = () => { if (confirm('別のプロジェクト・アカウントへ切り替えるため、同期の紐付けを初期化します。手元のプレイリストは変わりません。よろしいですか？')) call({ action: 'reset' }, '初期化しました。'); };
+  $('sync-now').onclick = () => call({ action: 'now' }, '同期しました。');
+  Run(async () => { const status = await api.sync({ action: 'status' }); PaintSync(status); $('sync-email').value = status.email || ''; $('sync-url').value = status.url || ''; });
 }
 function KeySettings() {
   const keys = window.FavecusKeys, draft = { ...keys.Validate(state.settings.keybindings) }, inputs = new Map();
@@ -1189,6 +1242,7 @@ if (api) {
     else if (event.type === 'status') { statuses = event.value; UpdateStatus(); }
     else if (event.type === 'loaded') { loaded = true; RenderPlayer(); }
     else if (event.type === 'notice') Toast(event.value);
+    else if (event.type === 'sync') PaintSync(event.value);
     else if (event.type === 'accounts') { accounts = event.value; UpdateAccounts(); }
     else if (event.type === 'queue') { queueInfo = event.value; RenderNext(); if (state) UpdateTransport(); }
     else if (event.type === 'foreground') { const changed = foreground !== (event.value === true); foreground = event.value === true; listArtwork?.SetEnabled(foreground); BackgroundInteractive(foreground); if (!foreground) { queueDrag?.Cancel(); queueFollower?.Release(); } if (foreground) { if (changed) queueFollower?.Request(); PumpDurations(); } }

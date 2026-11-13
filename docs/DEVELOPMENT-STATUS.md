@@ -2,7 +2,7 @@
 
 更新日：2026-11-13（日本時間）
 対象：v0.7.0 / `release/v0.7.0`
-現在地：Step6完了。Step7-1（スキーマ・RLS・認証設計）と7-2（SupabaseSyncRepository、偽サーバーでの検証）が完了。次は7-3（Windows版の配線、`sync/state.json`、トークン保管）。Bilibili実通信・実機の通常操作は未確認。
+現在地：Step6完了。Step7-1〜7-3（スキーマ・RLS、SupabaseSyncRepository、Windows版の配線・`sync/state.json`・トークン保管・設定画面）が実装済み。次は7-4（ユーザーのSupabaseでの実通信確認）。Bilibili実通信・実機の通常操作は未確認。
 基準コミット：`79255411dfbcb240cbad064fa8d1ae0ca4e085d4`（`release/v0.6.7` 最新。配布済みv0.6.7 startup-hotfix-1を含む）。
 v0.6.7の開発・検証記録は `docs/VALIDATION-067.md` に移しました。
 
@@ -81,7 +81,7 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 | Step4 MediaKeyと端末依存情報の分離 | 完了 | SyncMediaKey・DeviceMediaを共通JSとWindows版（読み取り専用の投影）へ導入。保存形式は変更せず、共通テストデータ158件で確認 |
 | Step5 Windows版の改善 | 完了（実Electronで主要動作を確認） | ユーザー提示の8項目（`C:\Dev\v0.6.7改善点`）。5-1 ホーム・再生バー／5-2 ×でトレイ格納／5-3 オリジナルのプレイヤーUIと拡大。実Electron 44.2.0で、拡大・Esc・×のトレイ格納を確認（Bilibili実通信・Windowsの実キー操作・シャットダウンは未確認）。下記「Step5の計画」 |
 | Step6 同期の共通基盤 | 完了（iOS CIの確認待ち） | 変更レコード、親子の辺と並び順、Tombstone、競合解決、同期キューを共通JSで実装。SyncRepositoryの抽象とメモリ実装で、同時変更・オフライン編集・削除後の復活防止をテスト |
-| Step7 Supabase接続 | 7-1・7-2完了／7-3（Windows配線）・7-4（実Supabase確認、ユーザー作業あり）が残り | テーブル・行単位のアクセス制御・認証の設計、SupabaseSyncRepository。Windows版の同期接続と、トークンの安全な保存 |
+| Step7 Supabase接続 | 7-1〜7-3完了／7-4（実Supabase・実Electronでの確認、ユーザー作業あり）が残り | テーブル・行単位のアクセス制御・認証の設計、SupabaseSyncRepository。Windows版の同期接続と、トークンの安全な保存 |
 | Step8 iOS基本アプリとローカルDB | 未着手 | ローカルDB、プレイリスト階層の表示・編集・並び替え。画面はユーザーのUI案を受けて決定 |
 | Step9 iOSローカル再生 | 未着手 | AVPlayerによる再生、ミニプレイヤー、バックグラウンド音声、ロック画面操作、再生順 |
 | Step10 メディアZIPの取り込み・出力 | 未着手 | 既存ZIP形式の拡張、Windows出力→iPhone取り込み→iPhone出力→Windows取り込み、重複防止、Filesアプリ・共有シートからの選択 |
@@ -127,6 +127,9 @@ Step6完了（下記）。次はStep7（Supabase接続、Windows版の同期配�
 
 - 分割：7-1 スキーマとRLS（`supabase/schema.sql`）／7-2 `src/core/sync-supabase.cjs`と偽サーバーでの検証／7-3 Windows配線・`sync/state.json`・トークン保管／7-4 実Supabaseでの確認（ユーザーのプロジェクト作成後）。
 - 7-1・7-2：仕様は `docs/DESIGN.md` の「Supabaseの構成」。認証はメールのワンタイムコード（ユーザー選択）。Free枠の一時停止の詳細を公式で確認（DESIGN.mdの外部情報表）。`test/sync-supabase.test.cjs` 9件（偽Supabase：サインイン、2端末の収束、再送の重複なし、分割Push・ページ取得、トークン更新と401再試行、オフライン/停止/未サインインでoutbox保持、トークン非表示、Compactと全量再同期、不正行）を通過。
+- 7-3：仕様は `docs/DESIGN.md` の「Windows版の同期の運用」。`test/sync-service.test.cjs` 9件（実Store＋偽Supabase：有効化前のバックアップ・トークンが平文で残らない、2端末の双方向マージ、古い編集で他端末の追加を消さない、同期中のローカル編集を保持、端末固有情報（mediaId等）の保持、オフライン/停止/未サインインでoutbox保持、再起動と未知の版・壊れたstate.jsonの停止、library.json反映後・state.json保存前の停止、暗号化不可でサインイン拒否、無効化）を通過。設定画面は模擬プレビュー（`node scripts/preview.cjs --demo`、`?preview=1`）で、接続先の保存→コード→有効化→停止の操作を確認（**模擬**。通信なし）。
+- checker（Opus）指摘の修正：破損復旧時は同期停止／接続先・アカウント切替の検出と「接続を初期化」／URL変更でトークン消去／resync後のcursorをwatermark以上に／Start前のEnableでも既存データを確認／Compactに読み取り末尾（p_upto）を渡し読み取り後の追記を消さない／RLSの既定権限を外して付け直し・DELETE権限なし・search_path空／ページ取得は空ページで終了。回帰テスト4件を追加。
+- 未確認（7-3）：実Electronでの設定画面・`safeStorage`による暗号化保存・`net.fetch`経由の実通信・Windows実機。5分周期や保存後の自動同期のタイマー動作（タイマーは注入で模擬）。大規模（999リスト・約1万登録）での反映の所要時間。
 - 未確認：実Supabase（SQLの実行そのもの・RLS・連番トリガー・PostgRESTの `on_conflict` 挙動）。`schema.sql` は未実行で、構文・実挙動は7-4で確認します。
 - ユーザーの作業（7-4の前）：Supabaseプロジェクトの作成、`supabase/schema.sql` をSQL Editorで実行、Authのメールテンプレートに `{{ .Token }}`（6桁コード）が含まれることの確認、Project URLとanon（publishable）キーの用意。
 

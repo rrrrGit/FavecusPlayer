@@ -28,7 +28,7 @@ create table if not exists public.sync_meta (
 -- 3) 連番はコミット順にする：同じ利用者の挿入は、利用者単位のロックで直列化し、コミットまで保持する。
 --    （identity列は並行トランザクションでコミット順にならず、読み手が小さい番号を永久に取りこぼすおそれがあるため使わない）
 create or replace function public.sync_assign_seq() returns trigger
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = '' as $$
 begin
   perform pg_advisory_xact_lock(hashtextextended(new.user_id::text, 7));
   insert into public.sync_meta (user_id, last_seq) values (new.user_id, 1)
@@ -41,12 +41,15 @@ create trigger sync_changes_seq before insert on public.sync_changes for each ro
 
 -- 4) 整理：クライアントが（共通JSの規則で）選んだ、保持期間を過ぎたTombstoneのレコードIDの行を消し、境界を現在の末尾へ進める。
 --    削除がなかったときは境界を進めない（進めると、後から参加した端末などが不要な全量再同期になる）。
-create or replace function public.sync_compact(p_ids text[]) returns bigint
-language plpgsql security definer set search_path = public as $$
+drop function if exists public.sync_compact(text[]);
+create or replace function public.sync_compact(p_ids text[], p_upto bigint) returns bigint
+language plpgsql security definer set search_path = '' as $$
 declare removed bigint;
 begin
   perform pg_advisory_xact_lock(hashtextextended(auth.uid()::text, 7));
-  delete from public.sync_changes where user_id = auth.uid() and record_id = any(p_ids);
+  -- p_upto：クライアントが読み取った末尾の連番。それより後に同じレコードへ届いた行がある場合は、そのレコードを消さない（読み取り後の追記を失わない）。
+  delete from public.sync_changes c where c.user_id = auth.uid() and c.record_id = any(p_ids)
+    and not exists (select 1 from public.sync_changes n where n.user_id = c.user_id and n.record_id = c.record_id and n.seq > p_upto);
   get diagnostics removed = row_count;
   if removed > 0 then
     update public.sync_meta set watermark = last_seq where user_id = auth.uid();
@@ -59,17 +62,15 @@ alter table public.sync_changes enable row level security;
 alter table public.sync_meta enable row level security;
 drop policy if exists sync_changes_select on public.sync_changes;
 drop policy if exists sync_changes_insert on public.sync_changes;
-drop policy if exists sync_changes_delete on public.sync_changes;
 create policy sync_changes_select on public.sync_changes for select to authenticated using (user_id = auth.uid());
 create policy sync_changes_insert on public.sync_changes for insert to authenticated with check (user_id = auth.uid());
-create policy sync_changes_delete on public.sync_changes for delete to authenticated using (user_id = auth.uid());
 drop policy if exists sync_meta_select on public.sync_meta;
 create policy sync_meta_select on public.sync_meta for select to authenticated using (user_id = auth.uid());
 
 -- 匿名（ログインしていない）アクセスは一切許可しない。
-revoke all on public.sync_changes, public.sync_meta from anon;
-grant select, insert, delete on public.sync_changes to authenticated;
+revoke all on public.sync_changes, public.sync_meta from anon, authenticated; -- Supabaseの既定の権限を一度すべて外し、必要なものだけ与える
+grant select, insert on public.sync_changes to authenticated; -- 削除は sync_compact（security definer）だけが行う
 grant select on public.sync_meta to authenticated; -- 連番と境界はサーバー側の関数だけが更新する（クライアントは読むだけ）
-grant execute on function public.sync_compact(text[]) to authenticated;
-revoke execute on function public.sync_compact(text[]) from public, anon;
+grant execute on function public.sync_compact(text[], bigint) to authenticated;
+revoke execute on function public.sync_compact(text[], bigint) from public, anon;
 revoke execute on function public.sync_assign_seq() from public, anon, authenticated;

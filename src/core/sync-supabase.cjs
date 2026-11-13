@@ -112,7 +112,7 @@ class SupabaseSyncRepository {
       const got = await this.Call('GET', `sync_changes?select=seq,record_id,f&seq=gt.${last}&order=seq.asc&limit=${this.pageSize}`);
       if (!Array.isArray(got)) throw new SyncError('bad', FRIENDLY.bad);
       for (const row of got) { if (!Number.isInteger(row.seq) || row.seq <= last || typeof row.record_id !== 'string' || row.f === null || typeof row.f !== 'object') throw new SyncError('bad', FRIENDLY.bad); last = row.seq; rows.push(row); }
-      if (got.length < this.pageSize) break;
+      if (got.length === 0) break; // 件数ではなく「空」で終える（サーバー側の最大件数が小さくても取りこぼさない）
     }
     return { rows, last };
   }
@@ -120,7 +120,7 @@ class SupabaseSyncRepository {
     const meta = await this.Meta();
     if (!Number.isInteger(cursor) || cursor < meta.watermark) {
       const all = await this.Rows(0);
-      return { resync: true, snapshot: Records(S.Merge(S.NewState(), all.rows.map(row => ({ id: row.record_id, f: row.f }))).state), cursor: all.last };
+      return { resync: true, snapshot: Records(S.Merge(S.NewState(), all.rows.map(row => ({ id: row.record_id, f: row.f }))).state), cursor: Math.max(all.last, meta.lastSeq) };
     }
     const got = await this.Rows(cursor);
     return { changes: got.rows.map(row => ({ id: row.record_id, f: row.f })), cursor: got.last };
@@ -129,7 +129,7 @@ class SupabaseSyncRepository {
   async Compact(now = this.now(), retentionMs = RETENTION_MS) {
     const all = await this.Rows(0), state = S.Merge(S.NewState(), all.rows.map(row => ({ id: row.record_id, f: row.f }))).state;
     const kept = S.Compact(state, now, retentionMs).state, ids = Object.keys(state.records).filter(id => !kept.records[id]);
-    for (let i = 0; i < ids.length; i += 200) await this.Call('POST', 'rpc/sync_compact', { body: { p_ids: ids.slice(i, i + 200) } });
+    for (let i = 0; i < ids.length; i += 200) await this.Call('POST', 'rpc/sync_compact', { body: { p_ids: ids.slice(i, i + 200), p_upto: all.last } });
     return ids.length;
   }
 }

@@ -1,10 +1,13 @@
 'use strict';
-const { app, BrowserWindow, WebContentsView, ipcMain, dialog, shell, session, protocol, net, Menu, nativeImage, crashReporter } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, dialog, shell, session, protocol, net, Menu, nativeImage, crashReporter, safeStorage } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs');
 const { randomUUID, randomInt } = require('node:crypto');
-const { Store, MEDIA_NAME } = require('./core/store.cjs');
+const { Store, MEDIA_NAME, ValidateLibrary } = require('./core/store.cjs');
+const { LibraryMediaKey } = require('./core/library-identity.cjs');
+const { SyncService, StoreAdapter } = require('./core/sync-service.cjs');
+const { SessionVault } = require('./core/sync-storage.cjs');
 const { LocalDuration } = require('./core/media-duration.cjs');
 const { LibraryArchive } = require('./core/library-archive.cjs');
 const { ShareMode } = require('./core/library-share.cjs');
@@ -37,7 +40,7 @@ const isSmoke = process.argv.includes('--smoke-test');
 const dataDirectory = isSmoke && process.env.FAVECUS_TEST_DIRECTORY ? process.env.FAVECUS_TEST_DIRECTORY : require('./core/data-migration.cjs').PrepareDataDirectory(app.getPath('appData'));
 app.setPath('userData', dataDirectory);
 app.setPath('sessionData', dataDirectory);
-let win, store, presence, remoteView, mini, volumeSaveTimer, backgroundMode;
+let win, store, presence, remoteView, mini, volumeSaveTimer, backgroundMode, sync;
 let viewVisible = false;
 let current = null, playback = null;
 let thumbnails, thumbnail = null;
@@ -538,7 +541,15 @@ async function Command(command, value) {
 
 async function Start() {
   const ffmpeg = process.env.FAVECUS_INSTALL_ROOT ? path.join(process.env.FAVECUS_INSTALL_ROOT, 'runtime', 'ffmpeg', 'ffmpeg.exe') : app.isPackaged ? path.join(process.resourcesPath, 'ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg') : path.join(app.getAppPath(), 'runtime', 'ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
-  store = new Store(app.getPath('userData'), { committed: () => offline?.ScheduleCleanup(), convertWma: (source, destination) => ConvertWma(ffmpeg, source, destination) });
+  store = new Store(app.getPath('userData'), { committed: () => { offline?.ScheduleCleanup(); sync?.Changed(); }, convertWma: (source, destination) => ConvertWma(ffmpeg, source, destination) });
+
+  // プレイリストの同期（既定はオフ。利用者が設定で有効にしたときだけ動く）。library.jsonが正本で、同期の状態はuserData/sync/にある。
+  const syncDirectory = path.join(app.getPath('userData'), 'sync');
+  sync = new SyncService({
+    directory: syncDirectory, adapter: StoreAdapter(store, { validateLibrary: input => ValidateLibrary(input), mediaKey: LibraryMediaKey }), vault: new SessionVault(syncDirectory, safeStorage),
+    request: async (method, url, { headers, body }) => { const response = await net.fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(30000) }); return { status: response.status, json: await response.json().catch(() => null) }; },
+    onStatus: status => Emit('sync', status), onApplied: () => { if (current?.playlistId) SyncPlayingQueue(); Emit('state', store.Snapshot()); }
+  });
 
   protocol.handle('favecus', async request => {
     const url = new URL(request.url);
@@ -629,6 +640,20 @@ async function Start() {
       if (visibleBounds.modalOpen) throw new Error('開いている追加・設定画面を閉じてから、もう一度追加ボタンを押してください。');
       biliBrowser.Hide(); mini.Restore(); Emit('add-url', entry);
     }
+  });
+  Handle('sync:run', async command => {
+    const kind = command?.action;
+    if (kind === 'status') return sync.Status();
+    if (kind === 'configure') sync.Configure({ url: command.url, anonKey: command.anonKey });
+    else if (kind === 'send-code') await sync.SendCode(command.email);
+    else if (kind === 'verify') await sync.VerifyCode(command.email, command.code);
+    else if (kind === 'enable') { const result = await sync.Enable(); if (!result.ok) throw new Error(result.error); }
+    else if (kind === 'disable') sync.Disable();
+    else if (kind === 'now') { const result = await sync.SyncNow(); if (!result.ok) throw new Error(result.error); }
+    else if (kind === 'sign-out') sync.SignOut();
+    else if (kind === 'reset') sync.ResetLink();
+    else throw new Error('対応していない操作です。');
+    return sync.Status();
   });
   Handle('app:state', () => ({ state: store.Snapshot(), statuses, current, playback, thumbnail, queue: QueueState(), downloads: offline.Snapshot(), foreground: Foreground(), accounts: accountStatus, version: app.getVersion(), platform: process.platform }));
   Handle('player:reset-counts', () => { playCounts.Reset(); return true; });
@@ -822,6 +847,7 @@ async function Start() {
     }
   });
   await win.loadURL('favecus://app/index.html'); await Configure();
+  sync.Start();
   if (store.warning) Notify(store.warning);
   if (taskbarWarning) Notify(taskbarWarning);
   const timer = setInterval(UpdatePresence, 5000); timer.unref();
@@ -837,7 +863,7 @@ else {
 app.on('child-process-gone', (_event, details = {}) => PlayerDiagnostic('child-process-exited', { processType: details.type, exitReason: details.reason, exitCode: details.exitCode }));
 process.on?.('uncaughtExceptionMonitor', (error, origin) => PlayerDiagnostic('uncaught-exception', { origin, name: error.name, code: error.code, message: String(error.message).slice(0, 240), stack: String(error.stack || '').split('\n').slice(0, 8).join('\n').slice(0, 3000) }));
 app.on('before-quit', () => {
-  quitting = true; loadRequest++; offline?.CancelEstimate();
+  quitting = true; loadRequest++; sync?.Dispose(); offline?.CancelEstimate();
   offline?.Cancel();
   if (volumeSaveTimer) { clearTimeout(volumeSaveTimer); volumeSaveTimer = null; try { store?.Save(); } catch {} }
   biliBrowser?.Destroy(); backgroundMode?.Dispose(); mini?.Destroy(); mini = null; presence?.Stop(); CloseView(); for (const view of retiredPlayers.keys()) DisposePlayer(view); offline?.cleanup.Dispose();

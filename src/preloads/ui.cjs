@@ -19,7 +19,7 @@ contextBridge.exposeInMainWorld('favecusApp', {
   discordGuide: invoke('app:discord-guide'), discordImage: invoke('app:discord-image'),
   taskbarLog: invoke('app:taskbar-log'),
   taskbarGuide: invoke('app:taskbar-guide'),
-  accounts: invoke('account:status'), login: invoke('account:open'),
+  accounts: invoke('account:status'), login: invoke('account:open'), sync: invoke('sync:run'),
   browseBilibili: invoke('bilibili:browse'),
   favoriteFolders: invoke('account:folders'), favoriteVideos: invoke('account:videos'),
   playlistSources: invoke('bilibili:lists'), playlistVideos: invoke('bilibili:list-videos'), playlistParts: invoke('bilibili:parts'),

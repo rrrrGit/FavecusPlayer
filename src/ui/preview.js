@@ -14,6 +14,19 @@ if (!window.favecusApp && location.hostname === '127.0.0.1' && location.search =
   // デスクトップ版は前面表示の状態を通知する。プレビューでは表示中を前面として通知し、サムネイルの取得を有効にする。
   const announce = () => listeners.forEach(cb => cb({ type: 'foreground', value: document.visibilityState === 'visible' }));
   setTimeout(announce, 300); document.addEventListener('visibilitychange', announce);
-  window.favecusApp = { state: () => send('state'), action: action => send('action', action), entryThumbnail: async (playlistId, entryId, scope, variant) => Thumbnail(entryId, variant), accounts: async () => ({}), bounds: () => {}, onEvent: cb => { listeners.add(cb); return () => listeners.delete(cb); } };
+  // 同期設定の模擬（通信しない。画面の操作と状態表示の確認用）。
+  const demoSync = { url: '', enabled: false, configured: false, signedIn: false, email: '', encryption: true, state: 'off', error: '', lastSyncAt: 0, pending: 0, conflicts: 0 };
+  const syncApi = async command => {
+    if (command.action === 'configure') { if (!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/.test(command.url || '')) throw new Error('SupabaseのURLが正しくありません。'); Object.assign(demoSync, { url: command.url, configured: true }); }
+    else if (command.action === 'send-code') { if (!demoSync.configured) throw new Error('先に接続先を保存してください。'); demoSync.email = command.email; }
+    else if (command.action === 'verify') { if (command.code !== '123456') throw new Error('コードが正しくないか、期限が切れています。（模擬：123456）'); demoSync.signedIn = true; }
+    else if (command.action === 'sign-out') demoSync.signedIn = false;
+    else if (command.action === 'enable') Object.assign(demoSync, { enabled: true, state: 'idle', lastSyncAt: Date.now() });
+    else if (command.action === 'reset') Object.assign(demoSync, { enabled: false, state: 'off', signedIn: false });
+    else if (command.action === 'disable') Object.assign(demoSync, { enabled: false, state: 'off' });
+    else if (command.action === 'now') demoSync.lastSyncAt = Date.now();
+    return { ...demoSync };
+  };
+  window.favecusApp = { sync: syncApi, state: () => send('state'), action: action => send('action', action), entryThumbnail: async (playlistId, entryId, scope, variant) => Thumbnail(entryId, variant), accounts: async () => ({}), bounds: () => {}, onEvent: cb => { listeners.add(cb); return () => listeners.delete(cb); } };
   for (const name of ['videoFullscreen', 'resetPlayCounts', 'shortcut', 'downloads', 'downloadPlaylist', 'cancelDownload', 'downloadDirectory', 'openDownloads', 'preferSaved', 'addFiles', 'prepareAdd', 'prepareFiles', 'commitAdd', 'cancelAdd', 'importLibrary', 'exportLibrary', 'play', 'shufflePlay', 'browseBilibili', 'command', 'openOfficial', 'help', 'discordPortal', 'login', 'favoriteFolders', 'favoriteVideos', 'playlistSources', 'playlistVideos', 'playlistParts', 'volume', 'mini']) window.favecusApp[name] = () => { throw new Error('この操作はデスクトップ版で使用できます。'); };
 }
