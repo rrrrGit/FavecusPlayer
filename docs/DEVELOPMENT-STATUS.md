@@ -90,9 +90,9 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 | Step13 iOSダウンロード | 実装済み（CI・模擬通信で確認、前面のみ）。サムネイルは未実装。実Bilibili・実機は未確認 | IOSMediaDownloadService、URLSession、状態管理、Passthrough結合と安全なフォールバック、検証、サムネイル |
 | Step14 バックグラウンドダウンロード | 実装済み（CI：通常のセッションで同じ処理を確認）。background URLSessionの実機動作は未確認 | background構成、中断・再開・キャンセル・通信切断・容量不足・アプリ再起動 |
 | Step15 iOS画面の仕上げ | 実装済み（CI・シミュレーターのスクリーンショット）。実機の操作感は未確認 | ユーザーのUI案に沿った再生画面・ダウンロード・設定・同期状態の画面 |
-| Step16 AltStore実機導入手順 | 未着手 | AltServerの自動起動、同一Wi-Fi、信頼済み、必要なApple関連部品、Background Refreshの確認手順。アプリデータを保ったままのRefresh確認。PCを再起動しないとRefreshできないのかを実機で確認 |
-| Step17 毎日の自動Refresh | 未着手 | ショートカットのPersonal Automationによる毎日のRefresh Apps、失敗・残り日数・手動更新方法の確認手順と、翌日の再試行の確認。Refresh成否の確認はAltStoreの「My Apps」の残り日数（7日へ戻るか）、「View App IDs」の期限、ホーム画面ウィジェット（iOS 17以降）で行う。AltServer側の成功通知の有無は未確認 |
-| Step18 Windows版の同期・ZIP画面 | 未着手 | 同期状態・ログイン・ZIP出力の画面をWindows版へ接続し、操作プレビューで確認 |
+| Step16 AltStore実機導入手順 | 手順を整理済み（導入はStep2・今回の実機で確認済み）。Refresh後のデータ保持・PC再起動の要否は実機で未確認 | AltServerの自動起動、同一Wi-Fi、信頼済み、必要なApple関連部品、Background Refreshの確認手順。アプリデータを保ったままのRefresh確認。PCを再起動しないとRefreshできないのかを実機で確認 |
+| Step17 毎日の自動Refresh | 手順を整理済み。自動実行・失敗時の動作は実機で未確認（数日の観察が必要） | ショートカットのPersonal Automationによる毎日のRefresh Apps、失敗・残り日数・手動更新方法の確認手順と、翌日の再試行の確認。Refresh成否の確認はAltStoreの「My Apps」の残り日数（7日へ戻るか）、「View App IDs」の期限、ホーム画面ウィジェット（iOS 17以降）で行う。AltServer側の成功通知の有無は未確認 |
+| Step18 Windows版の同期・ZIP画面 | 完了済み（Step7・11・10で実装、操作プレビューで開けることを再確認）。実Electron GUIは未確認 | 同期状態・ログイン・ZIP出力の画面をWindows版へ接続し、操作プレビューで確認 |
 | Step19 全体検証 | 未着手 | 全Nodeテスト、iOSテスト、共通テストデータ、実機・実通信の確認範囲の集約 |
 | Step20 全体ビルド | 未着手 | Windowsの全体ビルドと版更新、iOSの署名なしIPA |
 | Step21 最終出力 | 未着手 | Windows Patchと説明・検証情報、iOS IPAと導入・Refresh手順の出力 |
@@ -148,6 +148,12 @@ Step6完了（下記）。次はStep7（Supabase接続、Windows版の同期配�
 - **公開後の設定（2026-11-14、GitHub APIで適用・確認済み）**：リポジトリは公開（Public）／コラボレーターはオーナーのみ／ルールセット `protect main and release branches`（`main` と `release/**`：ブランチの削除禁止・強制push禁止、有効）／Actions：ワークフロー権限は読み取りのみ、PRの承認は不可、フォークPRの実行は**すべての外部の貢献者で承認が必要**／WikiとProjectsはオフ（Issuesは有効）／GitHubアカウントは二要素認証が有効（認証アプリ、リカバリーコード確認済み）。ワークフローは `release/v0.7.0` へのpushと手動実行だけで動き、フォークのPRでは動かない。
 - 公開中の注意：実在のURL・キー・メール・Cookie・個人データ・ローカルパスをコミットしない／CIのログに出さない（CIは偽のSupabaseのみ使用）。ワークフローの成果物（署名なしIPA、スクリーンショット）は、公開リポジトリでは、GitHubにログインした誰でも取得できる（秘密は含まない）。
 - 非公開へ戻すときの確認：公開期間中に秘密を含むコミットがないか再点検し、戻した後に、Actionsの課金（macランナー）が再び消費されることを認識しておく。
+
+### Step16・17・18の整理（2026-11-14）
+
+- **Step16（導入・更新の手順）**：導入手順は「実機導入の手順」（下記）。毎回の前提：PCが起動し、AltServer（スタートアップ登録済み）が動き、iPhoneと同じWi-Fiにある。**導入時はUSB接続**。Refreshの確認方法：AltStoreの「My Apps」で残り日数が7日へ戻るか。**実機で未確認**：Refresh後にアプリのデータ（ライブラリ・保存した曲・Bilibili/Supabaseのサインイン＝Keychain）が残るか／PCを再起動した直後にRefreshできるか／Background Refreshの動作条件。確認はv0.7.1の実機セッションで行い、結果をここへ記録する。
+- **Step17（毎日の自動Refresh）**：手順案：iPhoneの「ショートカット」→オートメーション→個人用→時刻（毎日、夜間など）→アクション「AltStore：Refresh All Apps」（確認なしで実行）。うまくいかない日は翌日に再試行される。失敗・残り日数の確認はAltStoreの「My Apps」・「View App IDs」の期限・ホーム画面ウィジェット（iOS 17以降）。**未確認**：自動実行の成否・AltServer側の通知の有無・PCが落ちている日の動作（数日の観察が必要）。7日を超えて更新できないとAltStore版は起動できなくなるため、期限の前にPCで更新する運用を前提とする。
+- **Step18（Windows版の画面）**：同期（接続先・サインイン・有効化・停止・復元/この端末を正とする）はStep7・11、ZIP出力・取り込み（iPhoneの出力ZIPを含む）はStep10・既存機能として実装済み。操作プレビュー（`node scripts/preview.cjs`）で、設定→「プレイリストの同期」が開き、接続先・サインインの項目が出ることを再確認した。実際のElectronでの画面・実Supabaseでの同期は未確認。
 
 ### PC版に寄せたUI（2026-11-14、ユーザー指示）
 
