@@ -182,9 +182,9 @@ jobs:
           shot 1-root
           shot 2-parent -FavecusDemoPath $P1
           shot 3-child -FavecusDemoPath $P1,$P2
-          xcrun simctl ui "$SIM_UDID" appearance dark
-          shot 4-parent-dark -FavecusDemoPath $P1
-          xcrun simctl ui "$SIM_UDID" appearance light
+          shot 4-downloads -FavecusDemoTab 1
+          shot 5-settings -FavecusDemoTab 2
+          shot 6-player -FavecusDemoPlayer YES
           ls -l out
 
       - name: Build unsigned IPA

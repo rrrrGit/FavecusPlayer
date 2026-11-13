@@ -16,6 +16,7 @@ enum DownloadError: Error, CustomStringConvertible {
     case refused(String)
     case cancelled
 
+    var isCancelled: Bool { if case .cancelled = self { return true } else { return false } }
     var isRefusal: Bool { if case .refused = self { return true } else { return false } }
 
     var description: String {

@@ -1,12 +1,25 @@
 import SwiftUI
+import UIKit
+
+/// 背面で終わった保存の通信を、再起動されたときに受け取る（BackgroundTransfers が同じ識別子のセッションを作り直して続きを受け取る）。
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
+        BackgroundTransfers.pendingCompletion[identifier] = completionHandler
+    }
+}
 
 @main
 struct FavecusPlayerApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @Environment(.scenePhase) private var scenePhase
     @StateObject private var environment = AppEnvironment()
 
     var body: some Scene {
         WindowGroup {
-            LibraryRootView(store: environment.store, importer: environment.importer, exporter: environment.exporter, player: environment.player, sync: environment.sync, bilibili: environment.bilibili, downloads: environment.downloads)
+            LibraryRootView(store: environment.store, importer: environment.importer, exporter: environment.exporter, player: environment.player, sync: environment.sync, bilibili: environment.bilibili, downloads: environment.downloads, artwork: environment.artwork)
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active { Task { await environment.downloads?.resume() } }
         }
     }
 }
@@ -21,6 +34,7 @@ final class AppEnvironment: ObservableObject {
     let sync: SyncCoordinator?
     let bilibili: BilibiliAccount?
     let downloads: DownloadService?
+    let artwork: ArtworkStore
 
     init() {
         do {
@@ -40,8 +54,11 @@ final class AppEnvironment: ObservableObject {
             let caches = (try? FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)) ?? FileManager.default.temporaryDirectory
             let downloadService = service.map {
                 DownloadService(catalog: DownloadCatalog(url: downloadsDirectory.deletingLastPathComponent().appendingPathComponent("downloads.json"), mediaDirectory: downloadsDirectory),
-                                bilibili: $0, downloader: MediaDownloader(), core: core, directory: downloadsDirectory, cacheDirectory: caches.appendingPathComponent("online", isDirectory: true))
+                                bilibili: $0, downloader: MediaDownloader(), transfers: BackgroundTransfers(configuration: BackgroundTransfers.backgroundConfiguration(), jobsDirectory: downloadsDirectory.deletingLastPathComponent().appendingPathComponent("download-jobs", isDirectory: true), stagingRoot: downloadsDirectory, wifiOnly: { UserDefaults.standard.bool(forKey: "downloadWiFiOnly") }), core: core, directory: downloadsDirectory, cacheDirectory: caches.appendingPathComponent("online", isDirectory: true))
             }
+            let artworkStore = ArtworkStore(directory: downloadsDirectory.deletingLastPathComponent().appendingPathComponent("thumbnails", isDirectory: true))
+            downloadService?.artwork = artworkStore
+            artwork = artworkStore
             downloads = downloadService
             player = PlaybackEngine(core: core, store: store, backend: AVPlayerBackend(), provider: downloadService, makeSystem: { SystemAudio(controls: $0) })
             // 同期は、再生などとは別のJavaScriptCoreで動かす。Keychainが使えない環境でも、起動は妨げない（同期の画面にエラーとして出る）。
@@ -58,6 +75,7 @@ final class AppEnvironment: ObservableObject {
             sync = nil
             bilibili = nil
             downloads = nil
+            artwork = ArtworkStore(directory: fallback.appendingPathComponent("thumbnails", isDirectory: true))
         }
     }
 }

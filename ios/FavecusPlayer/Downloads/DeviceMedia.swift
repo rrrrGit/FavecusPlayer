@@ -51,7 +51,8 @@ actor DownloadCatalog {
     }
 
     /// 読み込み。読めない・未知の版のときは、上書きせず、空のまま使わない（throw）。
-    func load() throws {
+    /// keeping：取得が続いているジョブ（再起動前から）を持つ記録ID。それ以外の途中の記録は、失敗にする。
+    func load(keeping: Set<String> = []) throws {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         let data = try Data(contentsOf: url)
         let file = try JSONDecoder().decode(File.self, from: data)
@@ -67,7 +68,7 @@ actor DownloadCatalog {
         var changed = false
         for (id, record) in records {
             var next = record
-            if record.state.inProgress {
+            if record.state.inProgress && !keeping.contains(id) {
                 next.state = .failed
                 next.message = "中断されました。もう一度保存してください。"
                 next.fileName = nil

@@ -267,6 +267,14 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         if isPlaying && position > 0.5 { failureStreak = 0 } // 実際に再生できたら、失敗の連続を数え直す
     }
 
+    /// 画面確認用（シミュレーターのスクリーンショット）：再生中の表示だけを作る。音は鳴らさず、通常の起動では使わない。
+    func showDemo(title: String, position: Double, duration: Double) {
+        current = NowPlaying(entryId: "demo", playlistId: "demo", title: title)
+        isPlaying = true
+        self.position = position
+        self.duration = duration
+    }
+
     private func refresh() {
         isPlaying = backend.isPlaying
         position = backend.position

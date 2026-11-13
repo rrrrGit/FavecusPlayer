@@ -99,7 +99,7 @@ final class DownloadTests: XCTestCase {
         let media = root.appendingPathComponent("downloads", isDirectory: true)
         let catalog = DownloadCatalog(url: root.appendingPathComponent("downloads.json"), mediaDirectory: media)
         let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
-        let service = DownloadService(catalog: catalog, bilibili: BilibiliService(core: biliCore), downloader: MediaDownloader(configuration: StubProtocol.session().configuration), core: core, directory: media, cacheDirectory: root.appendingPathComponent("cache", isDirectory: true))
+        let service = DownloadService(catalog: catalog, bilibili: BilibiliService(core: biliCore), downloader: MediaDownloader(configuration: StubProtocol.session().configuration), transfers: BackgroundTransfers(configuration: StubProtocol.session().configuration, identifier: "test-(UUID().uuidString)", jobsDirectory: root.appendingPathComponent("download-jobs", isDirectory: true), stagingRoot: media), core: core, directory: media, cacheDirectory: root.appendingPathComponent("cache", isDirectory: true))
         return (service, catalog)
     }
 
@@ -224,6 +224,90 @@ final class DownloadTests: XCTestCase {
         _ = try await wait(service, key: key, [.completed])
         let afterSave = try await service.playableFile(for: entry)
         XCTAssertEqual(afterSave, service.savedFile(key: key))
+    }
+
+    // MARK: 再起動後の引き継ぎ（背面の取得の続き）
+
+    private func plantJob(_ service: DownloadService, id: String, key: String, files: [String: Data], errors: [String: String] = [:]) async throws {
+        let job = DownloadJob(id: id, key: key, kind: "audio", title: "曲", quality: 0, duration: 2, layout: "dash", streams: [JobStream(urls: ["https://upos.bilivideo.com/a/x"], size: 0, ext: "m4a")], createdAt: Date().timeIntervalSince1970)
+        let jobs = directory.appendingPathComponent("download-jobs", isDirectory: true)
+        try FileManager.default.createDirectory(at: jobs, withIntermediateDirectories: true)
+        try JSONEncoder().encode(job).write(to: jobs.appendingPathComponent("\(id).json"))
+        let staging = service.directory.appendingPathComponent(".dl-\(id)", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        for (name, data) in files { try data.write(to: staging.appendingPathComponent(name)) }
+        for (name, text) in errors { try text.write(to: staging.appendingPathComponent(name), atomically: true, encoding: .utf8) }
+        let catalog = DownloadCatalog(url: directory.appendingPathComponent("downloads.json"), mediaDirectory: service.directory)
+        try await catalog.upsert(DeviceMediaRecord(key: key, kind: "audio", state: .downloading))
+    }
+
+    func testRelaunchFinishesAJobWhoseFilesWereFetchedInTheBackground() async throws {
+        let audio = try makeAudio(seconds: 2)
+        let key = "bili:BV1aaaaaaaaa:p1"
+        let (service, _) = try environment(Fixture(audio: audio))
+        try await plantJob(service, id: "job-done", key: key, files: ["stream-0.m4a": audio])
+        // 再起動：同じ保存先を読む新しいサービス
+        let (relaunched, _) = try environment(Fixture(audio: audio))
+        await relaunched.start()
+        let record = try await wait(relaunched, key: key, [.completed, .failed])
+        XCTAssertEqual(record.state, .completed, record.message ?? "")
+        XCTAssertNotNil(relaunched.savedFile(key: key))
+        XCTAssertTrue(leftovers(relaunched).isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("download-jobs/job-done.json").path))
+    }
+
+    func testRelaunchFailsAJobWithNoTaskAndNoFilesAndRemovesItsFolder() async throws {
+        let key = "bili:BV1bbbbbbbbb:p1"
+        let audio = try makeAudio(seconds: 2)
+        let (service, _) = try environment(Fixture(audio: audio))
+        try await plantJob(service, id: "job-lost", key: key, files: [:])
+        let (relaunched, _) = try environment(Fixture(audio: audio))
+        await relaunched.start()
+        let record = try await wait(relaunched, key: key, [.completed, .failed])
+        XCTAssertEqual(record.state, .failed)
+        XCTAssertTrue(record.message?.contains("中断") ?? false)
+        XCTAssertTrue(leftovers(relaunched).isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("download-jobs/job-lost.json").path))
+    }
+
+    func testRelaunchCleansOnlyFoldersThatHaveNoJob() async throws {
+        let key = "bili:BV1ccccccccc:p1"
+        let audio = try makeAudio(seconds: 2)
+        let (service, _) = try environment(Fixture(audio: audio))
+        try await plantJob(service, id: "job-kept", key: key, files: ["stream-0.m4a": audio])
+        let orphan = service.directory.appendingPathComponent(".dl-orphan", isDirectory: true)
+        try FileManager.default.createDirectory(at: orphan, withIntermediateDirectories: true)
+        let (relaunched, _) = try environment(Fixture(audio: audio))
+        await relaunched.start()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: orphan.path), "持ち主のいない作業フォルダは片付ける")
+        let record = try await wait(relaunched, key: key, [.completed, .failed])
+        XCTAssertEqual(record.state, .completed, "続いているジョブの取得済みファイルは消されない: \(record.message ?? "")")
+    }
+
+    func testAFailedTransferIsRecordedWithItsReasonWithoutAnotherRequest() async throws {
+        let key = "bili:BV1ddddddddd:p1"
+        let audio = try makeAudio(seconds: 2)
+        let (service, _) = try environment(Fixture(audio: audio))
+        try await plantJob(service, id: "job-refused", key: key, files: [:], errors: ["stream-0.err": "refused:配信先から取得できません（HTTP 412）。"])
+        let (relaunched, _) = try environment(Fixture(audio: audio))
+        await relaunched.start()
+        let record = try await wait(relaunched, key: key, [.completed, .failed])
+        XCTAssertEqual(record.state, .failed)
+        XCTAssertTrue(record.message?.contains("412") ?? false)
+        XCTAssertFalse(StubProtocol.requests.contains { $0.url?.host == "upos.bilivideo.com" }, "拒否のあとに、別の要求を送らない")
+    }
+
+    func testTheCatalogKeepsAnInProgressRecordThatStillHasAJob() async throws {
+        let media = directory.appendingPathComponent("downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: media, withIntermediateDirectories: true)
+        let catalog = DownloadCatalog(url: directory.appendingPathComponent("downloads.json"), mediaDirectory: media)
+        try await catalog.upsert(DeviceMediaRecord(key: "k1", kind: "audio", state: .downloading))
+        try await catalog.upsert(DeviceMediaRecord(key: "k2", kind: "audio", state: .downloading))
+        let reloaded = DownloadCatalog(url: directory.appendingPathComponent("downloads.json"), mediaDirectory: media)
+        try await reloaded.load(keeping: ["k1|audio"])
+        let kept = await reloaded.record(key: "k1", kind: "audio"), dropped = await reloaded.record(key: "k2", kind: "audio")
+        XCTAssertEqual(kept?.state, .downloading)
+        XCTAssertEqual(dropped?.state, .failed)
     }
 
     // MARK: 動画の結合
