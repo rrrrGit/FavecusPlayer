@@ -12131,5 +12131,2016 @@
    "status": "unsupported",
    "message": "動画の対応情報が正しくありません。"
   }
+ },
+ {
+  "name": "transfer export: media with one local file available",
+  "call": "TransferExport",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000001\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\",\"00000001-0000-4000-8000-000000000003\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"曲1\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1ffffffff1/\"},{\"id\":\"00000002-0000-4000-8000-000000000002\",\"mediaId\":\"00000003-0000-4000-8000-000000000002\",\"type\":\"local\",\"title\":\"ローカルA\",\"addedAt\":\"\",\"fileName\":\"00000004-0000-4000-8000-000000000001.mp3\"}],\"childIds\":[\"00000001-0000-4000-8000-000000000002\"],\"createdAt\":\"2026-11-01T00:00:00.000Z\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000002\",\"name\":\"子\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000003\",\"mediaId\":\"00000003-0000-4000-8000-000000000003\",\"type\":\"local\",\"title\":\"ローカルB\",\"addedAt\":\"\",\"fileName\":\"00000004-0000-4000-8000-000000000002.flac\"},{\"id\":\"00000002-0000-4000-8000-000000000004\",\"mediaId\":\"00000003-0000-4000-8000-000000000004\",\"type\":\"bilibili\",\"title\":\"曲4\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1ffffffff4/\"}],\"childIds\":[],\"createdAt\":\"2026-11-01T00:00:00.000Z\",\"lastAddedAt\":\"\",\"includeInAll\":false},{\"id\":\"00000001-0000-4000-8000-000000000003\",\"name\":\"独立\",\"icon\":\"\",\"entries\":[],\"childIds\":[],\"createdAt\":\"2026-11-01T00:00:00.000Z\",\"lastAddedAt\":\"\",\"includeInAll\":true}]}",
+    "mode": "media",
+    "available": [
+     "00000004-0000-4000-8000-000000000001.mp3"
+    ]
+   }
+  ],
+  "expect": {
+   "identity": "{\r\n  \"shareVersion\": 1,\r\n  \"exportMode\": \"media\",\r\n  \"identityVersion\": 2,\r\n  \"videoAliases\": []\r\n}\r\n",
+   "records": [
+    {
+     "name": "playlists/00000001-0000-4000-8000-000000000001.json",
+     "text": "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000001\",\r\n    \"childIds\": [\r\n      \"00000001-0000-4000-8000-000000000002\"\r\n    ],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u89aa\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": true,\r\n    \"entries\": [\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000001\",\r\n        \"title\": \"\\u66f21\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\r\n        \"type\": \"bilibili\",\r\n        \"videoId\": \"BV1ffffffff1\",\r\n        \"part\": 1,\r\n        \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\r\n      },\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000002\",\r\n        \"title\": \"\\u30ed\\u30fc\\u30ab\\u30ebA\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\r\n        \"type\": \"local\",\r\n        \"fileName\": \"00000004-0000-4000-8000-000000000001.mp3\",\r\n        \"mediaIncluded\": true\r\n      }\r\n    ]\r\n  },\r\n  \"rootIndex\": 0\r\n}\r\n"
+    },
+    {
+     "name": "playlists/00000001-0000-4000-8000-000000000002.json",
+     "text": "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000002\",\r\n    \"childIds\": [],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u5b50\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": false,\r\n    \"entries\": [\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000003\",\r\n        \"title\": \"\\u30ed\\u30fc\\u30ab\\u30ebB\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\r\n        \"type\": \"local\",\r\n        \"fileName\": \"00000004-0000-4000-8000-000000000002.flac\",\r\n        \"mediaIncluded\": false\r\n      },\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000004\",\r\n        \"title\": \"\\u66f24\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000004\",\r\n        \"type\": \"bilibili\",\r\n        \"videoId\": \"BV1ffffffff4\",\r\n        \"part\": 1,\r\n        \"url\": \"https://www.bilibili.com/video/BV1ffffffff4/\"\r\n      }\r\n    ]\r\n  },\r\n  \"rootIndex\": -1\r\n}\r\n"
+    },
+    {
+     "name": "playlists/00000001-0000-4000-8000-000000000003.json",
+     "text": "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000003\",\r\n    \"childIds\": [],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u72ec\\u7acb\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": true,\r\n    \"entries\": []\r\n  },\r\n  \"rootIndex\": 1\r\n}\r\n"
+    }
+   ],
+   "locals": [
+    {
+     "fileName": "00000004-0000-4000-8000-000000000001.mp3",
+     "included": true
+    },
+    {
+     "fileName": "00000004-0000-4000-8000-000000000002.flac",
+     "included": false
+    }
+   ],
+   "missing": 1,
+   "omitted": 0
+  }
+ },
+ {
+  "name": "transfer export: information with one local file available",
+  "call": "TransferExport",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000001\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\",\"00000001-0000-4000-8000-000000000003\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"曲1\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1ffffffff1/\"},{\"id\":\"00000002-0000-4000-8000-000000000002\",\"mediaId\":\"00000003-0000-4000-8000-000000000002\",\"type\":\"local\",\"title\":\"ローカルA\",\"addedAt\":\"\",\"fileName\":\"00000004-0000-4000-8000-000000000001.mp3\"}],\"childIds\":[\"00000001-0000-4000-8000-000000000002\"],\"createdAt\":\"2026-11-01T00:00:00.000Z\",\"lastAddedAt\":\"\",\"includeInAll\":true},{\"id\":\"00000001-0000-4000-8000-000000000002\",\"name\":\"子\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000003\",\"mediaId\":\"00000003-0000-4000-8000-000000000003\",\"type\":\"local\",\"title\":\"ローカルB\",\"addedAt\":\"\",\"fileName\":\"00000004-0000-4000-8000-000000000002.flac\"},{\"id\":\"00000002-0000-4000-8000-000000000004\",\"mediaId\":\"00000003-0000-4000-8000-000000000004\",\"type\":\"bilibili\",\"title\":\"曲4\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1ffffffff4/\"}],\"childIds\":[],\"createdAt\":\"2026-11-01T00:00:00.000Z\",\"lastAddedAt\":\"\",\"includeInAll\":false},{\"id\":\"00000001-0000-4000-8000-000000000003\",\"name\":\"独立\",\"icon\":\"\",\"entries\":[],\"childIds\":[],\"createdAt\":\"2026-11-01T00:00:00.000Z\",\"lastAddedAt\":\"\",\"includeInAll\":true}]}",
+    "mode": "information",
+    "available": []
+   }
+  ],
+  "expect": {
+   "identity": "{\r\n  \"shareVersion\": 1,\r\n  \"exportMode\": \"information\",\r\n  \"identityVersion\": 2,\r\n  \"videoAliases\": []\r\n}\r\n",
+   "records": [
+    {
+     "name": "playlists/00000001-0000-4000-8000-000000000001.json",
+     "text": "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000001\",\r\n    \"childIds\": [\r\n      \"00000001-0000-4000-8000-000000000002\"\r\n    ],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u89aa\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": true,\r\n    \"entries\": [\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000001\",\r\n        \"title\": \"\\u66f21\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\r\n        \"type\": \"bilibili\",\r\n        \"videoId\": \"BV1ffffffff1\",\r\n        \"part\": 1,\r\n        \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\r\n      },\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000002\",\r\n        \"title\": \"\\u30ed\\u30fc\\u30ab\\u30ebA\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\r\n        \"type\": \"local\",\r\n        \"fileName\": \"00000004-0000-4000-8000-000000000001.mp3\",\r\n        \"mediaIncluded\": false\r\n      }\r\n    ]\r\n  },\r\n  \"rootIndex\": 0\r\n}\r\n"
+    },
+    {
+     "name": "playlists/00000001-0000-4000-8000-000000000002.json",
+     "text": "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000002\",\r\n    \"childIds\": [],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u5b50\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": false,\r\n    \"entries\": [\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000003\",\r\n        \"title\": \"\\u30ed\\u30fc\\u30ab\\u30ebB\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\r\n        \"type\": \"local\",\r\n        \"fileName\": \"00000004-0000-4000-8000-000000000002.flac\",\r\n        \"mediaIncluded\": false\r\n      },\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000004\",\r\n        \"title\": \"\\u66f24\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000004\",\r\n        \"type\": \"bilibili\",\r\n        \"videoId\": \"BV1ffffffff4\",\r\n        \"part\": 1,\r\n        \"url\": \"https://www.bilibili.com/video/BV1ffffffff4/\"\r\n      }\r\n    ]\r\n  },\r\n  \"rootIndex\": -1\r\n}\r\n"
+    },
+    {
+     "name": "playlists/00000001-0000-4000-8000-000000000003.json",
+     "text": "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000003\",\r\n    \"childIds\": [],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u72ec\\u7acb\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": true,\r\n    \"entries\": []\r\n  },\r\n  \"rootIndex\": 1\r\n}\r\n"
+    }
+   ],
+   "locals": [
+    {
+     "fileName": "00000004-0000-4000-8000-000000000001.mp3",
+     "included": false
+    },
+    {
+     "fileName": "00000004-0000-4000-8000-000000000002.flac",
+     "included": false
+    }
+   ],
+   "missing": 0,
+   "omitted": 2
+  }
+ },
+ {
+  "name": "transfer prepare: a media archive with its declared file",
+  "call": "TransferPrepare",
+  "args": [
+   {
+    "identity": "{\r\n  \"shareVersion\": 1,\r\n  \"exportMode\": \"media\",\r\n  \"identityVersion\": 2,\r\n  \"videoAliases\": []\r\n}\r\n",
+    "records": [
+     "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000001\",\r\n    \"childIds\": [\r\n      \"00000001-0000-4000-8000-000000000002\"\r\n    ],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u89aa\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": true,\r\n    \"entries\": [\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000001\",\r\n        \"title\": \"\\u66f21\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\r\n        \"type\": \"bilibili\",\r\n        \"videoId\": \"BV1ffffffff1\",\r\n        \"part\": 1,\r\n        \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\r\n      },\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000002\",\r\n        \"title\": \"\\u30ed\\u30fc\\u30ab\\u30ebA\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\r\n        \"type\": \"local\",\r\n        \"fileName\": \"00000004-0000-4000-8000-000000000001.mp3\",\r\n        \"mediaIncluded\": true\r\n      }\r\n    ]\r\n  },\r\n  \"rootIndex\": 0\r\n}\r\n",
+     "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000002\",\r\n    \"childIds\": [],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u5b50\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": false,\r\n    \"entries\": [\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000003\",\r\n        \"title\": \"\\u30ed\\u30fc\\u30ab\\u30ebB\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\r\n        \"type\": \"local\",\r\n        \"fileName\": \"00000004-0000-4000-8000-000000000002.flac\",\r\n        \"mediaIncluded\": false\r\n      },\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000004\",\r\n        \"title\": \"\\u66f24\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000004\",\r\n        \"type\": \"bilibili\",\r\n        \"videoId\": \"BV1ffffffff4\",\r\n        \"part\": 1,\r\n        \"url\": \"https://www.bilibili.com/video/BV1ffffffff4/\"\r\n      }\r\n    ]\r\n  },\r\n  \"rootIndex\": -1\r\n}\r\n",
+     "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000003\",\r\n    \"childIds\": [],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u72ec\\u7acb\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": true,\r\n    \"entries\": []\r\n  },\r\n  \"rootIndex\": 1\r\n}\r\n"
+    ],
+    "innerNames": [
+     "identity.json",
+     "playlists/00000001-0000-4000-8000-000000000001.json",
+     "playlists/00000001-0000-4000-8000-000000000002.json",
+     "playlists/00000001-0000-4000-8000-000000000003.json"
+    ],
+    "outerNames": [
+     "playlists.fvpa",
+     "media/00000004-0000-4000-8000-000000000001.mp3"
+    ]
+   }
+  ],
+  "expect": {
+   "plan": {
+    "input": {
+     "version": 3,
+     "identityVersion": 2,
+     "videoAliases": [],
+     "playlists": [
+      {
+       "id": "00000001-0000-4000-8000-000000000001",
+       "childIds": [
+        "00000001-0000-4000-8000-000000000002"
+       ],
+       "icon": "",
+       "name": "親",
+       "createdAt": "2026-11-01T00:00:00.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true,
+       "entries": [
+        {
+         "id": "00000002-0000-4000-8000-000000000001",
+         "title": "曲1",
+         "addedAt": "",
+         "mediaId": "00000003-0000-4000-8000-000000000001",
+         "type": "bilibili",
+         "videoId": "BV1ffffffff1",
+         "part": 1,
+         "url": "https://www.bilibili.com/video/BV1ffffffff1/"
+        },
+        {
+         "id": "00000002-0000-4000-8000-000000000002",
+         "title": "ローカルA",
+         "addedAt": "",
+         "mediaId": "00000003-0000-4000-8000-000000000002",
+         "type": "local",
+         "fileName": "00000004-0000-4000-8000-000000000001.mp3"
+        }
+       ]
+      },
+      {
+       "id": "00000001-0000-4000-8000-000000000002",
+       "childIds": [],
+       "icon": "",
+       "name": "子",
+       "createdAt": "2026-11-01T00:00:00.000Z",
+       "lastAddedAt": "",
+       "includeInAll": false,
+       "entries": [
+        {
+         "id": "00000002-0000-4000-8000-000000000003",
+         "title": "ローカルB",
+         "addedAt": "",
+         "mediaId": "00000003-0000-4000-8000-000000000003",
+         "type": "local",
+         "fileName": "00000004-0000-4000-8000-000000000002.flac"
+        },
+        {
+         "id": "00000002-0000-4000-8000-000000000004",
+         "title": "曲4",
+         "addedAt": "",
+         "mediaId": "00000003-0000-4000-8000-000000000004",
+         "type": "bilibili",
+         "videoId": "BV1ffffffff4",
+         "part": 1,
+         "url": "https://www.bilibili.com/video/BV1ffffffff4/"
+        }
+       ]
+      },
+      {
+       "id": "00000001-0000-4000-8000-000000000003",
+       "childIds": [],
+       "icon": "",
+       "name": "独立",
+       "createdAt": "2026-11-01T00:00:00.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true,
+       "entries": []
+      }
+     ],
+     "rootPlaylistIds": [
+      "00000001-0000-4000-8000-000000000001",
+      "00000001-0000-4000-8000-000000000003"
+     ]
+    },
+    "share": {
+     "mode": "media",
+     "locals": [
+      [
+       "00000004-0000-4000-8000-000000000001.mp3",
+       true
+      ],
+      [
+       "00000004-0000-4000-8000-000000000002.flac",
+       false
+      ]
+     ]
+    },
+    "skipped": 0
+   },
+   "mode": "media",
+   "skipped": 0,
+   "lists": [
+    {
+     "id": "00000001-0000-4000-8000-000000000001",
+     "name": "親",
+     "count": 2,
+     "childIds": [
+      "00000001-0000-4000-8000-000000000002"
+     ]
+    },
+    {
+     "id": "00000001-0000-4000-8000-000000000002",
+     "name": "子",
+     "count": 2,
+     "childIds": []
+    },
+    {
+     "id": "00000001-0000-4000-8000-000000000003",
+     "name": "独立",
+     "count": 0,
+     "childIds": []
+    }
+   ],
+   "rootPlaylistIds": [
+    "00000001-0000-4000-8000-000000000001",
+    "00000001-0000-4000-8000-000000000003"
+   ]
+  }
+ },
+ {
+  "name": "transfer prepare: an information-only archive",
+  "call": "TransferPrepare",
+  "args": [
+   {
+    "identity": "{\r\n  \"shareVersion\": 1,\r\n  \"exportMode\": \"information\",\r\n  \"identityVersion\": 2,\r\n  \"videoAliases\": []\r\n}\r\n",
+    "records": [
+     "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000001\",\r\n    \"childIds\": [\r\n      \"00000001-0000-4000-8000-000000000002\"\r\n    ],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u89aa\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": true,\r\n    \"entries\": [\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000001\",\r\n        \"title\": \"\\u66f21\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\r\n        \"type\": \"bilibili\",\r\n        \"videoId\": \"BV1ffffffff1\",\r\n        \"part\": 1,\r\n        \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\r\n      },\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000002\",\r\n        \"title\": \"\\u30ed\\u30fc\\u30ab\\u30ebA\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\r\n        \"type\": \"local\",\r\n        \"fileName\": \"00000004-0000-4000-8000-000000000001.mp3\",\r\n        \"mediaIncluded\": false\r\n      }\r\n    ]\r\n  },\r\n  \"rootIndex\": 0\r\n}\r\n",
+     "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000002\",\r\n    \"childIds\": [],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u5b50\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": false,\r\n    \"entries\": [\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000003\",\r\n        \"title\": \"\\u30ed\\u30fc\\u30ab\\u30ebB\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\r\n        \"type\": \"local\",\r\n        \"fileName\": \"00000004-0000-4000-8000-000000000002.flac\",\r\n        \"mediaIncluded\": false\r\n      },\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000004\",\r\n        \"title\": \"\\u66f24\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000004\",\r\n        \"type\": \"bilibili\",\r\n        \"videoId\": \"BV1ffffffff4\",\r\n        \"part\": 1,\r\n        \"url\": \"https://www.bilibili.com/video/BV1ffffffff4/\"\r\n      }\r\n    ]\r\n  },\r\n  \"rootIndex\": -1\r\n}\r\n",
+     "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000003\",\r\n    \"childIds\": [],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u72ec\\u7acb\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": true,\r\n    \"entries\": []\r\n  },\r\n  \"rootIndex\": 1\r\n}\r\n"
+    ],
+    "innerNames": [
+     "identity.json",
+     "playlists/00000001-0000-4000-8000-000000000001.json",
+     "playlists/00000001-0000-4000-8000-000000000002.json",
+     "playlists/00000001-0000-4000-8000-000000000003.json"
+    ],
+    "outerNames": [
+     "playlists.fvpa"
+    ]
+   }
+  ],
+  "expect": {
+   "plan": {
+    "input": {
+     "version": 3,
+     "identityVersion": 2,
+     "videoAliases": [],
+     "playlists": [
+      {
+       "id": "00000001-0000-4000-8000-000000000001",
+       "childIds": [
+        "00000001-0000-4000-8000-000000000002"
+       ],
+       "icon": "",
+       "name": "親",
+       "createdAt": "2026-11-01T00:00:00.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true,
+       "entries": [
+        {
+         "id": "00000002-0000-4000-8000-000000000001",
+         "title": "曲1",
+         "addedAt": "",
+         "mediaId": "00000003-0000-4000-8000-000000000001",
+         "type": "bilibili",
+         "videoId": "BV1ffffffff1",
+         "part": 1,
+         "url": "https://www.bilibili.com/video/BV1ffffffff1/"
+        },
+        {
+         "id": "00000002-0000-4000-8000-000000000002",
+         "title": "ローカルA",
+         "addedAt": "",
+         "mediaId": "00000003-0000-4000-8000-000000000002",
+         "type": "local",
+         "fileName": "00000004-0000-4000-8000-000000000001.mp3"
+        }
+       ]
+      },
+      {
+       "id": "00000001-0000-4000-8000-000000000002",
+       "childIds": [],
+       "icon": "",
+       "name": "子",
+       "createdAt": "2026-11-01T00:00:00.000Z",
+       "lastAddedAt": "",
+       "includeInAll": false,
+       "entries": [
+        {
+         "id": "00000002-0000-4000-8000-000000000003",
+         "title": "ローカルB",
+         "addedAt": "",
+         "mediaId": "00000003-0000-4000-8000-000000000003",
+         "type": "local",
+         "fileName": "00000004-0000-4000-8000-000000000002.flac"
+        },
+        {
+         "id": "00000002-0000-4000-8000-000000000004",
+         "title": "曲4",
+         "addedAt": "",
+         "mediaId": "00000003-0000-4000-8000-000000000004",
+         "type": "bilibili",
+         "videoId": "BV1ffffffff4",
+         "part": 1,
+         "url": "https://www.bilibili.com/video/BV1ffffffff4/"
+        }
+       ]
+      },
+      {
+       "id": "00000001-0000-4000-8000-000000000003",
+       "childIds": [],
+       "icon": "",
+       "name": "独立",
+       "createdAt": "2026-11-01T00:00:00.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true,
+       "entries": []
+      }
+     ],
+     "rootPlaylistIds": [
+      "00000001-0000-4000-8000-000000000001",
+      "00000001-0000-4000-8000-000000000003"
+     ]
+    },
+    "share": {
+     "mode": "information",
+     "locals": [
+      [
+       "00000004-0000-4000-8000-000000000001.mp3",
+       false
+      ],
+      [
+       "00000004-0000-4000-8000-000000000002.flac",
+       false
+      ]
+     ]
+    },
+    "skipped": 0
+   },
+   "mode": "information",
+   "skipped": 0,
+   "lists": [
+    {
+     "id": "00000001-0000-4000-8000-000000000001",
+     "name": "親",
+     "count": 2,
+     "childIds": [
+      "00000001-0000-4000-8000-000000000002"
+     ]
+    },
+    {
+     "id": "00000001-0000-4000-8000-000000000002",
+     "name": "子",
+     "count": 2,
+     "childIds": []
+    },
+    {
+     "id": "00000001-0000-4000-8000-000000000003",
+     "name": "独立",
+     "count": 0,
+     "childIds": []
+    }
+   ],
+   "rootPlaylistIds": [
+    "00000001-0000-4000-8000-000000000001",
+    "00000001-0000-4000-8000-000000000003"
+   ]
+  }
+ },
+ {
+  "name": "transfer prepare: a media archive missing a declared file is rejected",
+  "call": "TransferPrepare",
+  "args": [
+   {
+    "identity": "{\r\n  \"shareVersion\": 1,\r\n  \"exportMode\": \"media\",\r\n  \"identityVersion\": 2,\r\n  \"videoAliases\": []\r\n}\r\n",
+    "records": [
+     "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000001\",\r\n    \"childIds\": [\r\n      \"00000001-0000-4000-8000-000000000002\"\r\n    ],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u89aa\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": true,\r\n    \"entries\": [\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000001\",\r\n        \"title\": \"\\u66f21\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\r\n        \"type\": \"bilibili\",\r\n        \"videoId\": \"BV1ffffffff1\",\r\n        \"part\": 1,\r\n        \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\r\n      },\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000002\",\r\n        \"title\": \"\\u30ed\\u30fc\\u30ab\\u30ebA\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\r\n        \"type\": \"local\",\r\n        \"fileName\": \"00000004-0000-4000-8000-000000000001.mp3\",\r\n        \"mediaIncluded\": true\r\n      }\r\n    ]\r\n  },\r\n  \"rootIndex\": 0\r\n}\r\n",
+     "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000002\",\r\n    \"childIds\": [],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u5b50\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": false,\r\n    \"entries\": [\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000003\",\r\n        \"title\": \"\\u30ed\\u30fc\\u30ab\\u30ebB\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\r\n        \"type\": \"local\",\r\n        \"fileName\": \"00000004-0000-4000-8000-000000000002.flac\",\r\n        \"mediaIncluded\": false\r\n      },\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000004\",\r\n        \"title\": \"\\u66f24\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000004\",\r\n        \"type\": \"bilibili\",\r\n        \"videoId\": \"BV1ffffffff4\",\r\n        \"part\": 1,\r\n        \"url\": \"https://www.bilibili.com/video/BV1ffffffff4/\"\r\n      }\r\n    ]\r\n  },\r\n  \"rootIndex\": -1\r\n}\r\n",
+     "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000003\",\r\n    \"childIds\": [],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u72ec\\u7acb\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": true,\r\n    \"entries\": []\r\n  },\r\n  \"rootIndex\": 1\r\n}\r\n"
+    ],
+    "innerNames": [
+     "identity.json",
+     "playlists/00000001-0000-4000-8000-000000000001.json",
+     "playlists/00000001-0000-4000-8000-000000000002.json",
+     "playlists/00000001-0000-4000-8000-000000000003.json"
+    ],
+    "outerNames": [
+     "playlists.fvpa"
+    ]
+   }
+  ],
+  "expect": {
+   "error": "ローカル曲の同梱情報と実体が一致しません。"
+  }
+ },
+ {
+  "name": "transfer prepare: an information archive that contains media is rejected",
+  "call": "TransferPrepare",
+  "args": [
+   {
+    "identity": "{\r\n  \"shareVersion\": 1,\r\n  \"exportMode\": \"information\",\r\n  \"identityVersion\": 2,\r\n  \"videoAliases\": []\r\n}\r\n",
+    "records": [
+     "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000001\",\r\n    \"childIds\": [\r\n      \"00000001-0000-4000-8000-000000000002\"\r\n    ],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u89aa\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": true,\r\n    \"entries\": [\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000001\",\r\n        \"title\": \"\\u66f21\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\r\n        \"type\": \"bilibili\",\r\n        \"videoId\": \"BV1ffffffff1\",\r\n        \"part\": 1,\r\n        \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\r\n      },\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000002\",\r\n        \"title\": \"\\u30ed\\u30fc\\u30ab\\u30ebA\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\r\n        \"type\": \"local\",\r\n        \"fileName\": \"00000004-0000-4000-8000-000000000001.mp3\",\r\n        \"mediaIncluded\": false\r\n      }\r\n    ]\r\n  },\r\n  \"rootIndex\": 0\r\n}\r\n",
+     "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000002\",\r\n    \"childIds\": [],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u5b50\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": false,\r\n    \"entries\": [\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000003\",\r\n        \"title\": \"\\u30ed\\u30fc\\u30ab\\u30ebB\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\r\n        \"type\": \"local\",\r\n        \"fileName\": \"00000004-0000-4000-8000-000000000002.flac\",\r\n        \"mediaIncluded\": false\r\n      },\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000004\",\r\n        \"title\": \"\\u66f24\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000004\",\r\n        \"type\": \"bilibili\",\r\n        \"videoId\": \"BV1ffffffff4\",\r\n        \"part\": 1,\r\n        \"url\": \"https://www.bilibili.com/video/BV1ffffffff4/\"\r\n      }\r\n    ]\r\n  },\r\n  \"rootIndex\": -1\r\n}\r\n",
+     "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000003\",\r\n    \"childIds\": [],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u72ec\\u7acb\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": true,\r\n    \"entries\": []\r\n  },\r\n  \"rootIndex\": 1\r\n}\r\n"
+    ],
+    "innerNames": [
+     "identity.json",
+     "playlists/00000001-0000-4000-8000-000000000001.json",
+     "playlists/00000001-0000-4000-8000-000000000002.json",
+     "playlists/00000001-0000-4000-8000-000000000003.json"
+    ],
+    "outerNames": [
+     "playlists.fvpa",
+     "media/x.mp3"
+    ]
+   }
+  ],
+  "expect": {
+   "error": "情報のみのアーカイブにメディアが含まれています。"
+  }
+ },
+ {
+  "name": "transfer prepare: an unexpected inner name is rejected",
+  "call": "TransferPrepare",
+  "args": [
+   {
+    "identity": "{\r\n  \"shareVersion\": 1,\r\n  \"exportMode\": \"media\",\r\n  \"identityVersion\": 2,\r\n  \"videoAliases\": []\r\n}\r\n",
+    "records": [
+     "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000001\",\r\n    \"childIds\": [\r\n      \"00000001-0000-4000-8000-000000000002\"\r\n    ],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u89aa\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": true,\r\n    \"entries\": [\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000001\",\r\n        \"title\": \"\\u66f21\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\r\n        \"type\": \"bilibili\",\r\n        \"videoId\": \"BV1ffffffff1\",\r\n        \"part\": 1,\r\n        \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\r\n      },\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000002\",\r\n        \"title\": \"\\u30ed\\u30fc\\u30ab\\u30ebA\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\r\n        \"type\": \"local\",\r\n        \"fileName\": \"00000004-0000-4000-8000-000000000001.mp3\",\r\n        \"mediaIncluded\": true\r\n      }\r\n    ]\r\n  },\r\n  \"rootIndex\": 0\r\n}\r\n",
+     "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000002\",\r\n    \"childIds\": [],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u5b50\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": false,\r\n    \"entries\": [\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000003\",\r\n        \"title\": \"\\u30ed\\u30fc\\u30ab\\u30ebB\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\r\n        \"type\": \"local\",\r\n        \"fileName\": \"00000004-0000-4000-8000-000000000002.flac\",\r\n        \"mediaIncluded\": false\r\n      },\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000004\",\r\n        \"title\": \"\\u66f24\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000004\",\r\n        \"type\": \"bilibili\",\r\n        \"videoId\": \"BV1ffffffff4\",\r\n        \"part\": 1,\r\n        \"url\": \"https://www.bilibili.com/video/BV1ffffffff4/\"\r\n      }\r\n    ]\r\n  },\r\n  \"rootIndex\": -1\r\n}\r\n",
+     "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000003\",\r\n    \"childIds\": [],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u72ec\\u7acb\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": true,\r\n    \"entries\": []\r\n  },\r\n  \"rootIndex\": 1\r\n}\r\n"
+    ],
+    "innerNames": [
+     "identity.json",
+     "playlists/../x.json"
+    ],
+    "outerNames": [
+     "playlists.fvpa",
+     "media/00000004-0000-4000-8000-000000000001.mp3"
+    ]
+   }
+  ],
+  "expect": {
+   "error": "プレイリストのファイル構成が正しくありません。"
+  }
+ },
+ {
+  "name": "transfer prepare: a BOM before the identity text is accepted",
+  "call": "TransferPrepare",
+  "args": [
+   {
+    "identity": "﻿{\r\n  \"shareVersion\": 1,\r\n  \"exportMode\": \"media\",\r\n  \"identityVersion\": 2,\r\n  \"videoAliases\": []\r\n}\r\n",
+    "records": [
+     "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000001\",\r\n    \"childIds\": [\r\n      \"00000001-0000-4000-8000-000000000002\"\r\n    ],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u89aa\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": true,\r\n    \"entries\": [\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000001\",\r\n        \"title\": \"\\u66f21\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\r\n        \"type\": \"bilibili\",\r\n        \"videoId\": \"BV1ffffffff1\",\r\n        \"part\": 1,\r\n        \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\r\n      },\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000002\",\r\n        \"title\": \"\\u30ed\\u30fc\\u30ab\\u30ebA\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\r\n        \"type\": \"local\",\r\n        \"fileName\": \"00000004-0000-4000-8000-000000000001.mp3\",\r\n        \"mediaIncluded\": true\r\n      }\r\n    ]\r\n  },\r\n  \"rootIndex\": 0\r\n}\r\n",
+     "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000002\",\r\n    \"childIds\": [],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u5b50\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": false,\r\n    \"entries\": [\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000003\",\r\n        \"title\": \"\\u30ed\\u30fc\\u30ab\\u30ebB\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\r\n        \"type\": \"local\",\r\n        \"fileName\": \"00000004-0000-4000-8000-000000000002.flac\",\r\n        \"mediaIncluded\": false\r\n      },\r\n      {\r\n        \"id\": \"00000002-0000-4000-8000-000000000004\",\r\n        \"title\": \"\\u66f24\",\r\n        \"addedAt\": \"\",\r\n        \"mediaId\": \"00000003-0000-4000-8000-000000000004\",\r\n        \"type\": \"bilibili\",\r\n        \"videoId\": \"BV1ffffffff4\",\r\n        \"part\": 1,\r\n        \"url\": \"https://www.bilibili.com/video/BV1ffffffff4/\"\r\n      }\r\n    ]\r\n  },\r\n  \"rootIndex\": -1\r\n}\r\n",
+     "{\r\n  \"version\": 3,\r\n  \"playlist\": {\r\n    \"id\": \"00000001-0000-4000-8000-000000000003\",\r\n    \"childIds\": [],\r\n    \"icon\": \"\",\r\n    \"name\": \"\\u72ec\\u7acb\",\r\n    \"createdAt\": \"2026-11-01T00:00:00.000Z\",\r\n    \"lastAddedAt\": \"\",\r\n    \"includeInAll\": true,\r\n    \"entries\": []\r\n  },\r\n  \"rootIndex\": 1\r\n}\r\n"
+    ],
+    "innerNames": [
+     "identity.json",
+     "playlists/00000001-0000-4000-8000-000000000001.json",
+     "playlists/00000001-0000-4000-8000-000000000002.json",
+     "playlists/00000001-0000-4000-8000-000000000003.json"
+    ],
+    "outerNames": [
+     "playlists.fvpa",
+     "media/00000004-0000-4000-8000-000000000001.mp3"
+    ]
+   }
+  ],
+  "expect": {
+   "plan": {
+    "input": {
+     "version": 3,
+     "identityVersion": 2,
+     "videoAliases": [],
+     "playlists": [
+      {
+       "id": "00000001-0000-4000-8000-000000000001",
+       "childIds": [
+        "00000001-0000-4000-8000-000000000002"
+       ],
+       "icon": "",
+       "name": "親",
+       "createdAt": "2026-11-01T00:00:00.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true,
+       "entries": [
+        {
+         "id": "00000002-0000-4000-8000-000000000001",
+         "title": "曲1",
+         "addedAt": "",
+         "mediaId": "00000003-0000-4000-8000-000000000001",
+         "type": "bilibili",
+         "videoId": "BV1ffffffff1",
+         "part": 1,
+         "url": "https://www.bilibili.com/video/BV1ffffffff1/"
+        },
+        {
+         "id": "00000002-0000-4000-8000-000000000002",
+         "title": "ローカルA",
+         "addedAt": "",
+         "mediaId": "00000003-0000-4000-8000-000000000002",
+         "type": "local",
+         "fileName": "00000004-0000-4000-8000-000000000001.mp3"
+        }
+       ]
+      },
+      {
+       "id": "00000001-0000-4000-8000-000000000002",
+       "childIds": [],
+       "icon": "",
+       "name": "子",
+       "createdAt": "2026-11-01T00:00:00.000Z",
+       "lastAddedAt": "",
+       "includeInAll": false,
+       "entries": [
+        {
+         "id": "00000002-0000-4000-8000-000000000003",
+         "title": "ローカルB",
+         "addedAt": "",
+         "mediaId": "00000003-0000-4000-8000-000000000003",
+         "type": "local",
+         "fileName": "00000004-0000-4000-8000-000000000002.flac"
+        },
+        {
+         "id": "00000002-0000-4000-8000-000000000004",
+         "title": "曲4",
+         "addedAt": "",
+         "mediaId": "00000003-0000-4000-8000-000000000004",
+         "type": "bilibili",
+         "videoId": "BV1ffffffff4",
+         "part": 1,
+         "url": "https://www.bilibili.com/video/BV1ffffffff4/"
+        }
+       ]
+      },
+      {
+       "id": "00000001-0000-4000-8000-000000000003",
+       "childIds": [],
+       "icon": "",
+       "name": "独立",
+       "createdAt": "2026-11-01T00:00:00.000Z",
+       "lastAddedAt": "",
+       "includeInAll": true,
+       "entries": []
+      }
+     ],
+     "rootPlaylistIds": [
+      "00000001-0000-4000-8000-000000000001",
+      "00000001-0000-4000-8000-000000000003"
+     ]
+    },
+    "share": {
+     "mode": "media",
+     "locals": [
+      [
+       "00000004-0000-4000-8000-000000000001.mp3",
+       true
+      ],
+      [
+       "00000004-0000-4000-8000-000000000002.flac",
+       false
+      ]
+     ]
+    },
+    "skipped": 0
+   },
+   "mode": "media",
+   "skipped": 0,
+   "lists": [
+    {
+     "id": "00000001-0000-4000-8000-000000000001",
+     "name": "親",
+     "count": 2,
+     "childIds": [
+      "00000001-0000-4000-8000-000000000002"
+     ]
+    },
+    {
+     "id": "00000001-0000-4000-8000-000000000002",
+     "name": "子",
+     "count": 2,
+     "childIds": []
+    },
+    {
+     "id": "00000001-0000-4000-8000-000000000003",
+     "name": "独立",
+     "count": 0,
+     "childIds": []
+    }
+   ],
+   "rootPlaylistIds": [
+    "00000001-0000-4000-8000-000000000001",
+    "00000001-0000-4000-8000-000000000003"
+   ]
+  }
+ },
+ {
+  "name": "transfer import: a parent with its child and an independent list, renaming a same-named list",
+  "call": "TransferImport",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000090\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000090\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000090\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"既存\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1ffffffff1/\"}],\"childIds\":[],\"createdAt\":\"2026-11-01T00:00:00.000Z\",\"lastAddedAt\":\"\",\"includeInAll\":true}]}",
+    "plan": {
+     "input": {
+      "version": 3,
+      "identityVersion": 2,
+      "videoAliases": [],
+      "playlists": [
+       {
+        "id": "00000001-0000-4000-8000-000000000001",
+        "childIds": [
+         "00000001-0000-4000-8000-000000000002"
+        ],
+        "icon": "",
+        "name": "親",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": true,
+        "entries": [
+         {
+          "id": "00000002-0000-4000-8000-000000000001",
+          "title": "曲1",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000001",
+          "type": "bilibili",
+          "videoId": "BV1ffffffff1",
+          "part": 1,
+          "url": "https://www.bilibili.com/video/BV1ffffffff1/"
+         },
+         {
+          "id": "00000002-0000-4000-8000-000000000002",
+          "title": "ローカルA",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000002",
+          "type": "local",
+          "fileName": "00000004-0000-4000-8000-000000000001.mp3"
+         }
+        ]
+       },
+       {
+        "id": "00000001-0000-4000-8000-000000000002",
+        "childIds": [],
+        "icon": "",
+        "name": "子",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": false,
+        "entries": [
+         {
+          "id": "00000002-0000-4000-8000-000000000003",
+          "title": "ローカルB",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000003",
+          "type": "local",
+          "fileName": "00000004-0000-4000-8000-000000000002.flac"
+         },
+         {
+          "id": "00000002-0000-4000-8000-000000000004",
+          "title": "曲4",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000004",
+          "type": "bilibili",
+          "videoId": "BV1ffffffff4",
+          "part": 1,
+          "url": "https://www.bilibili.com/video/BV1ffffffff4/"
+         }
+        ]
+       },
+       {
+        "id": "00000001-0000-4000-8000-000000000003",
+        "childIds": [],
+        "icon": "",
+        "name": "独立",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": true,
+        "entries": []
+       }
+      ],
+      "rootPlaylistIds": [
+       "00000001-0000-4000-8000-000000000001",
+       "00000001-0000-4000-8000-000000000003"
+      ]
+     },
+     "share": {
+      "mode": "media",
+      "locals": [
+       [
+        "00000004-0000-4000-8000-000000000001.mp3",
+        true
+       ],
+       [
+        "00000004-0000-4000-8000-000000000002.flac",
+        false
+       ]
+      ]
+     },
+     "skipped": 0
+    },
+    "ids": [
+     "00000001-0000-4000-8000-000000000001",
+     "00000001-0000-4000-8000-000000000003"
+    ],
+    "available": [
+     "00000004-0000-4000-8000-000000000001.mp3"
+    ],
+    "newIds": [
+     "cccccccc-0000-4000-8000-000000000001",
+     "cccccccc-0000-4000-8000-000000000002",
+     "cccccccc-0000-4000-8000-000000000003",
+     "cccccccc-0000-4000-8000-000000000004",
+     "cccccccc-0000-4000-8000-000000000005",
+     "cccccccc-0000-4000-8000-000000000006",
+     "cccccccc-0000-4000-8000-000000000007",
+     "cccccccc-0000-4000-8000-000000000008",
+     "cccccccc-0000-4000-8000-000000000009",
+     "cccccccc-0000-4000-8000-000000000010",
+     "cccccccc-0000-4000-8000-000000000011",
+     "cccccccc-0000-4000-8000-000000000012",
+     "cccccccc-0000-4000-8000-000000000013",
+     "cccccccc-0000-4000-8000-000000000014",
+     "cccccccc-0000-4000-8000-000000000015",
+     "cccccccc-0000-4000-8000-000000000016",
+     "cccccccc-0000-4000-8000-000000000017",
+     "cccccccc-0000-4000-8000-000000000018",
+     "cccccccc-0000-4000-8000-000000000019",
+     "cccccccc-0000-4000-8000-000000000020",
+     "cccccccc-0000-4000-8000-000000000021",
+     "cccccccc-0000-4000-8000-000000000022",
+     "cccccccc-0000-4000-8000-000000000023",
+     "cccccccc-0000-4000-8000-000000000024",
+     "cccccccc-0000-4000-8000-000000000025",
+     "cccccccc-0000-4000-8000-000000000026",
+     "cccccccc-0000-4000-8000-000000000027",
+     "cccccccc-0000-4000-8000-000000000028",
+     "cccccccc-0000-4000-8000-000000000029",
+     "cccccccc-0000-4000-8000-000000000030",
+     "cccccccc-0000-4000-8000-000000000031",
+     "cccccccc-0000-4000-8000-000000000032",
+     "cccccccc-0000-4000-8000-000000000033",
+     "cccccccc-0000-4000-8000-000000000034",
+     "cccccccc-0000-4000-8000-000000000035",
+     "cccccccc-0000-4000-8000-000000000036",
+     "cccccccc-0000-4000-8000-000000000037",
+     "cccccccc-0000-4000-8000-000000000038",
+     "cccccccc-0000-4000-8000-000000000039",
+     "cccccccc-0000-4000-8000-000000000040",
+     "cccccccc-0000-4000-8000-000000000041",
+     "cccccccc-0000-4000-8000-000000000042",
+     "cccccccc-0000-4000-8000-000000000043",
+     "cccccccc-0000-4000-8000-000000000044",
+     "cccccccc-0000-4000-8000-000000000045",
+     "cccccccc-0000-4000-8000-000000000046",
+     "cccccccc-0000-4000-8000-000000000047",
+     "cccccccc-0000-4000-8000-000000000048",
+     "cccccccc-0000-4000-8000-000000000049",
+     "cccccccc-0000-4000-8000-000000000050",
+     "cccccccc-0000-4000-8000-000000000051",
+     "cccccccc-0000-4000-8000-000000000052",
+     "cccccccc-0000-4000-8000-000000000053",
+     "cccccccc-0000-4000-8000-000000000054",
+     "cccccccc-0000-4000-8000-000000000055",
+     "cccccccc-0000-4000-8000-000000000056",
+     "cccccccc-0000-4000-8000-000000000057",
+     "cccccccc-0000-4000-8000-000000000058",
+     "cccccccc-0000-4000-8000-000000000059",
+     "cccccccc-0000-4000-8000-000000000060"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "text": "{\n  \"version\": 3,\n  \"identityVersion\": 2,\n  \"videoAliases\": [],\n  \"activePlaylistId\": \"00000001-0000-4000-8000-000000000001\",\n  \"rootPlaylistIds\": [\n    \"00000001-0000-4000-8000-000000000090\",\n    \"00000001-0000-4000-8000-000000000001\",\n    \"00000001-0000-4000-8000-000000000003\"\n  ],\n  \"playlists\": [\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000090\",\n      \"name\": \"親\",\n      \"icon\": \"\",\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000001\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"title\": \"既存\",\n          \"addedAt\": \"\",\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\n        }\n      ],\n      \"childIds\": [],\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000001\",\n      \"childIds\": [\n        \"00000001-0000-4000-8000-000000000002\"\n      ],\n      \"icon\": \"\",\n      \"name\": \"親（取り込み1）\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": [\n        {\n          \"id\": \"cccccccc-0000-4000-8000-000000000003\",\n          \"title\": \"曲1\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1ffffffff1\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000002\",\n          \"title\": \"ローカルA\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\n          \"type\": \"local\",\n          \"fileName\": \"cccccccc-0000-4000-8000-000000000001.mp3\"\n        }\n      ]\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000002\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"子\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": false,\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000003\",\n          \"title\": \"ローカルB\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\n          \"type\": \"local\",\n          \"fileName\": \"cccccccc-0000-4000-8000-000000000002.flac\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000004\",\n          \"title\": \"曲4\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000004\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1ffffffff4\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff4/\"\n        }\n      ]\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000003\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"独立\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": []\n    }\n  ]\n}",
+   "imported": 3,
+   "missing": 1,
+   "omitted": 0,
+   "files": [
+    {
+     "from": "00000004-0000-4000-8000-000000000001.mp3",
+     "to": "cccccccc-0000-4000-8000-000000000001.mp3"
+    }
+   ],
+   "skipped": 0,
+   "activePlaylistId": "00000001-0000-4000-8000-000000000001"
+  }
+ },
+ {
+  "name": "transfer import: only the child brings its ancestor as a container",
+  "call": "TransferImport",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000090\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000090\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000090\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"既存\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1ffffffff1/\"}],\"childIds\":[],\"createdAt\":\"2026-11-01T00:00:00.000Z\",\"lastAddedAt\":\"\",\"includeInAll\":true}]}",
+    "plan": {
+     "input": {
+      "version": 3,
+      "identityVersion": 2,
+      "videoAliases": [],
+      "playlists": [
+       {
+        "id": "00000001-0000-4000-8000-000000000001",
+        "childIds": [
+         "00000001-0000-4000-8000-000000000002"
+        ],
+        "icon": "",
+        "name": "親",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": true,
+        "entries": [
+         {
+          "id": "00000002-0000-4000-8000-000000000001",
+          "title": "曲1",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000001",
+          "type": "bilibili",
+          "videoId": "BV1ffffffff1",
+          "part": 1,
+          "url": "https://www.bilibili.com/video/BV1ffffffff1/"
+         },
+         {
+          "id": "00000002-0000-4000-8000-000000000002",
+          "title": "ローカルA",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000002",
+          "type": "local",
+          "fileName": "00000004-0000-4000-8000-000000000001.mp3"
+         }
+        ]
+       },
+       {
+        "id": "00000001-0000-4000-8000-000000000002",
+        "childIds": [],
+        "icon": "",
+        "name": "子",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": false,
+        "entries": [
+         {
+          "id": "00000002-0000-4000-8000-000000000003",
+          "title": "ローカルB",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000003",
+          "type": "local",
+          "fileName": "00000004-0000-4000-8000-000000000002.flac"
+         },
+         {
+          "id": "00000002-0000-4000-8000-000000000004",
+          "title": "曲4",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000004",
+          "type": "bilibili",
+          "videoId": "BV1ffffffff4",
+          "part": 1,
+          "url": "https://www.bilibili.com/video/BV1ffffffff4/"
+         }
+        ]
+       },
+       {
+        "id": "00000001-0000-4000-8000-000000000003",
+        "childIds": [],
+        "icon": "",
+        "name": "独立",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": true,
+        "entries": []
+       }
+      ],
+      "rootPlaylistIds": [
+       "00000001-0000-4000-8000-000000000001",
+       "00000001-0000-4000-8000-000000000003"
+      ]
+     },
+     "share": {
+      "mode": "media",
+      "locals": [
+       [
+        "00000004-0000-4000-8000-000000000001.mp3",
+        true
+       ],
+       [
+        "00000004-0000-4000-8000-000000000002.flac",
+        false
+       ]
+      ]
+     },
+     "skipped": 0
+    },
+    "ids": [
+     "00000001-0000-4000-8000-000000000002"
+    ],
+    "available": [
+     "00000004-0000-4000-8000-000000000002.flac"
+    ],
+    "newIds": [
+     "cccccccc-0000-4000-8000-000000000001",
+     "cccccccc-0000-4000-8000-000000000002",
+     "cccccccc-0000-4000-8000-000000000003",
+     "cccccccc-0000-4000-8000-000000000004",
+     "cccccccc-0000-4000-8000-000000000005",
+     "cccccccc-0000-4000-8000-000000000006",
+     "cccccccc-0000-4000-8000-000000000007",
+     "cccccccc-0000-4000-8000-000000000008",
+     "cccccccc-0000-4000-8000-000000000009",
+     "cccccccc-0000-4000-8000-000000000010",
+     "cccccccc-0000-4000-8000-000000000011",
+     "cccccccc-0000-4000-8000-000000000012",
+     "cccccccc-0000-4000-8000-000000000013",
+     "cccccccc-0000-4000-8000-000000000014",
+     "cccccccc-0000-4000-8000-000000000015",
+     "cccccccc-0000-4000-8000-000000000016",
+     "cccccccc-0000-4000-8000-000000000017",
+     "cccccccc-0000-4000-8000-000000000018",
+     "cccccccc-0000-4000-8000-000000000019",
+     "cccccccc-0000-4000-8000-000000000020",
+     "cccccccc-0000-4000-8000-000000000021",
+     "cccccccc-0000-4000-8000-000000000022",
+     "cccccccc-0000-4000-8000-000000000023",
+     "cccccccc-0000-4000-8000-000000000024",
+     "cccccccc-0000-4000-8000-000000000025",
+     "cccccccc-0000-4000-8000-000000000026",
+     "cccccccc-0000-4000-8000-000000000027",
+     "cccccccc-0000-4000-8000-000000000028",
+     "cccccccc-0000-4000-8000-000000000029",
+     "cccccccc-0000-4000-8000-000000000030",
+     "cccccccc-0000-4000-8000-000000000031",
+     "cccccccc-0000-4000-8000-000000000032",
+     "cccccccc-0000-4000-8000-000000000033",
+     "cccccccc-0000-4000-8000-000000000034",
+     "cccccccc-0000-4000-8000-000000000035",
+     "cccccccc-0000-4000-8000-000000000036",
+     "cccccccc-0000-4000-8000-000000000037",
+     "cccccccc-0000-4000-8000-000000000038",
+     "cccccccc-0000-4000-8000-000000000039",
+     "cccccccc-0000-4000-8000-000000000040",
+     "cccccccc-0000-4000-8000-000000000041",
+     "cccccccc-0000-4000-8000-000000000042",
+     "cccccccc-0000-4000-8000-000000000043",
+     "cccccccc-0000-4000-8000-000000000044",
+     "cccccccc-0000-4000-8000-000000000045",
+     "cccccccc-0000-4000-8000-000000000046",
+     "cccccccc-0000-4000-8000-000000000047",
+     "cccccccc-0000-4000-8000-000000000048",
+     "cccccccc-0000-4000-8000-000000000049",
+     "cccccccc-0000-4000-8000-000000000050",
+     "cccccccc-0000-4000-8000-000000000051",
+     "cccccccc-0000-4000-8000-000000000052",
+     "cccccccc-0000-4000-8000-000000000053",
+     "cccccccc-0000-4000-8000-000000000054",
+     "cccccccc-0000-4000-8000-000000000055",
+     "cccccccc-0000-4000-8000-000000000056",
+     "cccccccc-0000-4000-8000-000000000057",
+     "cccccccc-0000-4000-8000-000000000058",
+     "cccccccc-0000-4000-8000-000000000059",
+     "cccccccc-0000-4000-8000-000000000060"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "text": "{\n  \"version\": 3,\n  \"identityVersion\": 2,\n  \"videoAliases\": [],\n  \"activePlaylistId\": \"00000001-0000-4000-8000-000000000002\",\n  \"rootPlaylistIds\": [\n    \"00000001-0000-4000-8000-000000000090\",\n    \"00000001-0000-4000-8000-000000000001\"\n  ],\n  \"playlists\": [\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000090\",\n      \"name\": \"親\",\n      \"icon\": \"\",\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000001\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"title\": \"既存\",\n          \"addedAt\": \"\",\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\n        }\n      ],\n      \"childIds\": [],\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000001\",\n      \"childIds\": [\n        \"00000001-0000-4000-8000-000000000002\"\n      ],\n      \"icon\": \"\",\n      \"name\": \"親（取り込み1）\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": []\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000002\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"子\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": false,\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000003\",\n          \"title\": \"ローカルB\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\n          \"type\": \"local\",\n          \"fileName\": \"cccccccc-0000-4000-8000-000000000001.flac\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000004\",\n          \"title\": \"曲4\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000004\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1ffffffff4\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff4/\"\n        }\n      ]\n    }\n  ]\n}",
+   "imported": 2,
+   "missing": 1,
+   "omitted": 0,
+   "files": [],
+   "skipped": 0,
+   "activePlaylistId": "00000001-0000-4000-8000-000000000002"
+  }
+ },
+ {
+  "name": "transfer import: under an existing parent",
+  "call": "TransferImport",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000090\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000090\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000090\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"既存\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1ffffffff1/\"}],\"childIds\":[],\"createdAt\":\"2026-11-01T00:00:00.000Z\",\"lastAddedAt\":\"\",\"includeInAll\":true}]}",
+    "plan": {
+     "input": {
+      "version": 3,
+      "identityVersion": 2,
+      "videoAliases": [],
+      "playlists": [
+       {
+        "id": "00000001-0000-4000-8000-000000000001",
+        "childIds": [
+         "00000001-0000-4000-8000-000000000002"
+        ],
+        "icon": "",
+        "name": "親",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": true,
+        "entries": [
+         {
+          "id": "00000002-0000-4000-8000-000000000001",
+          "title": "曲1",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000001",
+          "type": "bilibili",
+          "videoId": "BV1ffffffff1",
+          "part": 1,
+          "url": "https://www.bilibili.com/video/BV1ffffffff1/"
+         },
+         {
+          "id": "00000002-0000-4000-8000-000000000002",
+          "title": "ローカルA",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000002",
+          "type": "local",
+          "fileName": "00000004-0000-4000-8000-000000000001.mp3"
+         }
+        ]
+       },
+       {
+        "id": "00000001-0000-4000-8000-000000000002",
+        "childIds": [],
+        "icon": "",
+        "name": "子",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": false,
+        "entries": [
+         {
+          "id": "00000002-0000-4000-8000-000000000003",
+          "title": "ローカルB",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000003",
+          "type": "local",
+          "fileName": "00000004-0000-4000-8000-000000000002.flac"
+         },
+         {
+          "id": "00000002-0000-4000-8000-000000000004",
+          "title": "曲4",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000004",
+          "type": "bilibili",
+          "videoId": "BV1ffffffff4",
+          "part": 1,
+          "url": "https://www.bilibili.com/video/BV1ffffffff4/"
+         }
+        ]
+       },
+       {
+        "id": "00000001-0000-4000-8000-000000000003",
+        "childIds": [],
+        "icon": "",
+        "name": "独立",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": true,
+        "entries": []
+       }
+      ],
+      "rootPlaylistIds": [
+       "00000001-0000-4000-8000-000000000001",
+       "00000001-0000-4000-8000-000000000003"
+      ]
+     },
+     "share": {
+      "mode": "media",
+      "locals": [
+       [
+        "00000004-0000-4000-8000-000000000001.mp3",
+        true
+       ],
+       [
+        "00000004-0000-4000-8000-000000000002.flac",
+        false
+       ]
+      ]
+     },
+     "skipped": 0
+    },
+    "ids": [
+     "00000001-0000-4000-8000-000000000001",
+     "00000001-0000-4000-8000-000000000003"
+    ],
+    "available": [
+     "00000004-0000-4000-8000-000000000001.mp3"
+    ],
+    "newIds": [
+     "cccccccc-0000-4000-8000-000000000001",
+     "cccccccc-0000-4000-8000-000000000002",
+     "cccccccc-0000-4000-8000-000000000003",
+     "cccccccc-0000-4000-8000-000000000004",
+     "cccccccc-0000-4000-8000-000000000005",
+     "cccccccc-0000-4000-8000-000000000006",
+     "cccccccc-0000-4000-8000-000000000007",
+     "cccccccc-0000-4000-8000-000000000008",
+     "cccccccc-0000-4000-8000-000000000009",
+     "cccccccc-0000-4000-8000-000000000010",
+     "cccccccc-0000-4000-8000-000000000011",
+     "cccccccc-0000-4000-8000-000000000012",
+     "cccccccc-0000-4000-8000-000000000013",
+     "cccccccc-0000-4000-8000-000000000014",
+     "cccccccc-0000-4000-8000-000000000015",
+     "cccccccc-0000-4000-8000-000000000016",
+     "cccccccc-0000-4000-8000-000000000017",
+     "cccccccc-0000-4000-8000-000000000018",
+     "cccccccc-0000-4000-8000-000000000019",
+     "cccccccc-0000-4000-8000-000000000020",
+     "cccccccc-0000-4000-8000-000000000021",
+     "cccccccc-0000-4000-8000-000000000022",
+     "cccccccc-0000-4000-8000-000000000023",
+     "cccccccc-0000-4000-8000-000000000024",
+     "cccccccc-0000-4000-8000-000000000025",
+     "cccccccc-0000-4000-8000-000000000026",
+     "cccccccc-0000-4000-8000-000000000027",
+     "cccccccc-0000-4000-8000-000000000028",
+     "cccccccc-0000-4000-8000-000000000029",
+     "cccccccc-0000-4000-8000-000000000030",
+     "cccccccc-0000-4000-8000-000000000031",
+     "cccccccc-0000-4000-8000-000000000032",
+     "cccccccc-0000-4000-8000-000000000033",
+     "cccccccc-0000-4000-8000-000000000034",
+     "cccccccc-0000-4000-8000-000000000035",
+     "cccccccc-0000-4000-8000-000000000036",
+     "cccccccc-0000-4000-8000-000000000037",
+     "cccccccc-0000-4000-8000-000000000038",
+     "cccccccc-0000-4000-8000-000000000039",
+     "cccccccc-0000-4000-8000-000000000040",
+     "cccccccc-0000-4000-8000-000000000041",
+     "cccccccc-0000-4000-8000-000000000042",
+     "cccccccc-0000-4000-8000-000000000043",
+     "cccccccc-0000-4000-8000-000000000044",
+     "cccccccc-0000-4000-8000-000000000045",
+     "cccccccc-0000-4000-8000-000000000046",
+     "cccccccc-0000-4000-8000-000000000047",
+     "cccccccc-0000-4000-8000-000000000048",
+     "cccccccc-0000-4000-8000-000000000049",
+     "cccccccc-0000-4000-8000-000000000050",
+     "cccccccc-0000-4000-8000-000000000051",
+     "cccccccc-0000-4000-8000-000000000052",
+     "cccccccc-0000-4000-8000-000000000053",
+     "cccccccc-0000-4000-8000-000000000054",
+     "cccccccc-0000-4000-8000-000000000055",
+     "cccccccc-0000-4000-8000-000000000056",
+     "cccccccc-0000-4000-8000-000000000057",
+     "cccccccc-0000-4000-8000-000000000058",
+     "cccccccc-0000-4000-8000-000000000059",
+     "cccccccc-0000-4000-8000-000000000060"
+    ],
+    "now": "2026-11-13T09:00:00.000Z",
+    "parentId": "00000001-0000-4000-8000-000000000090"
+   }
+  ],
+  "expect": {
+   "text": "{\n  \"version\": 3,\n  \"identityVersion\": 2,\n  \"videoAliases\": [],\n  \"activePlaylistId\": \"00000001-0000-4000-8000-000000000001\",\n  \"rootPlaylistIds\": [\n    \"00000001-0000-4000-8000-000000000090\"\n  ],\n  \"playlists\": [\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000090\",\n      \"name\": \"親\",\n      \"icon\": \"\",\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000001\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"title\": \"既存\",\n          \"addedAt\": \"\",\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\n        }\n      ],\n      \"childIds\": [\n        \"00000001-0000-4000-8000-000000000001\",\n        \"00000001-0000-4000-8000-000000000003\"\n      ],\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"2026-11-13T09:00:00.000Z\",\n      \"includeInAll\": true\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000001\",\n      \"childIds\": [\n        \"00000001-0000-4000-8000-000000000002\"\n      ],\n      \"icon\": \"\",\n      \"name\": \"親（取り込み1）\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": [\n        {\n          \"id\": \"cccccccc-0000-4000-8000-000000000003\",\n          \"title\": \"曲1\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1ffffffff1\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000002\",\n          \"title\": \"ローカルA\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\n          \"type\": \"local\",\n          \"fileName\": \"cccccccc-0000-4000-8000-000000000001.mp3\"\n        }\n      ]\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000002\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"子\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": false,\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000003\",\n          \"title\": \"ローカルB\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\n          \"type\": \"local\",\n          \"fileName\": \"cccccccc-0000-4000-8000-000000000002.flac\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000004\",\n          \"title\": \"曲4\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000004\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1ffffffff4\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff4/\"\n        }\n      ]\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000003\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"独立\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": []\n    }\n  ]\n}",
+   "imported": 3,
+   "missing": 1,
+   "omitted": 0,
+   "files": [
+    {
+     "from": "00000004-0000-4000-8000-000000000001.mp3",
+     "to": "cccccccc-0000-4000-8000-000000000001.mp3"
+    }
+   ],
+   "skipped": 0,
+   "activePlaylistId": "00000001-0000-4000-8000-000000000001"
+  }
+ },
+ {
+  "name": "transfer import: a media archive without the file bytes is rejected",
+  "call": "TransferImport",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000090\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000090\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000090\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"既存\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1ffffffff1/\"}],\"childIds\":[],\"createdAt\":\"2026-11-01T00:00:00.000Z\",\"lastAddedAt\":\"\",\"includeInAll\":true}]}",
+    "plan": {
+     "input": {
+      "version": 3,
+      "identityVersion": 2,
+      "videoAliases": [],
+      "playlists": [
+       {
+        "id": "00000001-0000-4000-8000-000000000001",
+        "childIds": [
+         "00000001-0000-4000-8000-000000000002"
+        ],
+        "icon": "",
+        "name": "親",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": true,
+        "entries": [
+         {
+          "id": "00000002-0000-4000-8000-000000000001",
+          "title": "曲1",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000001",
+          "type": "bilibili",
+          "videoId": "BV1ffffffff1",
+          "part": 1,
+          "url": "https://www.bilibili.com/video/BV1ffffffff1/"
+         },
+         {
+          "id": "00000002-0000-4000-8000-000000000002",
+          "title": "ローカルA",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000002",
+          "type": "local",
+          "fileName": "00000004-0000-4000-8000-000000000001.mp3"
+         }
+        ]
+       },
+       {
+        "id": "00000001-0000-4000-8000-000000000002",
+        "childIds": [],
+        "icon": "",
+        "name": "子",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": false,
+        "entries": [
+         {
+          "id": "00000002-0000-4000-8000-000000000003",
+          "title": "ローカルB",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000003",
+          "type": "local",
+          "fileName": "00000004-0000-4000-8000-000000000002.flac"
+         },
+         {
+          "id": "00000002-0000-4000-8000-000000000004",
+          "title": "曲4",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000004",
+          "type": "bilibili",
+          "videoId": "BV1ffffffff4",
+          "part": 1,
+          "url": "https://www.bilibili.com/video/BV1ffffffff4/"
+         }
+        ]
+       },
+       {
+        "id": "00000001-0000-4000-8000-000000000003",
+        "childIds": [],
+        "icon": "",
+        "name": "独立",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": true,
+        "entries": []
+       }
+      ],
+      "rootPlaylistIds": [
+       "00000001-0000-4000-8000-000000000001",
+       "00000001-0000-4000-8000-000000000003"
+      ]
+     },
+     "share": {
+      "mode": "media",
+      "locals": [
+       [
+        "00000004-0000-4000-8000-000000000001.mp3",
+        true
+       ],
+       [
+        "00000004-0000-4000-8000-000000000002.flac",
+        false
+       ]
+      ]
+     },
+     "skipped": 0
+    },
+    "ids": [
+     "00000001-0000-4000-8000-000000000001",
+     "00000001-0000-4000-8000-000000000003"
+    ],
+    "available": [],
+    "newIds": [
+     "cccccccc-0000-4000-8000-000000000001",
+     "cccccccc-0000-4000-8000-000000000002",
+     "cccccccc-0000-4000-8000-000000000003",
+     "cccccccc-0000-4000-8000-000000000004",
+     "cccccccc-0000-4000-8000-000000000005",
+     "cccccccc-0000-4000-8000-000000000006",
+     "cccccccc-0000-4000-8000-000000000007",
+     "cccccccc-0000-4000-8000-000000000008",
+     "cccccccc-0000-4000-8000-000000000009",
+     "cccccccc-0000-4000-8000-000000000010",
+     "cccccccc-0000-4000-8000-000000000011",
+     "cccccccc-0000-4000-8000-000000000012",
+     "cccccccc-0000-4000-8000-000000000013",
+     "cccccccc-0000-4000-8000-000000000014",
+     "cccccccc-0000-4000-8000-000000000015",
+     "cccccccc-0000-4000-8000-000000000016",
+     "cccccccc-0000-4000-8000-000000000017",
+     "cccccccc-0000-4000-8000-000000000018",
+     "cccccccc-0000-4000-8000-000000000019",
+     "cccccccc-0000-4000-8000-000000000020",
+     "cccccccc-0000-4000-8000-000000000021",
+     "cccccccc-0000-4000-8000-000000000022",
+     "cccccccc-0000-4000-8000-000000000023",
+     "cccccccc-0000-4000-8000-000000000024",
+     "cccccccc-0000-4000-8000-000000000025",
+     "cccccccc-0000-4000-8000-000000000026",
+     "cccccccc-0000-4000-8000-000000000027",
+     "cccccccc-0000-4000-8000-000000000028",
+     "cccccccc-0000-4000-8000-000000000029",
+     "cccccccc-0000-4000-8000-000000000030",
+     "cccccccc-0000-4000-8000-000000000031",
+     "cccccccc-0000-4000-8000-000000000032",
+     "cccccccc-0000-4000-8000-000000000033",
+     "cccccccc-0000-4000-8000-000000000034",
+     "cccccccc-0000-4000-8000-000000000035",
+     "cccccccc-0000-4000-8000-000000000036",
+     "cccccccc-0000-4000-8000-000000000037",
+     "cccccccc-0000-4000-8000-000000000038",
+     "cccccccc-0000-4000-8000-000000000039",
+     "cccccccc-0000-4000-8000-000000000040",
+     "cccccccc-0000-4000-8000-000000000041",
+     "cccccccc-0000-4000-8000-000000000042",
+     "cccccccc-0000-4000-8000-000000000043",
+     "cccccccc-0000-4000-8000-000000000044",
+     "cccccccc-0000-4000-8000-000000000045",
+     "cccccccc-0000-4000-8000-000000000046",
+     "cccccccc-0000-4000-8000-000000000047",
+     "cccccccc-0000-4000-8000-000000000048",
+     "cccccccc-0000-4000-8000-000000000049",
+     "cccccccc-0000-4000-8000-000000000050",
+     "cccccccc-0000-4000-8000-000000000051",
+     "cccccccc-0000-4000-8000-000000000052",
+     "cccccccc-0000-4000-8000-000000000053",
+     "cccccccc-0000-4000-8000-000000000054",
+     "cccccccc-0000-4000-8000-000000000055",
+     "cccccccc-0000-4000-8000-000000000056",
+     "cccccccc-0000-4000-8000-000000000057",
+     "cccccccc-0000-4000-8000-000000000058",
+     "cccccccc-0000-4000-8000-000000000059",
+     "cccccccc-0000-4000-8000-000000000060"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "error": "同梱されたローカル曲を読み取れません。"
+  }
+ },
+ {
+  "name": "transfer import: an information archive marks every local as omitted",
+  "call": "TransferImport",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000090\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000090\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000090\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"既存\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1ffffffff1/\"}],\"childIds\":[],\"createdAt\":\"2026-11-01T00:00:00.000Z\",\"lastAddedAt\":\"\",\"includeInAll\":true}]}",
+    "plan": {
+     "input": {
+      "version": 3,
+      "identityVersion": 2,
+      "videoAliases": [],
+      "playlists": [
+       {
+        "id": "00000001-0000-4000-8000-000000000001",
+        "childIds": [
+         "00000001-0000-4000-8000-000000000002"
+        ],
+        "icon": "",
+        "name": "親",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": true,
+        "entries": [
+         {
+          "id": "00000002-0000-4000-8000-000000000001",
+          "title": "曲1",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000001",
+          "type": "bilibili",
+          "videoId": "BV1ffffffff1",
+          "part": 1,
+          "url": "https://www.bilibili.com/video/BV1ffffffff1/"
+         },
+         {
+          "id": "00000002-0000-4000-8000-000000000002",
+          "title": "ローカルA",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000002",
+          "type": "local",
+          "fileName": "00000004-0000-4000-8000-000000000001.mp3"
+         }
+        ]
+       },
+       {
+        "id": "00000001-0000-4000-8000-000000000002",
+        "childIds": [],
+        "icon": "",
+        "name": "子",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": false,
+        "entries": [
+         {
+          "id": "00000002-0000-4000-8000-000000000003",
+          "title": "ローカルB",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000003",
+          "type": "local",
+          "fileName": "00000004-0000-4000-8000-000000000002.flac"
+         },
+         {
+          "id": "00000002-0000-4000-8000-000000000004",
+          "title": "曲4",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000004",
+          "type": "bilibili",
+          "videoId": "BV1ffffffff4",
+          "part": 1,
+          "url": "https://www.bilibili.com/video/BV1ffffffff4/"
+         }
+        ]
+       },
+       {
+        "id": "00000001-0000-4000-8000-000000000003",
+        "childIds": [],
+        "icon": "",
+        "name": "独立",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": true,
+        "entries": []
+       }
+      ],
+      "rootPlaylistIds": [
+       "00000001-0000-4000-8000-000000000001",
+       "00000001-0000-4000-8000-000000000003"
+      ]
+     },
+     "share": {
+      "mode": "information",
+      "locals": [
+       [
+        "00000004-0000-4000-8000-000000000001.mp3",
+        false
+       ],
+       [
+        "00000004-0000-4000-8000-000000000002.flac",
+        false
+       ]
+      ]
+     },
+     "skipped": 0
+    },
+    "ids": [
+     "00000001-0000-4000-8000-000000000001",
+     "00000001-0000-4000-8000-000000000003"
+    ],
+    "available": [],
+    "newIds": [
+     "cccccccc-0000-4000-8000-000000000001",
+     "cccccccc-0000-4000-8000-000000000002",
+     "cccccccc-0000-4000-8000-000000000003",
+     "cccccccc-0000-4000-8000-000000000004",
+     "cccccccc-0000-4000-8000-000000000005",
+     "cccccccc-0000-4000-8000-000000000006",
+     "cccccccc-0000-4000-8000-000000000007",
+     "cccccccc-0000-4000-8000-000000000008",
+     "cccccccc-0000-4000-8000-000000000009",
+     "cccccccc-0000-4000-8000-000000000010",
+     "cccccccc-0000-4000-8000-000000000011",
+     "cccccccc-0000-4000-8000-000000000012",
+     "cccccccc-0000-4000-8000-000000000013",
+     "cccccccc-0000-4000-8000-000000000014",
+     "cccccccc-0000-4000-8000-000000000015",
+     "cccccccc-0000-4000-8000-000000000016",
+     "cccccccc-0000-4000-8000-000000000017",
+     "cccccccc-0000-4000-8000-000000000018",
+     "cccccccc-0000-4000-8000-000000000019",
+     "cccccccc-0000-4000-8000-000000000020",
+     "cccccccc-0000-4000-8000-000000000021",
+     "cccccccc-0000-4000-8000-000000000022",
+     "cccccccc-0000-4000-8000-000000000023",
+     "cccccccc-0000-4000-8000-000000000024",
+     "cccccccc-0000-4000-8000-000000000025",
+     "cccccccc-0000-4000-8000-000000000026",
+     "cccccccc-0000-4000-8000-000000000027",
+     "cccccccc-0000-4000-8000-000000000028",
+     "cccccccc-0000-4000-8000-000000000029",
+     "cccccccc-0000-4000-8000-000000000030",
+     "cccccccc-0000-4000-8000-000000000031",
+     "cccccccc-0000-4000-8000-000000000032",
+     "cccccccc-0000-4000-8000-000000000033",
+     "cccccccc-0000-4000-8000-000000000034",
+     "cccccccc-0000-4000-8000-000000000035",
+     "cccccccc-0000-4000-8000-000000000036",
+     "cccccccc-0000-4000-8000-000000000037",
+     "cccccccc-0000-4000-8000-000000000038",
+     "cccccccc-0000-4000-8000-000000000039",
+     "cccccccc-0000-4000-8000-000000000040",
+     "cccccccc-0000-4000-8000-000000000041",
+     "cccccccc-0000-4000-8000-000000000042",
+     "cccccccc-0000-4000-8000-000000000043",
+     "cccccccc-0000-4000-8000-000000000044",
+     "cccccccc-0000-4000-8000-000000000045",
+     "cccccccc-0000-4000-8000-000000000046",
+     "cccccccc-0000-4000-8000-000000000047",
+     "cccccccc-0000-4000-8000-000000000048",
+     "cccccccc-0000-4000-8000-000000000049",
+     "cccccccc-0000-4000-8000-000000000050",
+     "cccccccc-0000-4000-8000-000000000051",
+     "cccccccc-0000-4000-8000-000000000052",
+     "cccccccc-0000-4000-8000-000000000053",
+     "cccccccc-0000-4000-8000-000000000054",
+     "cccccccc-0000-4000-8000-000000000055",
+     "cccccccc-0000-4000-8000-000000000056",
+     "cccccccc-0000-4000-8000-000000000057",
+     "cccccccc-0000-4000-8000-000000000058",
+     "cccccccc-0000-4000-8000-000000000059",
+     "cccccccc-0000-4000-8000-000000000060"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "text": "{\n  \"version\": 3,\n  \"identityVersion\": 2,\n  \"videoAliases\": [],\n  \"activePlaylistId\": \"00000001-0000-4000-8000-000000000001\",\n  \"rootPlaylistIds\": [\n    \"00000001-0000-4000-8000-000000000090\",\n    \"00000001-0000-4000-8000-000000000001\",\n    \"00000001-0000-4000-8000-000000000003\"\n  ],\n  \"playlists\": [\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000090\",\n      \"name\": \"親\",\n      \"icon\": \"\",\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000001\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"title\": \"既存\",\n          \"addedAt\": \"\",\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\n        }\n      ],\n      \"childIds\": [],\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000001\",\n      \"childIds\": [\n        \"00000001-0000-4000-8000-000000000002\"\n      ],\n      \"icon\": \"\",\n      \"name\": \"親（取り込み1）\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": [\n        {\n          \"id\": \"cccccccc-0000-4000-8000-000000000003\",\n          \"title\": \"曲1\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1ffffffff1\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000002\",\n          \"title\": \"ローカルA\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\n          \"type\": \"local\",\n          \"fileName\": \"cccccccc-0000-4000-8000-000000000001.mp3\"\n        }\n      ]\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000002\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"子\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": false,\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000003\",\n          \"title\": \"ローカルB\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\n          \"type\": \"local\",\n          \"fileName\": \"cccccccc-0000-4000-8000-000000000002.flac\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000004\",\n          \"title\": \"曲4\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000004\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1ffffffff4\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff4/\"\n        }\n      ]\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000003\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"独立\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": []\n    }\n  ]\n}",
+   "imported": 3,
+   "missing": 0,
+   "omitted": 2,
+   "files": [],
+   "skipped": 0,
+   "activePlaylistId": "00000001-0000-4000-8000-000000000001"
+  }
+ },
+ {
+  "name": "transfer import: no choice is rejected",
+  "call": "TransferImport",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000090\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000090\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000090\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"既存\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1ffffffff1/\"}],\"childIds\":[],\"createdAt\":\"2026-11-01T00:00:00.000Z\",\"lastAddedAt\":\"\",\"includeInAll\":true}]}",
+    "plan": {
+     "input": {
+      "version": 3,
+      "identityVersion": 2,
+      "videoAliases": [],
+      "playlists": [
+       {
+        "id": "00000001-0000-4000-8000-000000000001",
+        "childIds": [
+         "00000001-0000-4000-8000-000000000002"
+        ],
+        "icon": "",
+        "name": "親",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": true,
+        "entries": [
+         {
+          "id": "00000002-0000-4000-8000-000000000001",
+          "title": "曲1",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000001",
+          "type": "bilibili",
+          "videoId": "BV1ffffffff1",
+          "part": 1,
+          "url": "https://www.bilibili.com/video/BV1ffffffff1/"
+         },
+         {
+          "id": "00000002-0000-4000-8000-000000000002",
+          "title": "ローカルA",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000002",
+          "type": "local",
+          "fileName": "00000004-0000-4000-8000-000000000001.mp3"
+         }
+        ]
+       },
+       {
+        "id": "00000001-0000-4000-8000-000000000002",
+        "childIds": [],
+        "icon": "",
+        "name": "子",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": false,
+        "entries": [
+         {
+          "id": "00000002-0000-4000-8000-000000000003",
+          "title": "ローカルB",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000003",
+          "type": "local",
+          "fileName": "00000004-0000-4000-8000-000000000002.flac"
+         },
+         {
+          "id": "00000002-0000-4000-8000-000000000004",
+          "title": "曲4",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000004",
+          "type": "bilibili",
+          "videoId": "BV1ffffffff4",
+          "part": 1,
+          "url": "https://www.bilibili.com/video/BV1ffffffff4/"
+         }
+        ]
+       },
+       {
+        "id": "00000001-0000-4000-8000-000000000003",
+        "childIds": [],
+        "icon": "",
+        "name": "独立",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": true,
+        "entries": []
+       }
+      ],
+      "rootPlaylistIds": [
+       "00000001-0000-4000-8000-000000000001",
+       "00000001-0000-4000-8000-000000000003"
+      ]
+     },
+     "share": {
+      "mode": "media",
+      "locals": [
+       [
+        "00000004-0000-4000-8000-000000000001.mp3",
+        true
+       ],
+       [
+        "00000004-0000-4000-8000-000000000002.flac",
+        false
+       ]
+      ]
+     },
+     "skipped": 0
+    },
+    "ids": [],
+    "available": [
+     "00000004-0000-4000-8000-000000000001.mp3"
+    ],
+    "newIds": [
+     "cccccccc-0000-4000-8000-000000000001",
+     "cccccccc-0000-4000-8000-000000000002",
+     "cccccccc-0000-4000-8000-000000000003",
+     "cccccccc-0000-4000-8000-000000000004",
+     "cccccccc-0000-4000-8000-000000000005",
+     "cccccccc-0000-4000-8000-000000000006",
+     "cccccccc-0000-4000-8000-000000000007",
+     "cccccccc-0000-4000-8000-000000000008",
+     "cccccccc-0000-4000-8000-000000000009",
+     "cccccccc-0000-4000-8000-000000000010",
+     "cccccccc-0000-4000-8000-000000000011",
+     "cccccccc-0000-4000-8000-000000000012",
+     "cccccccc-0000-4000-8000-000000000013",
+     "cccccccc-0000-4000-8000-000000000014",
+     "cccccccc-0000-4000-8000-000000000015",
+     "cccccccc-0000-4000-8000-000000000016",
+     "cccccccc-0000-4000-8000-000000000017",
+     "cccccccc-0000-4000-8000-000000000018",
+     "cccccccc-0000-4000-8000-000000000019",
+     "cccccccc-0000-4000-8000-000000000020",
+     "cccccccc-0000-4000-8000-000000000021",
+     "cccccccc-0000-4000-8000-000000000022",
+     "cccccccc-0000-4000-8000-000000000023",
+     "cccccccc-0000-4000-8000-000000000024",
+     "cccccccc-0000-4000-8000-000000000025",
+     "cccccccc-0000-4000-8000-000000000026",
+     "cccccccc-0000-4000-8000-000000000027",
+     "cccccccc-0000-4000-8000-000000000028",
+     "cccccccc-0000-4000-8000-000000000029",
+     "cccccccc-0000-4000-8000-000000000030",
+     "cccccccc-0000-4000-8000-000000000031",
+     "cccccccc-0000-4000-8000-000000000032",
+     "cccccccc-0000-4000-8000-000000000033",
+     "cccccccc-0000-4000-8000-000000000034",
+     "cccccccc-0000-4000-8000-000000000035",
+     "cccccccc-0000-4000-8000-000000000036",
+     "cccccccc-0000-4000-8000-000000000037",
+     "cccccccc-0000-4000-8000-000000000038",
+     "cccccccc-0000-4000-8000-000000000039",
+     "cccccccc-0000-4000-8000-000000000040",
+     "cccccccc-0000-4000-8000-000000000041",
+     "cccccccc-0000-4000-8000-000000000042",
+     "cccccccc-0000-4000-8000-000000000043",
+     "cccccccc-0000-4000-8000-000000000044",
+     "cccccccc-0000-4000-8000-000000000045",
+     "cccccccc-0000-4000-8000-000000000046",
+     "cccccccc-0000-4000-8000-000000000047",
+     "cccccccc-0000-4000-8000-000000000048",
+     "cccccccc-0000-4000-8000-000000000049",
+     "cccccccc-0000-4000-8000-000000000050",
+     "cccccccc-0000-4000-8000-000000000051",
+     "cccccccc-0000-4000-8000-000000000052",
+     "cccccccc-0000-4000-8000-000000000053",
+     "cccccccc-0000-4000-8000-000000000054",
+     "cccccccc-0000-4000-8000-000000000055",
+     "cccccccc-0000-4000-8000-000000000056",
+     "cccccccc-0000-4000-8000-000000000057",
+     "cccccccc-0000-4000-8000-000000000058",
+     "cccccccc-0000-4000-8000-000000000059",
+     "cccccccc-0000-4000-8000-000000000060"
+    ],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "error": "取り込むプレイリストを選んでください。"
+  }
+ },
+ {
+  "name": "transfer import: an unknown parent is rejected",
+  "call": "TransferImport",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000090\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000090\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000090\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"既存\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1ffffffff1/\"}],\"childIds\":[],\"createdAt\":\"2026-11-01T00:00:00.000Z\",\"lastAddedAt\":\"\",\"includeInAll\":true}]}",
+    "plan": {
+     "input": {
+      "version": 3,
+      "identityVersion": 2,
+      "videoAliases": [],
+      "playlists": [
+       {
+        "id": "00000001-0000-4000-8000-000000000001",
+        "childIds": [
+         "00000001-0000-4000-8000-000000000002"
+        ],
+        "icon": "",
+        "name": "親",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": true,
+        "entries": [
+         {
+          "id": "00000002-0000-4000-8000-000000000001",
+          "title": "曲1",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000001",
+          "type": "bilibili",
+          "videoId": "BV1ffffffff1",
+          "part": 1,
+          "url": "https://www.bilibili.com/video/BV1ffffffff1/"
+         },
+         {
+          "id": "00000002-0000-4000-8000-000000000002",
+          "title": "ローカルA",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000002",
+          "type": "local",
+          "fileName": "00000004-0000-4000-8000-000000000001.mp3"
+         }
+        ]
+       },
+       {
+        "id": "00000001-0000-4000-8000-000000000002",
+        "childIds": [],
+        "icon": "",
+        "name": "子",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": false,
+        "entries": [
+         {
+          "id": "00000002-0000-4000-8000-000000000003",
+          "title": "ローカルB",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000003",
+          "type": "local",
+          "fileName": "00000004-0000-4000-8000-000000000002.flac"
+         },
+         {
+          "id": "00000002-0000-4000-8000-000000000004",
+          "title": "曲4",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000004",
+          "type": "bilibili",
+          "videoId": "BV1ffffffff4",
+          "part": 1,
+          "url": "https://www.bilibili.com/video/BV1ffffffff4/"
+         }
+        ]
+       },
+       {
+        "id": "00000001-0000-4000-8000-000000000003",
+        "childIds": [],
+        "icon": "",
+        "name": "独立",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": true,
+        "entries": []
+       }
+      ],
+      "rootPlaylistIds": [
+       "00000001-0000-4000-8000-000000000001",
+       "00000001-0000-4000-8000-000000000003"
+      ]
+     },
+     "share": {
+      "mode": "media",
+      "locals": [
+       [
+        "00000004-0000-4000-8000-000000000001.mp3",
+        true
+       ],
+       [
+        "00000004-0000-4000-8000-000000000002.flac",
+        false
+       ]
+      ]
+     },
+     "skipped": 0
+    },
+    "ids": [
+     "00000001-0000-4000-8000-000000000001",
+     "00000001-0000-4000-8000-000000000003"
+    ],
+    "available": [
+     "00000004-0000-4000-8000-000000000001.mp3"
+    ],
+    "newIds": [
+     "cccccccc-0000-4000-8000-000000000001",
+     "cccccccc-0000-4000-8000-000000000002",
+     "cccccccc-0000-4000-8000-000000000003",
+     "cccccccc-0000-4000-8000-000000000004",
+     "cccccccc-0000-4000-8000-000000000005",
+     "cccccccc-0000-4000-8000-000000000006",
+     "cccccccc-0000-4000-8000-000000000007",
+     "cccccccc-0000-4000-8000-000000000008",
+     "cccccccc-0000-4000-8000-000000000009",
+     "cccccccc-0000-4000-8000-000000000010",
+     "cccccccc-0000-4000-8000-000000000011",
+     "cccccccc-0000-4000-8000-000000000012",
+     "cccccccc-0000-4000-8000-000000000013",
+     "cccccccc-0000-4000-8000-000000000014",
+     "cccccccc-0000-4000-8000-000000000015",
+     "cccccccc-0000-4000-8000-000000000016",
+     "cccccccc-0000-4000-8000-000000000017",
+     "cccccccc-0000-4000-8000-000000000018",
+     "cccccccc-0000-4000-8000-000000000019",
+     "cccccccc-0000-4000-8000-000000000020",
+     "cccccccc-0000-4000-8000-000000000021",
+     "cccccccc-0000-4000-8000-000000000022",
+     "cccccccc-0000-4000-8000-000000000023",
+     "cccccccc-0000-4000-8000-000000000024",
+     "cccccccc-0000-4000-8000-000000000025",
+     "cccccccc-0000-4000-8000-000000000026",
+     "cccccccc-0000-4000-8000-000000000027",
+     "cccccccc-0000-4000-8000-000000000028",
+     "cccccccc-0000-4000-8000-000000000029",
+     "cccccccc-0000-4000-8000-000000000030",
+     "cccccccc-0000-4000-8000-000000000031",
+     "cccccccc-0000-4000-8000-000000000032",
+     "cccccccc-0000-4000-8000-000000000033",
+     "cccccccc-0000-4000-8000-000000000034",
+     "cccccccc-0000-4000-8000-000000000035",
+     "cccccccc-0000-4000-8000-000000000036",
+     "cccccccc-0000-4000-8000-000000000037",
+     "cccccccc-0000-4000-8000-000000000038",
+     "cccccccc-0000-4000-8000-000000000039",
+     "cccccccc-0000-4000-8000-000000000040",
+     "cccccccc-0000-4000-8000-000000000041",
+     "cccccccc-0000-4000-8000-000000000042",
+     "cccccccc-0000-4000-8000-000000000043",
+     "cccccccc-0000-4000-8000-000000000044",
+     "cccccccc-0000-4000-8000-000000000045",
+     "cccccccc-0000-4000-8000-000000000046",
+     "cccccccc-0000-4000-8000-000000000047",
+     "cccccccc-0000-4000-8000-000000000048",
+     "cccccccc-0000-4000-8000-000000000049",
+     "cccccccc-0000-4000-8000-000000000050",
+     "cccccccc-0000-4000-8000-000000000051",
+     "cccccccc-0000-4000-8000-000000000052",
+     "cccccccc-0000-4000-8000-000000000053",
+     "cccccccc-0000-4000-8000-000000000054",
+     "cccccccc-0000-4000-8000-000000000055",
+     "cccccccc-0000-4000-8000-000000000056",
+     "cccccccc-0000-4000-8000-000000000057",
+     "cccccccc-0000-4000-8000-000000000058",
+     "cccccccc-0000-4000-8000-000000000059",
+     "cccccccc-0000-4000-8000-000000000060"
+    ],
+    "now": "2026-11-13T09:00:00.000Z",
+    "parentId": "00000001-0000-4000-8000-000000000099"
+   }
+  ],
+  "expect": {
+   "error": "再生リストが見つかりません。"
+  }
+ },
+ {
+  "name": "transfer import: running out of ids is rejected",
+  "call": "TransferImport",
+  "args": [
+   {
+    "text": "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[],\"activePlaylistId\":\"00000001-0000-4000-8000-000000000090\",\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000090\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000090\",\"name\":\"親\",\"icon\":\"\",\"entries\":[{\"id\":\"00000002-0000-4000-8000-000000000001\",\"mediaId\":\"00000003-0000-4000-8000-000000000001\",\"type\":\"bilibili\",\"title\":\"既存\",\"addedAt\":\"\",\"url\":\"https://www.bilibili.com/video/BV1ffffffff1/\"}],\"childIds\":[],\"createdAt\":\"2026-11-01T00:00:00.000Z\",\"lastAddedAt\":\"\",\"includeInAll\":true}]}",
+    "plan": {
+     "input": {
+      "version": 3,
+      "identityVersion": 2,
+      "videoAliases": [],
+      "playlists": [
+       {
+        "id": "00000001-0000-4000-8000-000000000001",
+        "childIds": [
+         "00000001-0000-4000-8000-000000000002"
+        ],
+        "icon": "",
+        "name": "親",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": true,
+        "entries": [
+         {
+          "id": "00000002-0000-4000-8000-000000000001",
+          "title": "曲1",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000001",
+          "type": "bilibili",
+          "videoId": "BV1ffffffff1",
+          "part": 1,
+          "url": "https://www.bilibili.com/video/BV1ffffffff1/"
+         },
+         {
+          "id": "00000002-0000-4000-8000-000000000002",
+          "title": "ローカルA",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000002",
+          "type": "local",
+          "fileName": "00000004-0000-4000-8000-000000000001.mp3"
+         }
+        ]
+       },
+       {
+        "id": "00000001-0000-4000-8000-000000000002",
+        "childIds": [],
+        "icon": "",
+        "name": "子",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": false,
+        "entries": [
+         {
+          "id": "00000002-0000-4000-8000-000000000003",
+          "title": "ローカルB",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000003",
+          "type": "local",
+          "fileName": "00000004-0000-4000-8000-000000000002.flac"
+         },
+         {
+          "id": "00000002-0000-4000-8000-000000000004",
+          "title": "曲4",
+          "addedAt": "",
+          "mediaId": "00000003-0000-4000-8000-000000000004",
+          "type": "bilibili",
+          "videoId": "BV1ffffffff4",
+          "part": 1,
+          "url": "https://www.bilibili.com/video/BV1ffffffff4/"
+         }
+        ]
+       },
+       {
+        "id": "00000001-0000-4000-8000-000000000003",
+        "childIds": [],
+        "icon": "",
+        "name": "独立",
+        "createdAt": "2026-11-01T00:00:00.000Z",
+        "lastAddedAt": "",
+        "includeInAll": true,
+        "entries": []
+       }
+      ],
+      "rootPlaylistIds": [
+       "00000001-0000-4000-8000-000000000001",
+       "00000001-0000-4000-8000-000000000003"
+      ]
+     },
+     "share": {
+      "mode": "media",
+      "locals": [
+       [
+        "00000004-0000-4000-8000-000000000001.mp3",
+        true
+       ],
+       [
+        "00000004-0000-4000-8000-000000000002.flac",
+        false
+       ]
+      ]
+     },
+     "skipped": 0
+    },
+    "ids": [
+     "00000001-0000-4000-8000-000000000001",
+     "00000001-0000-4000-8000-000000000003"
+    ],
+    "available": [
+     "00000004-0000-4000-8000-000000000001.mp3"
+    ],
+    "newIds": [],
+    "now": "2026-11-13T09:00:00.000Z"
+   }
+  ],
+  "expect": {
+   "error": "新しい識別番号を用意できません。"
+  }
  }
 ]

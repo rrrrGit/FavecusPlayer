@@ -141,6 +141,15 @@
 - DeviceMedia（端末ごとの保存情報）は、mediaKey、形式（動画/音声）、画質、保存状態、端末内パスを持ち、**同期しません**。
 - 状態：NotDownloaded / Preparing / Downloading / Processing / Validating / Completed / Failed / Cancelled。Windowsの既存カタログ（layout 4）はCompletedに相当します。再起動後、Completed以外のファイルは完成扱いにしません。サムネイルの失敗で本体を削除しません。
 
+### ZIPの出力・取り込みの仕様（Step10：実装から確定した形式）
+
+- **外側のZIP**：すべて無圧縮（method 0）、フラグ0x808（データ記述子・UTF-8）。サイズが4GB以上のときはZIP64。読み取りは中央ディレクトリのサイズを使い、method 0と8（deflate）を受け付ける。許可する名前は `[a-zA-Z0-9_./-]` 200文字以内で、先頭の/・`.`・`..`・空要素は不可（`SafeName`、共通JS）。構成：`playlists.fvpa`、`media/<fileName>`（ローカル曲の実体）、DL済みメディアの部分（出力方式 media のとき。iPhoneへの取り込みはStep13）。
+- **`playlists.fvpa`（自動形式 FVPA0002）**：ヘッダー52バイト＝マジック`FVPA0002`（8）＋鍵（32）＋nonce（12）、続けて認証タグ（16）、暗号文（AES-256-GCM、ヘッダー全体をAAD）。鍵を同梱するため秘密保護ではなく、破損検出用。パスワード形式（FVPA0001、scrypt）は **iPhone版では未対応**（CryptoKitにscryptがないため。ユーザーが必要としたら追加）。
+- **平文＝内側のZIP**：`identity.json`（shareVersion・exportMode・identityVersion・videoAliases）と `playlists/<ID>.json`（`{version:3, playlist, rootIndex}`）。JSONは `ExportJSON`（ASCIIのUnicode表記・CRLF）。内側の上限は32MB。
+- **共通JS**（`src/core/library-transfer.cjs`、iPhone版の入口は `library-app.cjs` の `TransferPrepare/Import/Export`）：名前の規則、内側/外側の構成検査、取り込み入力の組み立て、検証（ReadShare）、選択・祖先・上限・ローカル曲のファイル名の付け替え・`PlanImportIdentity`・同名リストへの（取り込みN）・曲名整形・出力内容の生成。Windows版の `library-archive.cjs` はこのうち名前の規則と構成検査を共有し、出力内容・取り込み結果が共通処理と同じになることを `test/library-transfer.test.cjs` で確認する（出力はバイト単位で一致）。
+- **Swift側（iPhone）の責務**：入れ物と実体だけ。ZIPのストリーム読み書き（ZIP64・CRC32）、AES-GCMの復号/暗号化、ステージング領域への展開とCRC・サイズ検査、公開（衝突した別ファイルは削除・上書きしない）、メディアは `Application Support` 配下に `completeUntilFirstUserAuthentication` で保存（ロック中の音声再生のため。Step9・13も同じ）。共有シート用のApp拡張は作らない（AltStoreのApp ID上限のため）。`fileImporter`・ドキュメントタイプ＋`onOpenURL`・`ShareLink`/`fileExporter` を使う。
+- **範囲の決定（2026-11-13、ユーザー）**：ユーザーのライブラリはローカル曲0件・Bilibili曲631件・DL済みメディア1265個（約6.6GB）で、ZIPのmedia部分だけでは再生できる実体がない。Step10は**構造とローカル曲のメディアの取り込み・出力**までとし、DL済みメディアの取り込みはStep13で行う。再生確認は小さなローカル音声で行う。
+
 ### ZIPの拡張
 
 既存のFVPA0002（内側のidentity.json、shareVersion 1）は維持し、`manifest.json` にmediaKeyの一覧を追加します（shareVersion 2案）。旧ZIPは従来の互換経路で読み込みます。新ZIPを旧版アプリで読めることは保証しません。ZIPはバックアップ、手動移行、メディア共有に残し、削除しません。

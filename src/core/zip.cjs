@@ -6,7 +6,7 @@ const { createInflateRaw } = require('node:zlib');
 const MAX_BYTES = 1024 ** 4, MAX_FILES = 60000, U32 = 0xffffffff;
 const table = Array.from({ length: 256 }, (_, n) => { for (let i = 0; i < 8; i++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1; return n >>> 0; });
 function CRC(bytes, value = 0xffffffff) { for (const b of bytes) value = table[(value ^ b) & 255] ^ (value >>> 8); return value >>> 0; }
-function SafeName(name) { return /^[a-zA-Z0-9_./-]{1,200}$/.test(name) && !name.startsWith('/') && name.split('/').every(x => x && x !== '.' && x !== '..'); }
+const { SafeName } = require('./library-transfer.cjs'); // 許可する名前の規則は、iPhone版と共通
 function Read64(buffer, at) { const n = Number(buffer.readBigUInt64LE(at)); if (!Number.isSafeInteger(n) || n > MAX_BYTES) throw new Error('ZIPのサイズが上限を超えています。'); return n; }
 function Extra64(values) { if (!values.length) return Buffer.alloc(0); const data = Buffer.alloc(4 + values.length * 8); data.writeUInt16LE(1); data.writeUInt16LE(values.length * 8, 2); values.forEach((v, i) => data.writeBigUInt64LE(BigInt(v), 4 + i * 8)); return data; }
 async function WriteAll(file, bytes, position) {

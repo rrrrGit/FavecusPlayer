@@ -10,6 +10,7 @@ const { VideoAliases } = require('./library-identity.cjs');
 const { ShareMode, ShareData, ReadShare } = require('./library-share.cjs');
 const { ExportDownloads, ReadDownloads, StageDownloads, DownloadMatches } = require('./offline-archive.cjs');
 const Tree = require('../ui/library-tree.js');
+const { CheckInnerNames, CheckOuterNames } = require('./library-transfer.cjs');
 const MAGIC = Buffer.from('FVPA0001'), AUTO_MAGIC = Buffer.from('FVPA0002'), LIMIT = 32 * 1024 * 1024;
 const Key = (password, salt) => promisify(scrypt)(password, salt, 32, { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
 function Password(value) { if (typeof value !== 'string' || value.length < 8 || value.length > 1024) throw new Error('パスワードは8〜1024文字で入力してください。'); }
@@ -86,14 +87,12 @@ class LibraryArchive {
             if (!meta || !Object.hasOwn(meta, 'identityVersion')) throw new Error('識別形式の情報がありません。');
             identity = { identityVersion: meta.identityVersion, videoAliases: meta.videoAliases, ...(Object.hasOwn(meta, 'shareVersion') ? { shareVersion: meta.shareVersion } : {}), ...(Object.hasOwn(meta, 'exportMode') ? { exportMode: meta.exportMode } : {}) };
           }
-          ValidatePlaylistCount(reader.entries.size - Number(reader.entries.has('identity.json')));
-          for (const name of reader.entries.keys()) { if (name === 'identity.json') continue; if (!/^playlists\/[a-f0-9-]{36}\.json$/.test(name)) throw new Error('プレイリストのファイル構成が正しくありません。'); records.push(ReadJSON(await reader.Content(name))); }
+          for (const name of CheckInnerNames([...reader.entries.keys()])) records.push(ReadJSON(await reader.Content(name))); // 名前と件数の規則は共通
         } finally { await reader.Close(); }
         input = { version: 3, ...identity, playlists: records.map(r => r.playlist), rootPlaylistIds: records.filter(r => r.rootIndex >= 0).sort((a, b) => a.rootIndex - b.rootIndex).map(r => r.playlist.id) };
       }
       const playlists = ValidateLibrary(input), roots = input.version === 3 ? input.rootPlaylistIds : playlists.map(p => p.id), share = ReadShare(input);
-      if (zip && share.mode === 'information' && [...zip.entries.keys()].some(name => name !== 'playlists.fvpa')) throw new Error('情報のみのアーカイブにメディアが含まれています。');
-      if (zip && share.mode === 'media') for (const [name, included] of share.locals) if (included !== zip.entries.has(`media/${name}`)) throw new Error('ローカル曲の同梱情報と実体が一致しません。');
+      if (zip) CheckOuterNames(share, [...zip.entries.keys()]);
       await fs.promises.rm(folder, { recursive: true, force: true });
       const downloads = await ReadDownloads(zip);
       const id = randomUUID(); this.Prune();

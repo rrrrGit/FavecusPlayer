@@ -66,6 +66,9 @@ const CALLS = {
   TreeOrder: spec => ({ ids: tree.Ordered(Plain(spec.library), spec.ids, spec.mode) }),
   LibraryOpen: options => libraryApp.Open(options),
   LibraryApply: options => libraryApp.Apply(options),
+  TransferPrepare: options => libraryApp.TransferPrepare(options),
+  TransferImport: options => libraryApp.TransferImport(options),
+  TransferExport: options => libraryApp.TransferExport(options),
   SyncClock: steps => steps.map(step => step.op === 'tick' ? syncClock.Tick(step.last, step.now, step.device) : syncClock.Observe(step.last, step.remote, step.now, step.device)),
   SyncOrder: spec => ({ between: (spec.pairs || []).map(([a, b]) => syncOrder.Between(a, b)), spread: syncOrder.Spread(spec.spread || 0) }),
   SyncMerge: changes => { const merged = changes.reduce((state, change) => syncState.Merge(state, [change]).state, syncState.NewState()); return JSON.parse(syncState.Canonical(merged)); },
@@ -165,4 +168,7 @@ function Bench(json) {
 // iPhone版の入口（JSON文字列の入出力）。
 const LibraryOpen = json => JSON.stringify(libraryApp.Open(JSON.parse(json)));
 const LibraryApply = json => JSON.stringify(libraryApp.Apply(JSON.parse(json)));
-module.exports = { RunCases, Observe, Bench, LibraryOpen, LibraryApply };
+const TransferPrepare = json => JSON.stringify(libraryApp.TransferPrepare(JSON.parse(json)));
+const TransferImport = json => JSON.stringify(libraryApp.TransferImport(JSON.parse(json)));
+const TransferExport = json => JSON.stringify(libraryApp.TransferExport(JSON.parse(json)));
+module.exports = { RunCases, Observe, Bench, LibraryOpen, LibraryApply, TransferPrepare, TransferImport, TransferExport };

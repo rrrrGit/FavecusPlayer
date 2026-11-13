@@ -11,6 +11,8 @@ const MODULES = {
   'core/device-media.cjs': 'src/core/device-media.cjs',
   'core/library-actions.cjs': 'src/core/library-actions.cjs',
   'core/library-app.cjs': 'src/core/library-app.cjs',
+  'core/library-transfer.cjs': 'src/core/library-transfer.cjs',
+  'core/library-json.cjs': 'src/core/library-json.cjs',
   'core/sync-clock.cjs': 'src/core/sync-clock.cjs',
   'core/sync-order.cjs': 'src/core/sync-order.cjs',
   'core/sync-state.cjs': 'src/core/sync-state.cjs',
@@ -74,7 +76,10 @@ ${parts.join(',\n')}
     Observe: function (json) { return runner().Observe(json); },
     Bench: function (json) { return runner().Bench(json); },
     LibraryOpen: function (json) { return runner().LibraryOpen(json); },
-    LibraryApply: function (json) { return runner().LibraryApply(json); }
+    LibraryApply: function (json) { return runner().LibraryApply(json); },
+    TransferPrepare: function (json) { return runner().TransferPrepare(json); },
+    TransferImport: function (json) { return runner().TransferImport(json); },
+    TransferExport: function (json) { return runner().TransferExport(json); }
   };
 })(globalThis);
 `;

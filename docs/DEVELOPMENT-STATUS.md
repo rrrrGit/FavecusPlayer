@@ -125,6 +125,12 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 
 Step6完了（下記）。次はStep7（Supabase接続、Windows版の同期配線、`sync/state.json`）です。
 
+### Step10の進捗（Step9と入れ替え済み）
+
+- 10-0：形式の確定と範囲の決定（DESIGN.md「ZIPの出力・取り込みの仕様」）。
+- 10-1：`src/core/library-transfer.cjs`（共通の規則）を追加。Windows版は名前の規則・構成検査を共有。`test/library-transfer.test.cjs`（出力のバイト一致、Windows Prepare/Commitと共通Prepare/Importの結果一致）と共通テストデータ229件（TransferPrepare/Import/Export）。CIでJavaScriptCoreの結果を確認する。
+- 次：10-2 Swiftの ZIP読み取り・復号・取り込み（Nodeで生成したWindows版ZIPをCIで読む）／10-3 出力と画面（ファイル選択・共有）／10-4 実機でのラウンドトリップ。
+
 ### Step8の進捗（2026-11-13）
 
 - 方針：ローカルDB＝Windows版と同じv3の `library.json`（SQLite等は使わない）。編集操作は `src/core/library-actions.cjs` へ共通化し、Windows版の `Store` が同じ処理を使う（Nodeの既存テストは変更せず、失敗は環境起因の既知9件のみ）。iPhone版の入口は `src/core/library-app.cjs`（Open/Apply）。共通テストデータは操作ごとのケース・名前順（Intl.Collator、かな/カナ/漢字/英数混在）・Open/Applyを追加し208件。

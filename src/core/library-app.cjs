@@ -5,6 +5,7 @@ const Actions = require('./library-actions.cjs');
 const Tree = require('../ui/library-tree.js');
 const { ValidateLibrary, CleanText } = require('./library-data.cjs');
 const { ValidateIdentityVersion } = require('./library-identity.cjs');
+const Transfer = require('./library-transfer.cjs');
 
 const ID = /^[a-f0-9-]{36}$/;
 function Context(options) {
@@ -56,4 +57,29 @@ function Apply(options) {
     return { text: Pretty(library) };
   } catch (error) { return { error: error instanceof TypeError || error instanceof SyntaxError ? '編集を適用できません（保存データの形式が正しくありません）。' : String(error && error.message || error) }; }
 }
-module.exports = { Open, Apply };
+// ---- ZIPの出力・取り込み（入れ物・暗号・ファイル操作はSwift、規則はlibrary-transfer.cjs）
+const Text = value => String(value).replace(/^\uFEFF/, '');
+// 取り込み候補の検証。options：{ identity（identity.jsonの文字列またはnull）, records（playlists/*.jsonの文字列）, outerNames, innerNames }
+function TransferPrepare(options) {
+  try {
+    Transfer.CheckInnerNames(options.innerNames);
+    const input = Transfer.BuildShareInput(options.identity === null || options.identity === undefined ? null : JSON.parse(Text(options.identity)), options.records.map(text => JSON.parse(Text(text))));
+    const prepared = Transfer.Prepare(input);
+    Transfer.CheckOuterNames(prepared.plan.share, options.outerNames);
+    return prepared;
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+// 選んだリストを取り込む。options：{ text（現在のライブラリ）, plan, ids, parentId, available, idsのプールはnewIds, now }
+function TransferImport(options) {
+  try {
+    const library = JSON.parse(options.text), ctx = Context({ ids: options.newIds, now: options.now });
+    const result = Transfer.Import({ library, plan: options.plan, ids: options.ids, parentId: options.parentId, available: options.available, createId: ctx.createId, cleanTitle: ctx.cleanTitle, now: ctx.now() });
+    return { text: Pretty(result.library), imported: result.imported, missing: result.missing, omitted: result.omitted, files: result.files, skipped: result.skipped, activePlaylistId: result.library.activePlaylistId };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+// 出力の内容。options：{ text（現在のライブラリ）, mode, available }
+function TransferExport(options) {
+  try { return Transfer.Export({ library: JSON.parse(options.text), mode: options.mode, available: options.available }); }
+  catch (error) { return { error: String(error && error.message || error) }; }
+}
+module.exports = { Open, Apply, TransferPrepare, TransferImport, TransferExport };
