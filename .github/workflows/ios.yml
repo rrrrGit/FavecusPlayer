@@ -98,15 +98,20 @@ jobs:
           node ../scripts/make-test-archive.cjs "$RUNNER_TEMP/transfer"
           export TEST_RUNNER_FAVECUS_TRANSFER_DIR="$RUNNER_TEMP/transfer"
           export TEST_RUNNER_FAVECUS_TRANSFER_OUT="$RUNNER_TEMP/transfer-ios"
+          # Step11の事前確認：ローカルのHTTPサーバー（ATSの確認用）
+          node -e "require('http').createServer((q,s)=>s.end('spike-ok')).listen(18765,'127.0.0.1')" &
+          SPIKE_PID=$!
+          export TEST_RUNNER_FAVECUS_SPIKE_URL="http://127.0.0.1:18765/"
           xcodebuild test \
             -project FavecusPlayer.xcodeproj \
             -scheme FavecusPlayer \
             -destination "id=$SIM_UDID" \
             -derivedDataPath build/sim \
             CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/test.log
+          kill $SPIKE_PID || true
           {
             echo '### iOSシミュレーターでの共通処理の結果'
-            { grep -E 'FAVECUS_(FIXTURES|BENCH)' build/test.log || true; } | sort -u | sed 's/^/- /'
+            { grep -E 'FAVECUS_(FIXTURES|BENCH)|SPIKE_' build/test.log || true; } | sort -u | sed 's/^/- /'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Check the built Info.plist (document types)
