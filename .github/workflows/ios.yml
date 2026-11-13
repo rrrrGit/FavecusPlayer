@@ -140,7 +140,7 @@ jobs:
             sed 's/^/- /' "$CROSS/driver.log"
           } >> "$GITHUB_STEP_SUMMARY"
           # xcodebuild が失敗しても終了コード0を返すことがあったため、ログの失敗表示でも落とす
-          if grep -qE "** TEST FAILED **|Test Case .* failed|: error: " build/test.log; then echo "テストの失敗がログにあります"; grep -E "Test Case .* failed|: error: " build/test.log | head -20; exit 1; fi
+          if grep -qE "TEST FAILED|Test Case .* failed|: error: " build/test.log; then echo "テストの失敗がログにあります"; grep -E "Test Case .* failed|: error: " build/test.log | head -20; exit 1; fi
           test "$XC" -eq 0
           test "$DRV" -eq 0
 
