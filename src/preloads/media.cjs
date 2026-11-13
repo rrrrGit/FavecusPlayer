@@ -70,7 +70,7 @@ function Report(force = false) {
   if (!element) return;
   StartAtZero(element);
   if (!knownMedia.has(element)) ApplyVolume();
-  if (!force && Date.now() - lastSend < 1800) return;
+  if (!force && Date.now() - lastSend < 450) return; // 再生位置は約0.5秒ごとに送る（以前は約2秒ごとで、再生バーの位置が遅れて更新されていた）
   lastSend = Date.now();
   let title = Text('.bpx-player-video-info-title') || Text('h1.video-title') || document.querySelector('meta[property="og:title"]')?.content || '';
   const artist = Text('.up-name');
@@ -94,6 +94,8 @@ window.addEventListener('DOMContentLoaded', () => {
     if (e.isTrusted && e.target?.closest?.('.bpx-player-ctrl-quality, .bilibili-player-video-btn-quality')) qualityPending = false; }, true);
   setInterval(() => { if (startPending) StartAtZero(FindMedia()); RestorePlayback(FindMedia()); DefaultQuality(); FitOfficialPlayer(); }, 100);
   document.addEventListener('volumechange', ApplyVolume, true);
+  // 再生中の位置の更新。timeupdate（約4回/秒）を0.45秒に間引いて送る。イベントが来ない場合に備えた2秒ごとの報告も残す。
+  document.addEventListener('timeupdate', () => { if (Date.now() - lastSend >= 450) Report(); }, true); // 間引き前の計算を避ける
   setInterval(() => Report(), 2000);
 });
 ipcRenderer.on('media:command', (_event, command) => {

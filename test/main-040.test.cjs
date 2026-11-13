@@ -169,6 +169,7 @@ test('067 startup removes known orphan downloads while retaining referenced and 
   } });
   assert.ok(h.offline.File(kept.token)); assert.equal(h.offline.File(orphan.token), null); assert.equal(fs.existsSync(h.offline.ResolvePath(orphan.file)), false); assert.equal(fs.readFileSync(path.join(h.offline.directory, 'unmanaged.bin'), 'utf8'), 'keep');
 });
+const improveCalls = [];
 async function MainHarness(t, options = {}) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'favecus-main-040-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   const protocols=new Map(), handlers=new Map(), views=[], windows=[], messages=[], activities=[], previewCalls=[], connections=[], crashStarts=[], switches=new Map(), paths=new Map();const saveDialogs = []; let savePath = null; let ready, thumbnailDone, filePaths = [], loggedIn = false, activeOffline, activeStore;
@@ -212,7 +213,7 @@ async function MainHarness(t, options = {}) {
   }
   class Presence {Configure(){}SetActivity(value){activities.push(value);}Stop(){}}
   class Mini {Update(){}Destroy(){}Restore(){windows[0].show();windows[0].focus();}CanHideToTray(){return options.tray===true;}}
-  class Thumbnails {Get(){return new Promise(resolve=>thumbnailDone=resolve);}async GetPreview(entry,active){previewCalls.push(entry);return active()?'data:image/png;base64,aWNvbg==':null;}}
+  class Thumbnails {Get(){return new Promise(resolve=>thumbnailDone=resolve);}async Improve(entry,image,file){improveCalls.push({entry,file});return options.improved||image;}async GetPreview(entry,active){previewCalls.push(entry);return active()?'data:image/png;base64,aWNvbg==':null;}}
   const app=new EventEmitter();Object.assign(app,{setName(){},setPath:(key,value)=>paths.set(key,value),commandLine:{appendSwitch:(key,value)=>switches.set(key,value)},requestSingleInstanceLock:()=>true,quit(){},getPath:()=>path.join(root,'data'),getVersion:()=> '0.6.4',getAppPath:()=>path.resolve(__dirname,'..'),whenReady:()=>({then:fn=>{ready=fn();return ready;}})});
   const ipcMain=new EventEmitter();ipcMain.handle=(key,fn)=>handlers.set(key,fn);
   const session=new EventEmitter();session.setPermissionRequestHandler=()=>{};session.setPermissionCheckHandler=()=>{};
@@ -395,6 +396,40 @@ test('official page mode is explicit and reload preserves it until the player bu
   h.advance(60000); await FlushPlayer(); assert.equal(h.views.length, 3);
   await h.invoke('player:command', 'page-mode'); await h.invoke('player:command', 'reload');
   assert.equal((await h.invoke('app:state')).current.pageMode, false); assert.equal(new URL(h.views.at(-1).webContents.getURL()).hostname, 'player.bilibili.com');
+});
+async function EmbeddedPlayer(t, probe) {
+  const h = await MainHarness(t, { testRecovery: true }), id = h.store.data.activePlaylistId, probes = [];
+  const state = await h.invoke('library:action', { type: 'add', playlistId: id, urls: 'av123\nav456' }), entry = state.playlists[0].entries[0];
+  await h.invoke('player:play', id, entry.id); const view = h.views.at(-1); view.navigationReady = true;
+  h.ipcMain.emit('view:bounds', h.event, { x: 100, y: 100, width: 500, height: 300, visible: true });
+  view.webContents.executeJavaScript = async code => { if (/requestVideoFrameCallback/.test(code)) { probes.push(code); return probe(); } return undefined; };
+  h.ipcMain.emit('media:health', { sender: view.webContents, senderFrame: view.webContents.mainFrame }, { url: entry.url, ready: true, position: 5, paused: false, ended: false });
+  return { h, id, entry, view, probes };
+}
+// 映像停止の確認は、mainの実際のタイマー（2.5秒後）で動く。
+const Delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+test('067 audio-only playback after returning to video mode (frozen picture) switches to the official player at the same position', async t => {
+  const { h, view, probes } = await EmbeddedPlayer(t, () => false), count = h.views.length;
+  await h.invoke('library:action', { type: 'settings', settings: { thumbnailMode: true } }); await h.invoke('library:action', { type: 'settings', settings: { thumbnailMode: false } });
+  view.navigationReady = true; h.main.emit('show');
+  await Delay(1000); assert.equal(probes.length, 0, '戻した直後ではなく、少し待ってから確認する');
+  await Delay(2000); await FlushPlayer(); assert.equal(probes.length, 1, '2.5秒後に最初の確認をする');
+  await Delay(1800); await FlushPlayer(); assert.equal(probes.length, 2, '止まっていたら間をおいてもう一度確認する（誤検知で復旧を使い切らない）');
+  await FlushPlayer();
+  assert.ok(h.views.length > count, '映像が止まっていれば、公式プレイヤーで作り直す'); assert.ok(h.views.at(-1).options.webPreferences.additionalArguments.includes('--favecus-official-player'));
+});
+test('067 a moving picture, a hidden window, thumbnail mode and a replaced view never start a frame-stall recovery', async t => {
+  const running = await EmbeddedPlayer(t, () => true), hidden = await EmbeddedPlayer(t, () => false), thumbnail = await EmbeddedPlayer(t, () => false), replaced = await EmbeddedPlayer(t, () => false);
+  const counts = [running, hidden, thumbnail, replaced].map(x => x.h.views.length);
+  for (const x of [running, hidden, thumbnail, replaced]) { x.view.navigationReady = true; x.h.main.emit('show'); }
+  hidden.h.main.visible = false;
+  await thumbnail.h.invoke('library:action', { type: 'settings', settings: { thumbnailMode: true } });
+  await replaced.h.invoke('player:command', 'stop');
+  await Delay(2800); await FlushPlayer(); await FlushPlayer();
+  assert.equal(running.probes.length, 1, '映像が進んでいれば確認だけで何もしない'); assert.equal(running.h.views.length, counts[0]);
+  assert.equal(hidden.probes.length, 0, 'ウィンドウが隠れているときは確認しない（描画が止まるのが正常）'); assert.equal(hidden.h.views.length, counts[1]);
+  assert.equal(thumbnail.probes.length, 0, '曲モードでは確認しない'); assert.equal(thumbnail.h.views.length, counts[2]);
+  assert.equal(replaced.probes.length, 0, '再生が止まった・入れ替わった後は確認しない');
 });
 test('manual reload allows a bounded fresh recovery sequence and retains the internal official player', async t => {
   const h = await MainHarness(t, { testRecovery: true }); let state = (await h.invoke('app:state')).state; const id = state.activePlaylistId;

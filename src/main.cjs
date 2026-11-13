@@ -28,7 +28,7 @@ const { MiniPlayer } = require('./core/mini-player.cjs');
 const { MediaResponse } = require('./core/files.cjs');
 const { ConvertWma } = require('./core/audio-import.cjs');
 const { BilibiliAccount } = require('./core/bilibili.cjs');
-const { Thumbnails, SmallImage, CoverImage } = require('./core/thumbnail.cjs');
+const { Thumbnails, SmallImage, CoverImage, FlatImage, ImageData } = require('./core/thumbnail.cjs');
 const { APP_ID, ConfigureTaskbar, PreviousInstallRoots } = require('./core/windows-identity.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'favecus', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
@@ -150,10 +150,38 @@ function ExitVideoFullscreen() {
   ViewBounds();
 }
 const ToggleVideoFullscreen = () => { if (videoFullscreen) ExitVideoFullscreen(); else EnterVideoFullscreen(true); return videoFullscreen; };
+// 曲モード・非表示から動画モードへ戻したあと、音は進むのに映像だけが止まる状態が稀に起きる（実ElectronのBilibili再生で確認。再現は不安定）。
+// 戻した少し後に、映像のフレームが進んでいるかを再生ビュー内で数え、止まっていれば既存の復旧（公式プレイヤーへ切り替えて同じ位置から再開）へつなぐ。
+const FRAME_PROBE = `new Promise(resolve => { const v = document.querySelector('video'); if (!v || v.paused || v.ended || typeof v.requestVideoFrameCallback !== 'function') { resolve(true); return; }
+  let frames = 0, running = true; const tick = () => { if (!running) return; frames++; v.requestVideoFrameCallback(tick); }; v.requestVideoFrameCallback(tick); const start = v.currentTime;
+  setTimeout(() => { running = false; resolve(frames >= 4 || v.currentTime - start < .5); }, 1500); })`;
+const frameChecks = new WeakMap();
+function VerifyVideoFrames(view) {
+  const wc = view?.webContents;
+  if (!wc || wc.isDestroyed() || current?.source !== 'bilibili' || current.pageMode) return;
+  clearTimeout(frameChecks.get(view)); // 連続した復帰（表示・フォーカス・曲モード解除）では、最後の復帰から数える
+  const timer = setTimeout(async () => {
+    frameChecks.delete(view);
+    const live = () => remoteView === view && viewVisible && !store?.data.settings.thumbnailMode && !wc.isDestroyed() && win && !win.isDestroyed() && win.isVisible() && !win.isMinimized();
+    const token = generation;
+    // 復旧は一度しか使えないため、誤検知で使い切らないよう、間をおいて2回続けて止まっているときだけ復旧する。
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (!live() || token !== generation) return;
+      let ok = true;
+      try { ok = await wc.executeJavaScript(FRAME_PROBE); } catch { return; }
+      if (ok !== false) return;
+      if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+    if (!live() || token !== generation) return;
+    PlayerDiagnostic('frame-stall'); recovery?.Trigger(token, 'frame-stall');
+  }, 2500);
+  timer.unref?.(); frameChecks.set(view, timer);
+}
 function RefreshVideo() {
-  const wc = remoteView?.webContents;
-  if (!remoteView?.navigationReady || !wc || wc.isDestroyed() || store?.data.settings.thumbnailMode) return;
+  const view = remoteView, wc = view?.webContents;
+  if (!view?.navigationReady || !wc || wc.isDestroyed() || store?.data.settings.thumbnailMode) return;
   wc.invalidate?.(); SendToPlayer('media:command', { type: 'refresh-display' });
+  VerifyVideoFrames(view);
 }
 const retiredPlayers = new Map(), playbackRoutes = new Map(); let quitting = false, sessionEnding = false, sessionTimer = null;
 let videoFullscreen = false, fullscreenByApp = false, fullscreenHtml = null;
@@ -543,7 +571,7 @@ async function Start() {
     const page = data?.pages?.find(p => p.page === entry.part) || data?.pages?.[entry.part - 1];
     return data?.pages?.length > 1 ? page?.part || data?.title : data?.title;
   } });
-  thumbnails = new Thumbnails(biliAccount, (...args) => net.fetch(...args), ffmpeg, store.media, { resize: data => SmallImage(data, nativeImage), resizeCover: data => CoverImage(data, nativeImage) });
+  thumbnails = new Thumbnails(biliAccount, (...args) => net.fetch(...args), ffmpeg, store.media, { resize: data => SmallImage(data, nativeImage), resizeCover: data => CoverImage(data, nativeImage), flat: data => FlatImage(data, nativeImage), crop: (data, rect) => ImageData(nativeImage.createFromDataURL(data).crop(rect).toPNG()) });
   session.defaultSession.setPermissionRequestHandler((_c, permission, callback) => callback(permission === 'fullscreen'));
   session.defaultSession.setPermissionCheckHandler((_c, permission) => permission === 'fullscreen');
   Menu.setApplicationMenu(null);
@@ -623,9 +651,15 @@ async function Start() {
   Handle('downloads:prefer', value => offline.PreferSaved(value));
   Handle('downloads:directory', async () => { if (offline.controller) throw new Error('保存中は保存先を変更できません。'); const result = await dialog.showOpenDialog(win, { title: '動画・音声の保存先', defaultPath: offline.directory, properties: ['openDirectory', 'createDirectory'] }); return result.canceled ? offline.Snapshot() : offline.SetDirectory(result.filePaths[0]); });
   Handle('downloads:open', async () => { fs.mkdirSync(offline.directory, { recursive: true }); if (await shell.openPath(offline.directory)) throw new Error('保存先を開けませんでした。'); return true; });
-  Handle('library:thumbnail', (playlistId, entryId, scope = store.data.activePlaylistId, variant = 'small') => {
+  Handle('library:thumbnail', async (playlistId, entryId, scope = store.data.activePlaylistId, variant = 'small') => {
     const entry = structuredClone(store.Entry(playlistId, entryId)); variant = variant === 'cover' ? 'cover' : 'small';
-    if (offline.Find(entry)) { const cover = offline.Cover(entry); return cover ? (variant === 'cover' ? CoverImage : SmallImage)(cover, nativeImage) : null; }
+    const saved = offline.Find(entry);
+    if (saved) {
+      let cover = offline.Cover(entry);
+      // 保存済みのサムネイルが一色に近い場合は、保存済みの動画（なければオンライン）の60秒付近の場面に置き換えて表示する（保存データは変えない）。
+      if (cover) cover = await thumbnails.Improve(entry, cover, saved.kind === 'video' ? saved.path : '');
+      return cover ? (variant === 'cover' ? CoverImage : SmallImage)(cover, nativeImage) : null;
+    }
     const active = () => !!win && !win.isDestroyed() && (scope === '*' || scope === store.data.activePlaylistId && store.Entries(scope).some(e => e.id === entryId)) && !!store.data.playlists.find(p => p.id === playlistId)?.entries.some(e => e.id === entryId);
     return thumbnails.GetPreview(entry, active, variant);
   });
