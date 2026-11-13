@@ -92,7 +92,7 @@ final class MediaDownloader: @unchecked Sendable {
         } onCancel: { task.cancel() }
         defer { try? FileManager.default.removeItem(at: received.0) }
         guard received.1.statusCode == 200 || received.1.statusCode == 206 else {
-            let text = "配信先から取得できません（HTTP (received.1.statusCode)）。時間を置いて再実行してください。"
+            let text = "配信先から取得できません（HTTP \(received.1.statusCode)）。時間を置いて再実行してください。"
             if [401, 403, 412, 429].contains(received.1.statusCode) { throw DownloadError.refused(text) }
             throw DownloadError.message("配信先から取得できません（HTTP \(received.1.statusCode)）。時間を置いて再実行してください。")
         }
