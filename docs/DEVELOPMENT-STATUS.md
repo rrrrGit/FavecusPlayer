@@ -2,7 +2,7 @@
 
 更新日：2026-11-13（日本時間）
 対象：v0.7.0 / `release/v0.7.0`
-現在地：Step6（同期の共通基盤）の実装・Nodeでの検証が完了。iOS（JavaScriptCore）での共通テストデータ実行はCI待ち。次はStep7（Supabase接続とWindows版の同期）。Bilibili実通信・実機の通常操作は未確認。
+現在地：Step6完了。Step7-1（スキーマ・RLS・認証設計）と7-2（SupabaseSyncRepository、偽サーバーでの検証）が完了。次は7-3（Windows版の配線、`sync/state.json`、トークン保管）。Bilibili実通信・実機の通常操作は未確認。
 基準コミット：`79255411dfbcb240cbad064fa8d1ae0ca4e085d4`（`release/v0.6.7` 最新。配布済みv0.6.7 startup-hotfix-1を含む）。
 v0.6.7の開発・検証記録は `docs/VALIDATION-067.md` に移しました。
 
@@ -81,7 +81,7 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 | Step4 MediaKeyと端末依存情報の分離 | 完了 | SyncMediaKey・DeviceMediaを共通JSとWindows版（読み取り専用の投影）へ導入。保存形式は変更せず、共通テストデータ158件で確認 |
 | Step5 Windows版の改善 | 完了（実Electronで主要動作を確認） | ユーザー提示の8項目（`C:\Dev\v0.6.7改善点`）。5-1 ホーム・再生バー／5-2 ×でトレイ格納／5-3 オリジナルのプレイヤーUIと拡大。実Electron 44.2.0で、拡大・Esc・×のトレイ格納を確認（Bilibili実通信・Windowsの実キー操作・シャットダウンは未確認）。下記「Step5の計画」 |
 | Step6 同期の共通基盤 | 完了（iOS CIの確認待ち） | 変更レコード、親子の辺と並び順、Tombstone、競合解決、同期キューを共通JSで実装。SyncRepositoryの抽象とメモリ実装で、同時変更・オフライン編集・削除後の復活防止をテスト |
-| Step7 Supabase接続 | 未着手 | テーブル・行単位のアクセス制御・認証の設計、SupabaseSyncRepository。Windows版の同期接続と、トークンの安全な保存 |
+| Step7 Supabase接続 | 7-1・7-2完了／7-3（Windows配線）・7-4（実Supabase確認、ユーザー作業あり）が残り | テーブル・行単位のアクセス制御・認証の設計、SupabaseSyncRepository。Windows版の同期接続と、トークンの安全な保存 |
 | Step8 iOS基本アプリとローカルDB | 未着手 | ローカルDB、プレイリスト階層の表示・編集・並び替え。画面はユーザーのUI案を受けて決定 |
 | Step9 iOSローカル再生 | 未着手 | AVPlayerによる再生、ミニプレイヤー、バックグラウンド音声、ロック画面操作、再生順 |
 | Step10 メディアZIPの取り込み・出力 | 未着手 | 既存ZIP形式の拡張、Windows出力→iPhone取り込み→iPhone出力→Windows取り込み、重複防止、Filesアプリ・共有シートからの選択 |
@@ -123,6 +123,13 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 
 Step6完了（下記）。次はStep7（Supabase接続、Windows版の同期配線、`sync/state.json`）です。
 
+### Step7の結果（途中）
+
+- 分割：7-1 スキーマとRLS（`supabase/schema.sql`）／7-2 `src/core/sync-supabase.cjs`と偽サーバーでの検証／7-3 Windows配線・`sync/state.json`・トークン保管／7-4 実Supabaseでの確認（ユーザーのプロジェクト作成後）。
+- 7-1・7-2：仕様は `docs/DESIGN.md` の「Supabaseの構成」。認証はメールのワンタイムコード（ユーザー選択）。Free枠の一時停止の詳細を公式で確認（DESIGN.mdの外部情報表）。`test/sync-supabase.test.cjs` 9件（偽Supabase：サインイン、2端末の収束、再送の重複なし、分割Push・ページ取得、トークン更新と401再試行、オフライン/停止/未サインインでoutbox保持、トークン非表示、Compactと全量再同期、不正行）を通過。
+- 未確認：実Supabase（SQLの実行そのもの・RLS・連番トリガー・PostgRESTの `on_conflict` 挙動）。`schema.sql` は未実行で、構文・実挙動は7-4で確認します。
+- ユーザーの作業（7-4の前）：Supabaseプロジェクトの作成、`supabase/schema.sql` をSQL Editorで実行、Authのメールテンプレートに `{{ .Token }}`（6桁コード）が含まれることの確認、Project URLとanon（publishable）キーの用意。
+
 ### Step6の結果（2026-11-13）
 
 - 実装：`src/core/sync-clock.cjs`（HLC）、`sync-order.cjs`（並び順キー）、`sync-state.cjs`（レコード・マージ・整理）、`sync-library.cjs`（ライブラリとの相互変換・差分・導出）、`sync-engine.cjs`（端末・outbox・SyncRepository抽象・メモリ実装）。仕様は `docs/DESIGN.md` の「Step6の実装」。`scripts/build-shared-bundle.cjs` と `.github/workflows/ios.yml` のpathsにも追加済み。
@@ -130,7 +137,8 @@ Step6完了（下記）。次はStep7（Supabase接続、Windows版の同期配�
 - 性能（Node、999リスト・約1万登録）：変換24ms、マージ97ms、導出506ms、1回の編集の差分54ms。
 - 検証（checker指摘の修正）：整理（Compact）は削除があったときだけ古い端末を全量再同期にし、その場合も新規作成・既知レコードの更新は送信を残す／非同期Push中の編集を保持／救った曲が参照するTombstoneは整理しない／並び順キーの伸びで全体を振り直す／不正・24時間超の未来時刻の受信は状態を変えず失敗／導出リストは利用者が編集したときだけ保存。回帰テスト7件を追加。
 - Step7への申し送り：Editは直前のdevice.viewを基準にするため、呼び出し側は同期後の最新のviewを編集して渡すこと。部分項目だけの変更は復活の原因になるため送らないこと。
-- 未確認：iOS（JavaScriptCore）での共通テストデータと速度（CIの実行が必要）。編集のたびに全体を導出する方式の増分化は未実施（Node測定では許容範囲）。Supabase・実通信・`sync/state.json` への保存はStep7。
+- iOS CI（`ec3c92e`、シミュレーター、約6分）：共通テストデータ172件・失敗0（同期14件を含む）。同期の速度は、Swift側のBENCH出力が同期の項目を表示しないため未計測（Step8でSwift側の出力へ追加）。
+- 未確認：編集のたびに全体を導出する方式の増分化は未実施（Node測定では許容範囲）。Supabase・実通信・`sync/state.json` への保存はStep7。
 
 ### Step5の追加修正（ユーザー指摘、2026-11-13）
 

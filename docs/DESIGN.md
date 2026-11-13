@@ -95,6 +95,16 @@
 - **端末と同期**（`sync-engine.cjs`）：編集→状態とoutboxへ→通信可能時にPull→取り込み→Push。マージは冪等です。SyncRepositoryはPush/Pullの抽象で、メモリ実装（テスト用）と整理（Compact、保持90日）を含みます。Supabase実装と `sync/state.json` への保存はStep7です。
 - **共通テストデータ**：`shared/fixtures/cases.json` の `sync …` 14件（時計・並び順・マージ・変換・端末同士の筋書き）をNodeとJavaScriptCoreの両方で実行します。
 
+### Supabaseの構成（Step7-1・7-2）
+
+- **サーバーは追記だけの変更ログ**：`supabase/schema.sql` を、利用者がSupabaseのSQL Editorで1回実行します。表は `sync_changes`（行：利用者・連番・レコードID・項目`f`・端末・重複防止キー）と `sync_meta`（連番の末尾・整理の境界）。LWW・整理の規則はサーバーへ複製せず、共通JS（`src/core/sync-state.cjs`）に置きます。
+- **連番はコミット順**：同じ利用者の挿入は `pg_advisory_xact_lock` で直列化して連番を振ります（identity列はコミット順にならず、読み手が小さい番号を取りこぼすおそれがあるため使いません）。cursorは連番で、読み取り済みより前に後からコミットされる行はありません。
+- **再送が行を増やさない**：変更の内容から導く `batch_id` と一意制約（`on_conflict ... ignore-duplicates`）。
+- **アクセス制御（RLS）**：自分の行だけの SELECT / INSERT / DELETE。UPDATEは許可しません。`sync_meta` はクライアントから読み取りのみで、連番・境界は `security definer` の関数だけが更新します。匿名（anon）ロールは何も許可しません。
+- **整理（Compact）**：`sync_compact(ids)` は、クライアントが共通の規則で選んだレコードIDの行を消し、削除があったときだけ境界を末尾へ進めます（復旧リストが参照するTombstoneは消さない規則はクライアント側）。
+- **クライアント**：`src/core/sync-supabase.cjs`（共通JS。通信は注入された `request`）。メールのワンタイムコードでサインインし、アクセストークンは期限前または401で更新します。Pushは500件ずつ、Pullは1000件ずつのページ取得。エラーは `offline / auth / paused / server / bad` に分類し、トークン・キーは文言に含めません。キーは anon / publishable のみ受け付け、service_role・secret は拒否します。URLは `https://<プロジェクト>.supabase.co` のみ。
+- **利用者が行うこと**：Supabaseのプロジェクト作成、`schema.sql` の実行、Authのメール（OTP）設定の確認、URLとanonキーをアプリへ入力。実Supabaseとの通信は、この準備の後の確認項目です。
+
 ### Tombstoneと長期オフライン
 
 - 削除はTombstone（`deleted:true`）で表し、古い情報による復活を防ぎます。保持期間は90日です（確定）。
@@ -128,7 +138,8 @@ Windows：Electron safeStorage。iOS：Keychain。平文保存、ログ、同期
 | --- | --- | --- |
 | Supabase Free | データベース500MB/プロジェクト、MAU 50,000、API要求は無制限、egress 5GB、Free枠のプロジェクトは2つ | supabase.com/pricing, docs/guides/platform/billing-on-supabase |
 | Supabase 一時停止 | Freeプロジェクトは1週間の非活動で停止（有料は停止しない） | supabase.com/pricing |
-| Supabase 未確認 | 「非活動」の定義、自動停止後の復旧手順、停止前の警告の有無 | 該当ページ未確認。Step7前に確認する |
+| Supabase 一時停止の詳細（2026-11-13確認） | 7日間に「十分なユーザーのDB利用」がないと停止（目安：毎日数回のリクエスト）。停止前の約1週間前に警告メール、停止後に確認メール。停止後1年間はダッシュボードの「Resume project」で、データ・設定ごと復旧できる | supabase.com/docs/guides/platform/free-project-pausing（context7経由で取得） |
+| Supabase 認証 | メールのワンタイムコード：`POST /auth/v1/otp` → `POST /auth/v1/verify`（type=email）、更新は `POST /auth/v1/token?grant_type=refresh_token`。リフレッシュトークンは更新ごとに差し替わる | supabase.com/docs（context7経由） |
 | GitHub Actions | GitHub Freeの含有利用は金額で$12/月（分数ではない）。標準macOSランナーは$0.062/分（Linux 2コアは$0.006/分）。公開リポジトリの標準ランナーは無料 | docs.github.com の課金ページ |
 | GitHub 未確認 | 公式の「倍率」表記はなし。macOSでの無料枠の分数換算（約194分）は筆者の概算で、公式値ではない。リポジトリはPrivateのため、枠の消費を実行ごとに記録する | |
 | AltStore | AltStoreのアプリは7日で期限切れ。AltServerと同一Wi-Fi（またはUSB）でRefreshし、PC起動時にAltServerを起動しておく運用を推奨。同時に有効にできるsideloadアプリは3つ、App IDは10個まで（各1週間） | faq.altstore.io |
@@ -136,7 +147,7 @@ Windows：Electron safeStorage。iOS：Keychain。平文保存、ログ、同期
 
 ### 確定した判断（2026-11-13、ユーザー）
 
-1. 同期基盤はSupabaseを使う。Freeの1週間停止の復旧手順はStep7の前に公式情報で確認し、重大な問題があれば見直す。
+1. 同期基盤はSupabaseを使う。Freeの1週間停止は、データが残り1年以内ならダッシュボードで再開できると確認した（重大な問題なし）。ただし、再開するまでは同期できないため、アプリは停止を検出したら「Supabaseの再開が必要」と知らせて、未送信の変更を保持する。
 2. videoAliasesは自端末間の同期経由に限り確認済みとして受け入れる。ZIP・他者の共有ファイルには適用しない。
 3. Tombstoneの保持期間は90日。
 4. iPhoneの画面・UIは、計画どおりユーザーのUI案を受けてStep15で決める。それまでは仮の最小画面のみ。

@@ -18,6 +18,7 @@ on:
       - "src/core/sync-state.cjs"
       - "src/core/sync-library.cjs"
       - "src/core/sync-engine.cjs"
+      - "src/core/sync-supabase.cjs"
       - "src/core/media-identity.cjs"
       - "src/core/urls.cjs"
       - "src/core/library-share.cjs"
