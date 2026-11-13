@@ -13,41 +13,25 @@ const E = require('./sync-engine.cjs');
 const { SyncSession } = require('./sync-session.cjs');
 const X = require('./sync-supabase.cjs');
 const Storage = require('./sync-storage.cjs');
-const { DerivedId } = require('./sync-library.cjs');
+const { ContextOf, MergeView, Compose } = require('./sync-merge.cjs');
 
 const DAY = 24 * 60 * 60 * 1000;
 
 // Storeとの接続。Library()：同期用の形の現在のライブラリ。Apply(view)：同期後の表示をStoreへ反映（変化がなければ何もしない）。
-function StoreAdapter(store, { validateLibrary, mediaKey }) {
+function StoreAdapter(store, { validateLibrary }) {
   const Library = () => ({ version: 3, identityVersion: 2, videoAliases: store.data.videoAliases || [], rootPlaylistIds: store.data.rootPlaylistIds, playlists: store.data.playlists });
   return {
     Library,
     Directory: () => store.directory,
     Recovered: () => !!store.recovered,
-    // 同期の導出に渡す：ローカルファイルの曲は、この端末に既にあるファイル名を使い、同じ動画は既存のmediaIdを共有する。
-    Context() {
-      const files = new Map(), media = new Map(), keyOf = mediaKey(store.data.videoAliases || []);
-      for (const p of store.data.playlists) for (const e of p.entries) { if (e.type === 'local') files.set(e.id, e.fileName); if (e.mediaId && !media.has(keyOf(e))) media.set(keyOf(e), e.mediaId); }
-      return { localFileName: (id, ext) => files.get(id) || `${id}${ext}`, mediaIdFor: key => media.get(key) || DerivedId(`media:${key}`) };
-    },
+    // 同期の導出に渡す文脈と、受信の反映の規則は、iPhone版と共通の sync-merge.cjs。
+    Context() { return ContextOf(store.data); },
     Apply(view) {
-      const current = store.data, byList = new Map(current.playlists.map(p => [p.id, p])), byEntry = new Map();
-      for (const p of current.playlists) for (const e of p.entries) byEntry.set(e.id, e);
-      const playlists = view.playlists.map(v => {
-        const old = byList.get(v.id);
-        return { ...(old || {}), ...v, icon: old ? old.icon : v.icon, lastAddedAt: old?.lastAddedAt || v.lastAddedAt, entries: v.entries.map(e => {
-          const prior = byEntry.get(e.id);
-          if (!prior) return e;
-          return { ...prior, ...e, ...(e.type === 'local' && prior.type === 'local' ? { fileName: prior.fileName } : {}), mediaId: prior.mediaId || e.mediaId };
-        }) };
-      });
-      const next = { videoAliases: view.videoAliases, rootPlaylistIds: view.rootPlaylistIds, playlists };
-      const keys = ['videoAliases', 'rootPlaylistIds', 'playlists'];
-      if (JSON.stringify(keys.map(k => current[k] || [])) === JSON.stringify(keys.map(k => next[k]))) return false;
+      const current = store.data, { changed, next } = MergeView(current, view);
+      if (!changed) return false;
       const checked = validateLibrary({ version: 3, identityVersion: 2, ...next }); // 不正なら例外（storeは変更しない）
       const before = current;
-      const roots = next.rootPlaylistIds, active = checked.some(p => p.id === current.activePlaylistId) ? current.activePlaylistId : (roots[0] || checked[0].id);
-      try { store.data = { ...current, identityVersion: 2, videoAliases: next.videoAliases, rootPlaylistIds: roots, playlists: checked, activePlaylistId: active }; store.Save(); }
+      try { store.data = Compose(current, next, checked); store.Save(); }
       catch (error) { store.data = before; throw error; }
       return true;
     },
@@ -105,7 +89,7 @@ class SyncService {
     if (this.adapter.Recovered?.()) { this.blocked = '保存データを読み込めず復旧した状態のため、同期を停止しました（空の状態を他の端末へ反映しないためです）。内容を確認し、アプリを再起動してください。'; return; }
     const loaded = Storage.ReadState(this.dir);
     if (loaded.status === 'blocked') { this.blocked = loaded.reason; return; }
-    if (loaded.status === 'ok') this.session.Restore(loaded.snapshot);
+    if (loaded.status === 'ok') this.session.Restore({ ...loaded.snapshot, context: this.adapter.Context() });
   }
   Start() {
     this.Load();
@@ -117,7 +101,7 @@ class SyncService {
     this.Load(); // Start前でも、既存の同期データを確認してから始める
     if (this.blocked) throw new Error(this.blocked);
     if (!this.Session()) throw new Error('先にサインインしてください。');
-    if (!this.device) this.session.Enable({ url: this.config.url, userId: this.Session().userId });
+    if (!this.device) await this.session.Enable({ url: this.config.url, userId: this.Session().userId });
     this.config = { ...this.config, enabled: true }; Storage.WriteConfig(this.dir, this.config);
     this.Emit('idle'); this.interval = this.interval || this.timers.set(() => this.Tick(), 5 * 60 * 1000); this.interval.unref?.();
     return this.SyncNow();

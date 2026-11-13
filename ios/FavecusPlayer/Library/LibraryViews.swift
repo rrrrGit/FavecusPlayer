@@ -8,6 +8,8 @@ struct LibraryRootView: View {
     let importer: ImportCoordinator?
     let exporter: ExportCoordinator?
     let player: PlaybackEngine?
+    let sync: SyncCoordinator?
+    @State private var showSync = false
     @State private var showDiagnostics = false
     @State private var showPicker = false
     @State private var showImport = false
@@ -34,12 +36,14 @@ struct LibraryRootView: View {
                     Button("診断") { showDiagnostics = true }
                     if importer != nil, store.isReady { Button("取り込み") { showPicker = true } }
                     if exporter != nil, store.isReady { Button("出力") { showExport = true } }
+                    if sync != nil, store.isReady { Button("同期") { showSync = true } }
                 }
             }
         }
         .safeAreaInset(edge: .bottom) { if let player { MiniPlayerBar(player: player) } }
         .task {
             await store.load()
+            await sync?.start() // 同期が有効なら、状態を読み込んで同期を始める
             // 画面確認用（シミュレーターのスクリーンショット）：起動引数 -FavecusDemoPath <ID,ID...> で、指定の階層まで開く。通常の起動では何もしない。
             if let raw = UserDefaults.standard.string(forKey: "FavecusDemoPath"), path.isEmpty {
                 for id in raw.split(separator: ",") { path.append(String(id)) }
@@ -61,6 +65,9 @@ struct LibraryRootView: View {
             guard let importer, url.isFileURL, url.pathExtension.lowercased() == "zip" else { return }
             importer.begin(url: url)
             showImport = true
+        }
+        .sheet(isPresented: $showSync) {
+            if let sync { SyncSheet(sync: sync, isPresented: $showSync) }
         }
         .sheet(isPresented: $showExport) {
             if let exporter { ExportSheet(coordinator: exporter, isPresented: $showExport) }

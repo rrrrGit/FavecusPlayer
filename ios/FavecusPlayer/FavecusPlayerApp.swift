@@ -6,7 +6,7 @@ struct FavecusPlayerApp: App {
 
     var body: some Scene {
         WindowGroup {
-            LibraryRootView(store: environment.store, importer: environment.importer, exporter: environment.exporter, player: environment.player)
+            LibraryRootView(store: environment.store, importer: environment.importer, exporter: environment.exporter, player: environment.player, sync: environment.sync)
         }
     }
 }
@@ -18,6 +18,7 @@ final class AppEnvironment: ObservableObject {
     let importer: ImportCoordinator?
     let exporter: ExportCoordinator?
     let player: PlaybackEngine?
+    let sync: SyncCoordinator?
 
     init() {
         do {
@@ -28,6 +29,10 @@ final class AppEnvironment: ObservableObject {
             importer = ImportCoordinator(service: TransferService(core: core), store: store)
             exporter = ExportCoordinator(service: ExportService(core: core), store: store)
             player = PlaybackEngine(core: core, store: store, backend: AVPlayerBackend(), makeSystem: { SystemAudio(controls: $0) })
+            // 同期は、再生などとは別のJavaScriptCoreで動かす。Keychainが使えない環境でも、起動は妨げない（同期の画面にエラーとして出る）。
+            let vault = KeychainVault()
+            let host = StoreSyncHost(store: store, directory: store.syncDirectory, vault: vault)
+            sync = (try? SyncCore(bundle: .main, host: host)).map { SyncCoordinator(store: store, core: $0, host: host, vault: vault) }
         } catch {
             // 起動に必要な部品がない：保存データには触らず、画面に理由を出す。
             let fallback = FileManager.default.temporaryDirectory.appendingPathComponent("FavecusPlayer-unavailable")
@@ -35,6 +40,7 @@ final class AppEnvironment: ObservableObject {
             importer = nil
             exporter = nil
             player = nil
+            sync = nil
         }
     }
 }

@@ -14,6 +14,10 @@ final class LibraryStore: ObservableObject {
     @Published private(set) var state: State = .loading
     @Published private(set) var document: LibraryDocument?
     @Published var notice: String?
+    /// 今回の起動で、壊れた・なくなったライブラリをバックアップから復元した（同期は、空の状態を他の端末へ反映しないよう止まる）。
+    private(set) var restoredThisLaunch = false
+    /// 同期の結果を書き込んでいる間（その変更では、同期の再実行を予約しない）。
+    var syncWriting = false
     /// メディアの置き場にある実体のファイル名（再生できるローカル曲の判断に使う）。
     @Published private(set) var mediaFiles: Set<String> = []
 
@@ -25,6 +29,14 @@ final class LibraryStore: ObservableObject {
 
     var fileURL: URL { directory.appendingPathComponent("library.json") }
     var backupURL: URL { directory.appendingPathComponent("library.json.bak") }
+    var syncDirectory: URL { directory.appendingPathComponent("sync", isDirectory: true) }
+
+    /// 同期を有効にする前の library.json を、別名で残す。
+    func backupLibrary() throws -> String {
+        let target = directory.appendingPathComponent("library.pre-sync-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(8)).json")
+        try FileManager.default.copyItem(at: fileURL, to: target)
+        return target.lastPathComponent
+    }
 
     init(core: SharedCore?, directory: URL, startupError: String? = nil) {
         self.core = core
@@ -54,6 +66,7 @@ final class LibraryStore: ObservableObject {
                 if fromBackup.status == "ok" {
                     result = fromBackup
                     restored = true
+                    restoredThisLaunch = true
                     notice = "保存データが見つからなかったため、バックアップから復元しました。"
                 }
             }
@@ -68,6 +81,7 @@ final class LibraryStore: ObservableObject {
                         try keepDamaged(fileURL)
                         result = fromBackup
                         restored = true
+                    restoredThisLaunch = true
                         notice = "保存データを読み込めなかったため、バックアップから復元しました。"
                         break
                     }

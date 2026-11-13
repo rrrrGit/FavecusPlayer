@@ -9,6 +9,9 @@ on:
       - "shared/**"
       - "scripts/build-shared-bundle.cjs"
       - "scripts/make-test-archive.cjs"
+      - "scripts/fake-supabase-server.cjs"
+      - "scripts/cross-device-driver.cjs"
+      - "test/fake-supabase.cjs"
       - "scripts/verify-ios-export.cjs"
       - "scripts/demo-library.cjs"
       # Windows版のZIP処理（iPhone版の取り込みを、実際のZIPで確認するため）
@@ -32,6 +35,8 @@ on:
       - "src/core/sync-supabase.cjs"
       - "src/core/sync-statefile.cjs"
       - "src/core/sync-session.cjs"
+      - "src/core/sync-merge.cjs"
+      - "src/core/sync-runtime.cjs"
       - "src/core/media-identity.cjs"
       - "src/core/urls.cjs"
       - "src/core/library-share.cjs"
@@ -100,21 +105,38 @@ jobs:
           node ../scripts/make-test-archive.cjs "$RUNNER_TEMP/transfer"
           export TEST_RUNNER_FAVECUS_TRANSFER_DIR="$RUNNER_TEMP/transfer"
           export TEST_RUNNER_FAVECUS_TRANSFER_OUT="$RUNNER_TEMP/transfer-ios"
-          # Step11の事前確認：ローカルのHTTPサーバー（ATSの確認用）
-          node -e "require('http').createServer((q,s)=>s.end('spike-ok')).listen(18765,'127.0.0.1')" &
-          SPIKE_PID=$!
-          export TEST_RUNNER_FAVECUS_SPIKE_URL="http://127.0.0.1:18765/"
+          # Windows版（Node）とiPhone版（シミュレーター）の端末間同期の確認：偽のSupabaseをHTTPで立て、Windows側の手順を並行して動かす。
+          CROSS="$RUNNER_TEMP/cross"
+          rm -rf "$CROSS"; mkdir -p "$CROSS"
+          node ../scripts/fake-supabase-server.cjs 18765 "$CROSS/port" > "$CROSS/server.log" 2>&1 &
+          SERVER_PID=$!
+          for i in $(seq 1 50); do [ -f "$CROSS/port" ] && break; sleep 0.2; done
+          test -f "$CROSS/port"
+          node ../scripts/cross-device-driver.cjs "$CROSS" http://127.0.0.1:18765 > "$CROSS/driver.log" 2>&1 &
+          DRIVER_PID=$!
+          export TEST_RUNNER_FAVECUS_SYNC_SERVER="http://127.0.0.1:18765"
+          export TEST_RUNNER_FAVECUS_SYNC_KEY="$(node -e "console.log(require('../test/fake-supabase.cjs').KEY)")"
+          export TEST_RUNNER_FAVECUS_CROSS_DIR="$CROSS"
+          set +e
           xcodebuild test \
             -project FavecusPlayer.xcodeproj \
             -scheme FavecusPlayer \
             -destination "id=$SIM_UDID" \
             -derivedDataPath build/sim \
             CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES 2>&1 | tee build/test.log
-          kill $SPIKE_PID || true
+          XC=${PIPESTATUS[0]}
+          if [ "$XC" -ne 0 ]; then kill $DRIVER_PID 2>/dev/null; fi
+          wait $DRIVER_PID; DRV=$?
+          kill $SERVER_PID 2>/dev/null
+          echo "--- cross-device driver (exit $DRV) ---"; cat "$CROSS/driver.log"
           {
             echo '### iOSシミュレーターでの共通処理の結果'
-            { grep -E 'FAVECUS_(FIXTURES|BENCH)|SPIKE_' build/test.log || true; } | sort -u | sed 's/^/- /'
+            { grep -E 'FAVECUS_(FIXTURES|BENCH)' build/test.log || true; } | sort -u | sed 's/^/- /'
+            echo '### Windows版とiPhone版の端末間同期'
+            sed 's/^/- /' "$CROSS/driver.log"
           } >> "$GITHUB_STEP_SUMMARY"
+          test "$XC" -eq 0
+          test "$DRV" -eq 0
 
       - name: Check the built Info.plist (document types)
         run: |
