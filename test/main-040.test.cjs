@@ -208,7 +208,7 @@ async function MainHarness(t, options = {}) {
     setVisible(value){this.visible=value;}setBounds(value){this.bounds=value;}
   }
   class Presence {Configure(){}SetActivity(value){activities.push(value);}Stop(){}}
-  class Mini {Update(){}Destroy(){}Restore(){windows[0].show();windows[0].focus();}}
+  class Mini {Update(){}Destroy(){}Restore(){windows[0].show();windows[0].focus();}CanHideToTray(){return options.tray===true;}}
   class Thumbnails {Get(){return new Promise(resolve=>thumbnailDone=resolve);}async GetPreview(entry,active){previewCalls.push(entry);return active()?'data:image/png;base64,aWNvbg==':null;}}
   const app=new EventEmitter();Object.assign(app,{setName(){},setPath:(key,value)=>paths.set(key,value),commandLine:{appendSwitch:(key,value)=>switches.set(key,value)},requestSingleInstanceLock:()=>true,quit(){},getPath:()=>path.join(root,'data'),getVersion:()=> '0.6.4',getAppPath:()=>path.resolve(__dirname,'..'),whenReady:()=>({then:fn=>{ready=fn();return ready;}})});
   const ipcMain=new EventEmitter();ipcMain.handle=(key,fn)=>handlers.set(key,fn);
@@ -608,6 +608,25 @@ test('062 local track changes reuse the player and retirement closes outside the
   assert.ok(h.messages.some(m => m.value?.type === 'notice' && /FP-PLAYER-RENDERER-EXITED/.test(m.value.value)));
 });
 
+function CloseWindow(main) { const event = { prevented: false, preventDefault() { this.prevented = true; } }; main.emit('close', event); return event; }
+test('067 the close button hides the window to the tray, keeps playback state and restores through a second launch', async t => {
+  const h = await MainHarness(t, { tray: true }), main = h.main;
+  const first = CloseWindow(main); assert.equal(first.prevented, true); assert.equal(main.visible, false); assert.ok(!main.closed, 'ウィンドウは破棄しない');
+  assert.equal(CloseWindow(main).prevented, true, '繰り返しても同じ');
+  h.app.emit('second-instance'); assert.equal(main.visible, true);
+});
+test('067 closing is allowed while quitting from the tray', async t => {
+  const h = await MainHarness(t, { tray: true }); h.app.emit('before-quit'); assert.equal(CloseWindow(h.main).prevented, false);
+});
+test('067 Windows shutdown, logoff and installer close requests are never blocked by the tray hiding', async t => {
+  for (const name of ['query-session-end', 'session-end']) {
+    const h = await MainHarness(t, { tray: true }); h.main.emit(name, { reasons: ['close-app'], preventDefault() { assert.fail('終了要求を遅らせない'); } });
+    assert.equal(CloseWindow(h.main).prevented, false, name);
+  }
+});
+test('067 the window closes normally when no tray icon could be created, so it can never become unreachable', async t => {
+  const h = await MainHarness(t); assert.equal(CloseWindow(h.main).prevented, false); assert.notEqual(h.main.visible, false);
+});
 test('063 contents released during close never get dereferenced again and views are detached once', async t => {
   let closes = 0, detaches = 0;
   const h = await MainHarness(t, { releaseContents: true, onNative(action) { if (action === 'close') closes++; if (action === 'detach') detaches++; } });

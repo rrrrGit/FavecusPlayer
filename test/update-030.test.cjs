@@ -175,6 +175,12 @@ test('restore or destroy while connecting cancels late hiding of the main window
     assert.equal(h.main.visible,true);assert.equal(h.mini.window,null);h.mini.Destroy();
   }
 });
+test('067 the tray can host a hidden main window only while its icon exists and the player is alive',()=>{
+  const {mini}=MiniHarness();assert.equal(mini.CanHideToTray(),true);
+  mini.tray.isDestroyed=()=>true;assert.equal(mini.CanHideToTray(),false,'アイコンが破棄された');
+  const {mini:other}=MiniHarness();other.tray=null;assert.equal(other.CanHideToTray(),false,'アイコンを作れなかった');
+  const {mini:last}=MiniHarness();last.Destroy();assert.equal(last.CanHideToTray(),false,'終了処理後');
+});
 test('disabling embedding during connection opens floating mode and preserves recovery',async()=>{
   const settings={taskbarEmbed:true};const h=MiniHarness(false,{platform:'win32',TaskbarPlayer:FakeTaskbar,settings:()=>settings});const showing=h.mini.Show();
   settings.taskbarEmbed=false;const configuring=h.mini.Configure();h.finish();await Promise.all([showing,configuring]);assert.equal(h.mini.taskbar.connection,null);assert.equal(h.mini.window.visible,true);

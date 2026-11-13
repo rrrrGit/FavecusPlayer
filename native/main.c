@@ -65,7 +65,7 @@ void Entry(void){InitAPI();CoInitializeEx(0,2);GetModuleFileNameW(0,exePath,CAP)
   ExitProcess((U32)Launch());
 #else
   MakeWindow();
-  H lock=CreateMutexW(0,0,L"Local\\FavecusPlayerRunning");U32 lockError=GetLastError();if(lockError==183){Error(L"Favecus Playerを閉じてからセットアップ・更新を実行してください。");if(lock)CloseHandle(lock);ExitProcess(1);}
+  H lock=CreateMutexW(0,0,L"Local\\FavecusPlayerRunning");U32 lockError=GetLastError();if(lockError==183){Error(L"Favecus Playerを閉じてからセットアップ・更新を実行してください。×ボタンでは通知領域に残ります。通知領域のアイコンを右クリックして「終了」を選んでください。");if(lock)CloseHandle(lock);ExitProcess(1);}
   H legacyLock=CreateMutexW(0,0,L"Local\\FocusPlayerRunning");U32 legacyError=GetLastError();if(legacyError==183){Error(L"旧版のアプリを閉じてから更新してください。");ExitProcess(1);}
   H legacySetup=CreateMutexW(0,0,L"Local\\FocusPlayerSetupRunning");if(GetLastError()==183){Error(L"旧版のセットアップを終了してください。");ExitProcess(1);}
   H setupLock=CreateMutexW(0,0,L"Local\\FavecusPlayerSetupRunning");U32 setupError=GetLastError();if(setupError==183){Error(L"別のセットアップが実行中です。");ExitProcess(1);}

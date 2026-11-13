@@ -56,6 +56,8 @@ class MiniPlayer {
     };
     screen.on('display-removed', this.reposition); screen.on('display-metrics-changed', this.reposition);
   }
+  // 通知領域にアイコンがあり、そこから再表示・終了できるときだけtrue（×ボタンでの格納の条件）。
+  CanHideToTray() { return !this.disposed && !!this.tray && !this.tray.isDestroyed(); }
   Status(code, text) { this.options.status?.(code, text); }
   Handle(channel, callback) {
     ipcMain.handle(channel, async (event, ...args) => {

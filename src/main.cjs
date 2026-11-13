@@ -132,7 +132,7 @@ function RefreshVideo() {
   if (!remoteView?.navigationReady || !wc || wc.isDestroyed() || store?.data.settings.thumbnailMode) return;
   wc.invalidate?.(); SendToPlayer('media:command', { type: 'refresh-display' });
 }
-const retiredPlayers = new Map(), playbackRoutes = new Map(); let quitting = false;
+const retiredPlayers = new Map(), playbackRoutes = new Map(); let quitting = false, sessionEnding = false, sessionTimer = null;
 function DisposePlayer(view) {
   const retired = retiredPlayers.get(view);
   if (!retired || retired.closing) return;
@@ -547,6 +547,14 @@ async function Start() {
   win.on('focus', () => { UpdateForeground(); RefreshVideo(); void Accounts(false); });
   win.webContents.on('focus', () => UpdateForeground());
   for (const event of ['show', 'restore']) win.on(event, () => { UpdateForeground(); RefreshVideo(); });
+  // ×ボタンは通知領域（トレイ）へ格納する。通知は出さない。終了はトレイの「終了」から行う。
+  // 終了中・OSのシャットダウン/ログオフ/更新ツールの終了要求・トレイのアイコンが無いとき（再表示できなくなるため）は、通常どおり閉じる。
+  win.on('close', event => {
+    if (quitting || sessionEnding || !mini?.CanHideToTray?.()) return;
+    event.preventDefault(); win.hide();
+  });
+  win.on('query-session-end', () => { sessionEnding = true; clearTimeout(sessionTimer); sessionTimer = setTimeout(() => { sessionEnding = false; }, 30000); sessionTimer.unref?.(); });
+  win.on('session-end', () => { clearTimeout(sessionTimer); sessionEnding = true; });
   win.on('closed', () => { offline?.Cancel(); biliBrowser?.Destroy(); backgroundMode?.Dispose(); mini?.Destroy(); mini = null; StopPlayer(); win = null; presence?.Stop(); app.quit(); });
   presence = new DiscordPresence((code, text) => Status('discord', code, text));
   mini = new MiniPlayer(win, MiniState, Command, ChangeVolume, Notify, { settings: () => store.data.settings, status: (code, text) => Status('taskbar', code, text) });

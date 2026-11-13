@@ -560,7 +560,7 @@ function TitleWordsSettings() {
 }
 function ReleaseSettings() {
   const save = () => SaveSettingsSection({ releaseDriveURL: $('release-drive-url').value.trim() });
-  OpenModal('バージョン更新', '<label class="field">Google Driveの配布先<input id="release-drive-url" placeholder="https://drive.google.com/drive/folders/..."><small>配信元から案内されたフォルダーURLを指定してください。未設定の場合はマイドライブを開きます。</small></label><div class="settings-actions"><button id="release-open" type="button" class="button primary">Google Driveを開く ↗</button></div><p class="form-note">配布先のファイル名でバージョンを確認し、Patchを取得してください。アプリを終了してから、既存のFavecusPlayerフォルダーへ適用します。</p>', save, '保存して戻る', save);
+  OpenModal('バージョン更新', '<label class="field">Google Driveの配布先<input id="release-drive-url" placeholder="https://drive.google.com/drive/folders/..."><small>配信元から案内されたフォルダーURLを指定してください。未設定の場合はマイドライブを開きます。</small></label><div class="settings-actions"><button id="release-open" type="button" class="button primary">Google Driveを開く ↗</button></div><p class="form-note">配布先のファイル名でバージョンを確認し、Patchを取得してください。アプリを終了（×ボタンでは通知領域に残るため、通知領域のアイコンを右クリックして「終了」）してから、既存のFavecusPlayerフォルダーへ適用します。</p>', save, '保存して戻る', save);
   $('release-drive-url').value = state.settings.releaseDriveURL || '';
   $('release-open').onclick = () => Run(async () => { await Action({ type: 'settings', settings: { releaseDriveURL: $('release-drive-url').value.trim() } }); await api.openRelease(); });
 }
