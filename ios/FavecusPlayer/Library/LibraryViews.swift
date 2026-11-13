@@ -389,22 +389,25 @@ private struct PlaylistDetail: View {
 
     /// 見出し：先頭の曲のサムネイルを上に大きく、その上に、パンくずとタイトル。
     private var hero: some View {
-        ZStack(alignment: .bottomLeading) {
-            Theme.panel
-            if let cover {
-                Image(uiImage: cover).resizable().scaledToFill().frame(maxWidth: .infinity).frame(height: 240).clipped()
-            } else {
-                Image(systemName: "music.note.list").font(.system(size: 56)).foregroundStyle(Color(hex: 0x50586F)).frame(maxWidth: .infinity).frame(height: 240)
+        Theme.panel
+            .frame(maxWidth: .infinity)
+            .frame(height: 240)
+            .overlay {
+                if let cover {
+                    Image(uiImage: cover).resizable().scaledToFill()
+                } else {
+                    Image(systemName: "music.note.list").font(.system(size: 56)).foregroundStyle(Color(hex: 0x50586F))
+                }
             }
-            LinearGradient(colors: [.clear, Theme.background], startPoint: .center, endPoint: .bottom)
-            VStack(alignment: .leading, spacing: 6) {
-                Text(breadcrumb).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
-                Text(parent?.name ?? "").font(.system(size: 26, weight: .bold)).foregroundStyle(Theme.text).lineLimit(2)
+            .clipped()
+            .overlay(LinearGradient(colors: [.clear, Theme.background], startPoint: .center, endPoint: .bottom))
+            .overlay(alignment: .bottomLeading) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(breadcrumb).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
+                    Text(parent?.name ?? "").font(.system(size: 26, weight: .bold)).foregroundStyle(Theme.text).lineLimit(2)
+                }
+                .padding(.horizontal, 16).padding(.bottom, 8)
             }
-            .padding(.horizontal, 16).padding(.bottom, 8)
-        }
-        .frame(height: 240)
-        .clipped()
     }
 
     private var controls: some View {
