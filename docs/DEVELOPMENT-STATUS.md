@@ -129,7 +129,8 @@ Step4完了。次はStep5（Windows版の改善）です。Step5の内容はユ�
 - 追加：`src/core/device-media.cjs`、`library-identity.cjs` に `LibrarySyncKey` / `LibrarySyncKeyForms` / `AuditIds` / `SYNC_KEY`、`OfflineLibrary.DeviceMedia()`（読み取り専用）、`test/sync-identity.test.cjs`（7件）、共通テストデータ42件（計158件）。共有JSの許可リストとiOSワークフローのpathsに `device-media.cjs` を追加し、`src/` の共有モジュールがpathsから漏れると失敗するテストを追加しました。
 - Nodeの検証：新規9件と、更新した共通テストデータ158件（ECMAScriptのみのvm）が成功。`node scripts/check.cjs`：123ファイル成功。全478件のうち、成功466・失敗9・スキップ3（checker指摘の修正後に新規テスト2件を追加。失敗9件は同じ名前）。失敗9件は、Step3で記録した既知の環境起因（symlink権限・FFmpeg・ZIP64）と**テスト名が一致**することを確認しました。
 - ID点検：過去版（v0.6.2以降）のIDは `randomUUID` で作られ、旧形式から移行するIDも検証時に再割当されるため、同期前のID付け替えは不要と判断しました（根拠はDESIGN.md）。
-- iOS：Step4のコードを含むCI実行は、Push後の結果をここへ追記します。実機検証は不要なStepのため、IPAのドライブ保存は行いません。
+- iOSシミュレーター（CI run 43385142284、コミット 6db1e92）：成功。フィクスチャ158件が失敗0（Nodeと同じ結果）。計測は検証461ms・共有出力413ms・検索インデックス36ms・取り込み計画169ms（シミュレーター）。実機検証は不要なStepのため、IPAのドライブ保存は行いません。macOS実行は1回（約8分、概算$0.5）で、累計は約37分・概算$2.3です。
+- checker（Sonnet）の指摘を反映：保存済みの videoId/part はURLの正規形と一致するときだけ使い、食い違えばURLを正にした（フィクスチャも修正）。投影と点検は不正な入力で例外を出さず、実体確認の例外は未保存扱いにした。
 - 未確認：iPhoneのJavaScriptCoreでの結果はCI（シミュレーター）のみ。Step6で同期レコードとして使う際の、aliasの確認順序による昇格の扱い。
 
 ### Step3の結果
