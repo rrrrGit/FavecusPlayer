@@ -22,6 +22,15 @@ enum Fvpa {
     private static let autoHeader = 52
     private static let tagLength = 16
 
+    /// 自動形式で暗号化する（鍵とnonceはその都度ランダム。ヘッダー全体をAADにする）。
+    static func encrypt(_ plain: Data) throws -> Data {
+        let key = SymmetricKey(size: .bits256)
+        let nonce = AES.GCM.Nonce()
+        let header = Data("FVPA0002".utf8) + key.withUnsafeBytes { Data($0) } + Data(nonce)
+        let sealed = try AES.GCM.seal(plain, using: key, nonce: nonce, authenticating: header)
+        return header + sealed.tag + sealed.ciphertext
+    }
+
     static func decrypt(_ bytes: Data) throws -> Data {
         let data = Data(bytes)
         guard data.count >= 8 else { throw FvpaError.notArchive }

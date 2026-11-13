@@ -6,9 +6,11 @@ import UniformTypeIdentifiers
 struct LibraryRootView: View {
     @ObservedObject var store: LibraryStore
     let importer: ImportCoordinator?
+    let exporter: ExportCoordinator?
     @State private var showDiagnostics = false
     @State private var showPicker = false
     @State private var showImport = false
+    @State private var showExport = false
     @State private var path = NavigationPath()
 
     var body: some View {
@@ -30,6 +32,7 @@ struct LibraryRootView: View {
                 ToolbarItemGroup(placement: .navigationBarLeading) {
                     Button("診断") { showDiagnostics = true }
                     if importer != nil, store.isReady { Button("取り込み") { showPicker = true } }
+                    if exporter != nil, store.isReady { Button("出力") { showExport = true } }
                 }
             }
         }
@@ -50,6 +53,9 @@ struct LibraryRootView: View {
             case .failure(let error):
                 store.notice = "ファイルを開けません：\(error.localizedDescription)"
             }
+        }
+        .sheet(isPresented: $showExport) {
+            if let exporter { ExportSheet(coordinator: exporter, isPresented: $showExport) }
         }
         .sheet(isPresented: $showImport) {
             if let importer { ImportSheet(coordinator: importer, isPresented: $showImport) }

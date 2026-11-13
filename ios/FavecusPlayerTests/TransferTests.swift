@@ -162,6 +162,85 @@ final class TransferTests: XCTestCase {
         XCTAssertThrowsError(try ZipArchive(source: DataSource(Data())))
     }
 
+    // MARK: 出力
+
+    private func importAll(_ coordinator: ImportCoordinator, _ name: String) async throws {
+        let plan = try await choose(coordinator, name)
+        await coordinator.commit(ids: plan.lists.map(\.id))
+        guard case .done = coordinator.phase else { return XCTFail("取り込めませんでした: \(coordinator.phase)") }
+        coordinator.cancel()
+    }
+
+    private func export(_ store: LibraryStore, mode: String, into folder: URL) async throws -> ExportResult {
+        let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let exporter = ExportCoordinator(service: ExportService(core: core), store: store)
+        await exporter.run(mode: mode, directory: folder)
+        guard case .ready(let result) = exporter.phase else { XCTFail("出力できませんでした: \(exporter.phase)"); throw TransferError.message("export") }
+        return result
+    }
+
+    func testAnIOSExportCarriesTheMediaAndCanBeImportedAgain() async throws {
+        let (store, coordinator) = try await makeStore()
+        try await importAll(coordinator, "windows-media.zip")
+        let result = try await export(store, mode: "media", into: directory.appendingPathComponent("out-media"))
+        XCTAssertEqual(result.copied, 2)
+        XCTAssertEqual(result.missing, 0)
+        // 別の端末（空のストア）へ取り込み直すと、同じ構造と同じ実体になる
+        let other = directory.appendingPathComponent("other")
+        try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let second = LibraryStore(core: core, directory: other)
+        await second.load()
+        let importer = ImportCoordinator(service: TransferService(core: core), store: second)
+        importer.begin(url: result.url)
+        try await wait(importer) { if case .choosing = $0 { return true }; if case .failed = $0 { return true }; return false }
+        guard case .choosing(let plan) = importer.phase else { return XCTFail("iPhone版の出力を読めません: \(importer.phase)") }
+        await importer.commit(ids: plan.lists.map(\.id))
+        guard case .done(let outcome) = importer.phase else { return XCTFail("取り込めませんでした: \(importer.phase)") }
+        XCTAssertEqual(outcome.copied, 2)
+        let sizes = try mediaFiles(second).map { try XCTUnwrap(FileManager.default.attributesOfItem(atPath: second.mediaDirectory.appendingPathComponent($0).path)[.size] as? Int) }
+        XCTAssertEqual(Set(sizes), Set([try expected().localSizes.A, try expected().localSizes.B]))
+        XCTAssertTrue(["親", "子", "独立"].allSatisfy { name in second.document?.playlists.contains { $0.name == name } ?? false })
+    }
+
+    func testAnInformationExportOmitsTheMedia() async throws {
+        let (store, coordinator) = try await makeStore()
+        try await importAll(coordinator, "windows-media.zip")
+        let result = try await export(store, mode: "information", into: directory.appendingPathComponent("out-info"))
+        XCTAssertEqual(result.copied, 0)
+        XCTAssertEqual(result.omitted, 2)
+        let zip = try ZipArchive(source: try FileSource(url: result.url))
+        XCTAssertEqual(zip.names, ["playlists.fvpa"])
+    }
+
+    func testAMissingMediaFileIsReportedAndTheStructureIsStillExported() async throws {
+        let (store, coordinator) = try await makeStore()
+        try await importAll(coordinator, "windows-media.zip")
+        let files = mediaFiles(store)
+        try FileManager.default.removeItem(at: store.mediaDirectory.appendingPathComponent(files[0]))
+        let result = try await export(store, mode: "media", into: directory.appendingPathComponent("out-missing"))
+        XCTAssertEqual(result.copied, 1)
+        XCTAssertEqual(result.missing, 1)
+    }
+
+    /// CIでは、ここで出力したZIPを、Windows版の取り込み処理（scripts/verify-ios-export.cjs）が読めるかを続けて確認する。
+    func testWritesArchivesForTheWindowsImporter() async throws {
+        let folder = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["FAVECUS_TRANSFER_OUT"], "FAVECUS_TRANSFER_OUT が渡されていません（CIの設定を確認）"))
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let (store, coordinator) = try await makeStore()
+        try await importAll(coordinator, "windows-media.zip")
+        let media = try await export(store, mode: "media", into: directory.appendingPathComponent("w-media"))
+        let info = try await export(store, mode: "information", into: directory.appendingPathComponent("w-info"))
+        for (source, name) in [(media.url, "ios-media.zip"), (info.url, "ios-info.zip")] {
+            let target = folder.appendingPathComponent(name)
+            try? FileManager.default.removeItem(at: target)
+            try FileManager.default.copyItem(at: source, to: target)
+        }
+        let sizes = [try expected().localSizes.A, try expected().localSizes.B]
+        let description: [String: Any] = ["lists": store.document?.playlists.map(\.name) ?? [], "localCount": 2, "localSizes": sizes]
+        try JSONSerialization.data(withJSONObject: description).write(to: folder.appendingPathComponent("expected-ios.json"))
+    }
+
     func testAPasswordProtectedContainerIsReportedClearly() {
         var bytes = Data("FVPA0001".utf8)
         bytes.append(Data(repeating: 1, count: 80))

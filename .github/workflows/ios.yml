@@ -9,6 +9,7 @@ on:
       - "shared/**"
       - "scripts/build-shared-bundle.cjs"
       - "scripts/make-test-archive.cjs"
+      - "scripts/verify-ios-export.cjs"
       - "scripts/demo-library.cjs"
       # Windows版のZIP処理（iPhone版の取り込みを、実際のZIPで確認するため）
       - "src/core/library-archive.cjs"
@@ -96,6 +97,7 @@ jobs:
           # Windows版の出力処理で、取り込みテスト用のZIPを作る（TEST_RUNNER_ 付きの環境変数が、テストの中へ渡る）。
           node ../scripts/make-test-archive.cjs "$RUNNER_TEMP/transfer"
           export TEST_RUNNER_FAVECUS_TRANSFER_DIR="$RUNNER_TEMP/transfer"
+          export TEST_RUNNER_FAVECUS_TRANSFER_OUT="$RUNNER_TEMP/transfer-ios"
           xcodebuild test \
             -project FavecusPlayer.xcodeproj \
             -scheme FavecusPlayer \
@@ -106,6 +108,9 @@ jobs:
             echo '### iOSシミュレーターでの共通処理の結果'
             { grep -E 'FAVECUS_(FIXTURES|BENCH)' build/test.log || true; } | sort -u | sed 's/^/- /'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify the iPhone export with the Windows importer
+        run: node ../scripts/verify-ios-export.cjs "$RUNNER_TEMP/transfer-ios"
 
       - name: Screenshot
         if: github.event_name == 'workflow_dispatch' && inputs.screenshot
