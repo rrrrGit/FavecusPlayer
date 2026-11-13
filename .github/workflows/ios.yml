@@ -39,7 +39,6 @@ on:
       - "src/core/sync-merge.cjs"
       - "src/core/sync-runtime.cjs"
       - "src/core/media-identity.cjs"
-      - "src/core/urls.cjs"
       - "src/core/bilibili-resolve.cjs"
       - "src/core/bilibili-runtime.cjs"
       - "src/core/bilibili-download.cjs"

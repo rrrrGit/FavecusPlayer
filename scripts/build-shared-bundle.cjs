@@ -9,7 +9,6 @@ const MODULES = {
   'core/library-data.cjs': 'src/core/library-data.cjs',
   'core/library-identity.cjs': 'src/core/library-identity.cjs',
   'core/device-media.cjs': 'src/core/device-media.cjs',
-  'core/urls.cjs': 'src/core/urls.cjs',
   'core/library-actions.cjs': 'src/core/library-actions.cjs',
   'core/library-app.cjs': 'src/core/library-app.cjs',
   'core/library-transfer.cjs': 'src/core/library-transfer.cjs',

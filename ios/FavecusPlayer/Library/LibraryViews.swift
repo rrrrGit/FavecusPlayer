@@ -249,21 +249,22 @@ private struct LibraryTab: View {
 
     private func editControls(_ list: PlaylistItem, index: Int) -> some View {
         HStack(spacing: 4) {
-            round("pencil") { renaming = list; renameText = list.name }
-            round("trash") { pendingDelete = list }
+            round("pencil", label: "名前を変更") { renaming = list; renameText = list.name }
+            round("trash", label: "削除") { pendingDelete = list }
             Spacer(minLength: 0)
-            round("chevron.left", enabled: index > 0) { move(list, before: roots[index - 1].id) }
-            round("chevron.right", enabled: index < roots.count - 1) { move(list, after: roots[index + 1].id) }
+            round("chevron.left", label: "前へ移動", enabled: index > 0) { move(list, before: roots[index - 1].id) }
+            round("chevron.right", label: "後ろへ移動", enabled: index < roots.count - 1) { move(list, after: roots[index + 1].id) }
         }
         .padding(6)
     }
 
-    private func round(_ icon: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
+    private func round(_ icon: String, label: String, enabled: Bool = true, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon).font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
-                .frame(width: 26, height: 26).background(Circle().fill(Color.black.opacity(0.65)))
+                .frame(width: 30, height: 30).background(Circle().fill(Color.black.opacity(0.65)))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(label)
         .opacity(enabled ? 1 : 0.3)
         .disabled(!enabled)
     }

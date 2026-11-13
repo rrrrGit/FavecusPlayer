@@ -83,7 +83,8 @@ function Apply(data, action, ctx) {
     const duration = Number.isFinite(action.duration) && action.duration > 0 ? { duration: Math.min(action.duration, 604800) } : {};
     p.entries.push({ ...item, title: ctx.cleanTitle(action.title) || item.videoId, ...duration, id: ctx.createId(), addedAt: ctx.now() });
     p.lastAddedAt = ctx.now();
-    PlanMediaIds(data.playlists, ctx.createId, keyOf);
+    // 新しい曲のメディア識別番号：同じ動画（av/BVの別表記を含む）が他のリストにあれば、その番号を再利用する（Windows版のSaveと同じ割り当て）
+    for (const [entry, mediaId] of PlanMediaIds(data.playlists, ctx.createId, keyOf)) if (!Object.hasOwn(entry, 'mediaId')) entry.mediaId = mediaId;
   } else if (action.type === 'reorder') {
     const index = p.entries.findIndex(e => e.id === action.entryId);
     const target = p.entries.findIndex(e => e.id === action.targetId);

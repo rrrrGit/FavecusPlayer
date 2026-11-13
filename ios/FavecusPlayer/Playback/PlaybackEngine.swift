@@ -217,6 +217,12 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         system?.activate()
         generation += 1
         let mine = generation
+        // 次の曲の準備中に、前の曲のファイルで動画に切り替えないよう、前の曲の動画の情報を消しておく
+        videoMode = false
+        videoAvailable = false
+        audioFile = nil
+        videoFile = nil
+        loadedFile = nil
         current = NowPlaying(entryId: id, playlistId: playlistId, title: target.title.isEmpty ? "（無題）" : target.title)
         let file: URL
         if target.type == "local" {
@@ -302,6 +308,20 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     /// 読み込み・再生に失敗した曲は飛ばす。続けて失敗したら（再生できる曲がない）、無限に回らず止める。
     private func failed(_ reason: String) {
         guard current != nil else { return } // 止めたあとに届いた古い失敗は無視する
+        // 動画を映しているときの失敗は、次の曲へ送らず、音声に戻す
+        if videoMode, let audio = audioFile {
+            let resume = position
+            videoMode = false
+            videoAvailable = false
+            videoFile = nil
+            backend.load(url: audio)
+            loadedFile = audio
+            backend.seek(to: resume)
+            backend.play()
+            message = "動画を再生できませんでした。音声に戻しました。"
+            refresh()
+            return
+        }
         failureStreak += 1
         guard failureStreak <= max(3, playableIds().count) else {
             message = "再生できる曲がありません：\(reason)"
