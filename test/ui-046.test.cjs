@@ -352,6 +352,18 @@ test('067 home card opening and playback are separate and native video stays hid
   assert.equal(played, h.id); assert.equal(h.node('entries').querySelectorAll('.entry').length, 12);
   h.node('all-lists').onclick(); h.flush(); assert.equal(h.bounds.at(-1).visible, false); assert.equal(h.node('now-title').textContent, '曲1');
 });
+test('067 the local player quality request opens the single-track save dialog for that entry, and the transport button asks main to enlarge the video', async t => {
+  const h = await Harness(t), s = h.store, api = SingleDownloadAPI(h);
+  s.Apply({ type: 'add', playlistId: h.id, urls: 'https://www.bilibili.com/video/av999/?p=2' }); h.emit('state', s.Snapshot());
+  const entry = s.Playlist(h.id).entries.at(-1), before = s.Snapshot();
+  h.emit('change-quality', { playlistId: h.id, entryId: entry.id }); await new Promise(setImmediate);
+  assert.equal(h.node('modal-title').textContent, 'この動画のみをダウンロード'); assert.match(h.node('download-entry-meta').textContent, /av999 \/ パート 2/);
+  assert.equal(api.estimates[0].entryId, entry.id); assert.deepEqual(s.Snapshot(), before, '要求だけでは保存データを変えない');
+  h.emit('change-quality', { playlistId: h.id, entryId: entry.id }); assert.match(h.node('toast').textContent, /閉じてから/, '画面が開いているときは通知だけ');
+  h.run('CloseModal()'); h.emit('change-quality', { playlistId: 'unknown', entryId: 'unknown' }); await new Promise(setImmediate); assert.equal(h.node('modal').open, false, '存在しない曲では開かない');
+  const requests = []; h.api.videoFullscreen = async () => { requests.push('toggle'); return requests.length > 1; };
+  await h.node('video-fullscreen').onclick(); assert.deepEqual(requests, ['toggle']); assert.match(h.node('toast').textContent, /画面全体へ拡大/, '動画が表示されていないとき（拒否）は理由を知らせる');
+});
 test('067 home card puts the check, play and a three-dot menu on the cover; excluded lists stay marked and shuffle starts that list', async t => {
   const h = await Harness(t), ids = ParentTree(h); let shuffled, played;
   h.api.shufflePlay = async id => { shuffled = id; }; h.api.play = async id => { played = id; };

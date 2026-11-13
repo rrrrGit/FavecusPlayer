@@ -88,3 +88,26 @@ body{grid-template-columns:var(--sidebar-width,218px) minmax(0,1fr)}.sidebar{pad
 .home-card-menu .popup-item{padding:10px 12px;font-size:12px}
 .home-card-title{display:block;max-width:100%;margin-top:12px;padding:0;font-size:14px;font-weight:700;line-height:1.6;text-align:left;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .home-card-title:hover{text-decoration:underline}
+
+/* v0.7.0 Step5-3：ローカル（保存済み・ファイル）再生画面のオリジナル操作 */
+.local-player video{background:#000;outline:0}
+.local-player.is-idle{cursor:none}
+.local-controls{position:absolute;left:0;right:0;bottom:0;padding:38px 18px 14px;background:linear-gradient(transparent,#000d);opacity:0;pointer-events:none;transition:opacity .18s}
+.local-player.is-active .local-controls,.local-player.is-paused .local-controls,.local-controls:focus-within{opacity:1;pointer-events:auto}
+.local-controls[hidden],.local-quality[hidden],.local-menu[hidden]{display:none}
+.local-bar{display:flex;align-items:center;gap:14px;color:#edf0f8}
+.local-button{display:grid;place-items:center;width:36px;height:36px;padding:6px;border-radius:50%;color:inherit;flex-shrink:0}
+.local-button:hover{background:#ffffff26}
+.local-button svg{width:100%;height:100%;fill:currentColor}
+.local-button svg[viewBox] path[fill=none]{fill:none}
+.local-player.is-paused .local-icon-pause,.local-player:not(.is-paused) .local-icon-play{display:none}
+.local-time{font-size:12px;min-width:92px;color:#dfe3ef;font-variant-numeric:tabular-nums}
+.local-seek{flex:1;min-width:60px;accent-color:var(--accent);height:18px}
+.local-quality{position:relative;flex-shrink:0}
+.local-chip{font-size:12px;font-weight:700;padding:6px 10px;border:1px solid #ffffff55;border-radius:6px;color:inherit}
+.local-chip:hover,.local-chip[aria-expanded=true]{background:#ffffff26}
+.local-menu{position:absolute;right:0;bottom:46px;width:236px;padding:10px;background:#242531;border:1px solid #424355;border-radius:9px;box-shadow:0 10px 28px #000a;font-size:12px}
+.local-menu p{margin:0 0 8px;line-height:1.6;color:#dfe3ef}
+.local-menu .local-menu-note{margin:8px 0 0;font-size:10px;color:var(--muted)}
+.local-menu-item{display:block;width:100%;padding:9px 10px;text-align:left;border-radius:6px;background:#373148;font-size:12px}
+.local-menu-item:hover{background:#4a4064}

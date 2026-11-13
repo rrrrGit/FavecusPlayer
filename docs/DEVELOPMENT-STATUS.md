@@ -2,7 +2,7 @@
 
 更新日：2026-11-13（日本時間）
 対象：v0.7.0 / `release/v0.7.0`
-現在地：Step5-2完了（×でトレイ格納）。次は5-3（オリジナルのプレイヤーUIと最大化）。画質切替の方針（ユーザー回答）待ち。
+現在地：Step5-3の実装・Node検証まで完了（実Electron・Windows実機は未確認）。Step5の残りは実機確認とcheckerの反映。
 基準コミット：`79255411dfbcb240cbad064fa8d1ae0ca4e085d4`（`release/v0.6.7` 最新。配布済みv0.6.7 startup-hotfix-1を含む）。
 v0.6.7の開発・検証記録は `docs/VALIDATION-067.md` に移しました。
 
@@ -79,7 +79,7 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 | Step2 iOSビルド基盤の検証 | 完了 | XcodeGenの最小SwiftUIアプリをCIでビルド・テストし、署名なしIPAを取得。AltStore経由でiPhone 16e（iOS 26.7.2）へ導入し起動を確認 |
 | Step3 共通処理のiOS実行 | 完了 | 共通JSの束ね方とJSContextでの実行を実装し、共通テストデータ116件をNodeとiOSシミュレーターの両方で全件一致。999リスト・約1万登録の速度をシミュレーターで計測 |
 | Step4 MediaKeyと端末依存情報の分離 | 完了 | SyncMediaKey・DeviceMediaを共通JSとWindows版（読み取り専用の投影）へ導入。保存形式は変更せず、共通テストデータ158件で確認 |
-| Step5 Windows版の改善 | 進行中（5-1・5-2完了） | ユーザー提示の8項目（`C:\Dev\v0.6.7改善点`）。5-1 ホーム・再生バーの見た目（完了）／5-2 ×でトレイ格納（完了）／5-3 オリジナルのプレイヤーUIと最大化。下記「Step5の計画」 |
+| Step5 Windows版の改善 | 実装完了・実機確認待ち | ユーザー提示の8項目（`C:\Dev\v0.6.7改善点`）。5-1 ホーム・再生バー／5-2 ×でトレイ格納／5-3 オリジナルのプレイヤーUIと拡大（いずれも実装・Node検証済み。実Electron・Windows実機は未確認）。下記「Step5の計画」 |
 | Step6 同期の共通基盤 | 未着手 | 変更レコード、親子の辺と並び順、Tombstone、競合解決、同期キューを共通JSで実装。SyncRepositoryの抽象とメモリ実装で、同時変更・オフライン編集・削除後の復活防止をテスト |
 | Step7 Supabase接続 | 未着手 | テーブル・行単位のアクセス制御・認証の設計、SupabaseSyncRepository。Windows版の同期接続と、トークンの安全な保存 |
 | Step8 iOS基本アプリとローカルDB | 未着手 | ローカルDB、プレイリスト階層の表示・編集・並び替え。画面はユーザーのUI案を受けて決定 |
@@ -122,6 +122,19 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 ## 現在の工程
 
 Step4完了。次はStep5（Windows版の改善）です。Step5の内容はユーザーの指示を受けて決めます。指示がなければStep6（同期の共通基盤）へ進むこともできます。
+
+### Step5-3の結果（⑤⑥）
+
+- ユーザーの回答（2026-11-13）：DL済み動画の画質切替は **(a) 再ダウンロードで切替**。保存形式は変更しない。
+- 範囲：ユーザーのスクリーンショットの操作画面（⋮メニューに「ダウンロード」「再生速度」「ピクチャーインピクチャー」）はChromiumの標準 `<video controls>` で、保存済み・ローカル再生の `local.html` が該当する。ここを独自UIに置き換えた。**オンラインのBilibili再生はBilibili自身のプレイヤーの操作のまま**（サードパーティのページの書き換えはしない。画質もBilibili側の設定）。標準の「ダウンロード」「再生速度」「PiP」のメニューは無くなる。
+- 拡大（⑥）：状態を `main.cjs` の `videoFullscreen` が一元管理。入口は、下部の再生バーの拡大ボタン（`player:fullscreen`）、ローカル再生画面の拡大ボタン・動画のダブルクリック（`media:fullscreen`）、Bilibili自身の全画面ボタン（`enter-html-full-screen`）。入ると動画ビューをウィンドウ全体へ広げ、アプリ起点のときは `win.setFullScreen(true)` も行う。**出口**：Esc（動画側・メイン側の `before-input-event`）、`leave-html-full-screen`、ウィンドウの `leave-full-screen`・`hide`・`minimize`、動画ビューの入れ替え・停止（`CloseView`）、モーダル・曲モード・音声のみ・再生なし、画面側が動画を表示しないと報告したとき。動画が見えていないときは入らない（Bilibiliの全画面で入れない場合はHTML全画面を解除）。同じ再生画面のまま次の曲へ進むときは維持する。
+- ローカル再生画面の独自UI（`local.html` / `local.js` / `style.css`）：再生・一時停止、再生位置、時間、拡大、保存済みの画質（例：720p）。カーソルが止まると隠れる。ボタンにフォーカスを残さない（Spaceの二重動作の防止）。音量は下部の再生バー（preloadが全体の音量を管理するため、ここでは持たない）。CSPのため、アイコンはインラインSVG、スタイルはクラスのみ。
+- 画質（a）：`local.html` のURLに保存済みの形式と高さ（`kind` / `height`、検証済みの数値）を渡して表示。「別の画質で保存し直す…」は `media:quality` → mainが現在の曲だけを使って `change-quality` を通知 → 既存の「この動画のみをダウンロード」画面を開く。新しい画質は保存後の次の再生から。再生中のファイルは保持され、Step4-2の仕組みで後から整理される。
+- セキュリティ：ページからmainへ送れるのは、`favecus://app/local.html` だけ（`media.cjs` のpreloadもこのページにだけ `favecusPlayer` を公開）。mainは送信元が現在の再生ビューのメインフレームで、URLが `local.html` であることを検証し、ページから引数を受け取らない。公式プレイヤー（player.bilibili.com）や他の送信元は拒否する。
+- 下部の再生バーに拡大ボタンを追加（オンライン再生にもアプリ側のボタンがある）。
+- 検証：`test/main-040.test.cjs` に6件（拡大の出入り・Esc・stale状態の防止・Bilibili全画面・IPCの送信元検証・画質URLと要求）、`test/ui-046.test.cjs` に1件、`SavedURL` の代用DOMを更新。全493件のうち、成功481・失敗9・スキップ3で、失敗9件は既知の環境起因とテスト名が一致。`node scripts/check.cjs`：123ファイル成功。
+- 操作プレビュー（**模擬**）：一時的な確認ページで、模擬の長さ・位置・状態に `local.html` と `local.js` を動かし、操作部品・画質のメニューの見た目を確認した（動画・拡大・画質の実処理は含まない。確認用ページはGitに入れていない）。
+- **未確認（実Electron・Windows実機）**：実際の拡大（`WebContentsView` の大きさ、`titleBarOverlay` の全画面時の挙動、Esc）、Bilibili自身の全画面ボタンからの拡大、`favecus://` の動画での操作部品の動作、CSP、保存済み動画の再生位置と画質変更後の再生、実際のBilibiliでの動作。`node_modules` が無く、実Electronを起動できていない。
 
 ### Step5-2の結果
 

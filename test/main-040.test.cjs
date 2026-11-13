@@ -36,8 +36,9 @@ function SavedTrack(h, entry, content = 'media', height = 720) {
   const record = { token, kind: 'video', url: entry.url, aliases: [entry.url], file, bytes: Buffer.byteLength(content), height, layout: 4 }; h.offline.CommitRecord(record); return record;
 }
 function SavedURL(view) {
-  const video = { addEventListener() {} };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/ui/local.js'), 'utf8'), { URL, location: { href: view.webContents.getURL() }, document: { getElementById: () => video } });
+  // local.js は画面の操作部品も扱うため、最小限のDOM代用品を渡す（ここで確認するのは動画の読み込み元だけ）。
+  const video = { addEventListener() {}, querySelectorAll: () => [], classList: { toggle() {}, add() {}, remove() {} }, setAttribute() {}, contains: () => false, blur() {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/ui/local.js'), 'utf8'), { URL, location: { href: view.webContents.getURL() }, window: {}, setTimeout, clearTimeout, document: { getElementById: () => video, body: video, addEventListener() {} } });
   return video.src;
 }
 for (const [mode, extension] of [['information', 'json'], ['information', 'zip'], ['media', 'zip']]) test(`067 main exports ${mode} as ${extension} and imports a selected child under its destination`, async t => {
@@ -184,6 +185,7 @@ async function MainHarness(t, options = {}) {
     constructor(){super();this.frame={url:''};this.sent=[];this.muteHistory=[];}
     get mainFrame(){options.onFrameAccess?.(this);return this.frame;}
     set mainFrame(frame){this.frame=frame;}
+    focus(){this.focused=true;} executeJavaScript(code){(this.scripts=this.scripts||[]).push(code);return Promise.resolve();}
     setWindowOpenHandler(fn){this.openHandler=fn;} isDestroyed(){return !!this.closed;}close(){if(this.closed)return;if(options.delayPlayerClose&&views.some(v=>v.webContents===this)&&!this.allowClose){this.closing=true;return;}options.onNative?.('close');this.closed=true;const view=views.find(v=>v.webContents===this);if(view&&options.releaseContents)view.webContents=undefined;this.emit('destroyed');options.onClose?.(this,{windows,ipcMain});}setAudioMuted(value){this.muted=value;this.muteHistory.push(value);}getURL(){return this.frame.url;}getTitle(){return '動画名 - bilibili';}
     async loadURL(url){
       options.onNative?.('load');this.loads=(this.loads || 0)+1;this.loading=true;
@@ -199,6 +201,7 @@ async function MainHarness(t, options = {}) {
   }
   class Window extends EventEmitter {
     constructor(){super();this.webContents=new Contents();this.children=[];this.contentView={addChildView:v=>this.children.push(v),removeChildView:v=>{options.onNative?.('detach');this.children=this.children.filter(x=>x!==v);}};windows.push(this);}
+    isFullScreen(){return !!this.fullscreen;}setFullScreen(value){this.fullscreen=!!value;this.emit(value?'enter-full-screen':'leave-full-screen');}
     isMinimized(){return !!this.minimized;}isMaximized(){return false;}show(){this.visible=true;}hide(){this.visible=false;this.emit('hide');}focus(){this.emit('focus');}close(){this.closed=true;this.emit('closed');}restore(){this.minimized=false;}
     isDestroyed(){return !!this.closed;}getContentSize(){return [1440,900];}async loadURL(url){await this.webContents.loadURL(url);}
     isFocused(){return this.focused !== false;}isVisible(){return this.visible !== false;}
@@ -626,6 +629,80 @@ test('067 Windows shutdown, logoff and installer close requests are never blocke
 });
 test('067 the window closes normally when no tray icon could be created, so it can never become unreachable', async t => {
   const h = await MainHarness(t); assert.equal(CloseWindow(h.main).prevented, false); assert.notEqual(h.main.visible, false);
+});
+async function PlayingView(t, options = {}) {
+  const h = await MainHarness(t, options), id = h.store.data.activePlaylistId;
+  const state = await h.invoke('library:action', { type: 'add', playlistId: id, urls: 'av123\nav456' }), entry = state.playlists[0].entries[0];
+  await h.invoke('player:play', id, entry.id); const view = h.views.at(-1);
+  h.ipcMain.emit('view:bounds', h.event, { x: 100, y: 100, width: 500, height: 300, visible: true });
+  return { h, id, entry, view, slot: { x: 100, y: 100, width: 500, height: 300 } };
+}
+const EscapeKey = () => ({ stopped: false, preventDefault() { this.stopped = true; } });
+test('067 the transport button enlarges the video to the whole window, and Esc (in the video or the main window) restores the slot', async t => {
+  const { h, view, slot } = await PlayingView(t);
+  assert.equal(await h.invoke('player:fullscreen'), true); assert.equal(h.main.fullscreen, true); assert.deepEqual({ ...view.bounds }, { x: 0, y: 0, width: 1440, height: 900 }); assert.equal(view.visible, true);
+  const inView = EscapeKey(); view.webContents.emit('before-input-event', inView, { type: 'keyDown', key: 'Escape' });
+  assert.equal(inView.stopped, true); assert.equal(h.main.fullscreen, false); assert.deepEqual({ ...view.bounds }, slot);
+  assert.equal(await h.invoke('player:fullscreen'), true); const inMain = EscapeKey(); h.main.webContents.emit('before-input-event', inMain, { type: 'keyDown', key: 'Escape' });
+  assert.equal(inMain.stopped, true); assert.equal(h.main.fullscreen, false); assert.deepEqual({ ...view.bounds }, slot);
+  const other = EscapeKey(); view.webContents.emit('before-input-event', other, { type: 'keyDown', key: 'Escape' }); assert.equal(other.stopped, false, '拡大中でなければEscを奪わない');
+  assert.equal(await h.invoke('player:fullscreen'), true); assert.equal(await h.invoke('player:fullscreen'), false, 'もう一度押すと戻る'); assert.equal(h.main.fullscreen, false);
+});
+test('067 enlarging is refused while the video is not visible, and a stale enlarged state never survives a modal, thumbnail mode, stop or hiding', async t => {
+  const h = await MainHarness(t), id = h.store.data.activePlaylistId;
+  const state = await h.invoke('library:action', { type: 'add', playlistId: id, urls: 'av123' }), entry = state.playlists[0].entries[0];
+  assert.equal(await h.invoke('player:fullscreen'), false); assert.ok(!h.main.fullscreen, '再生がないときは入らない');
+  await h.invoke('player:play', id, entry.id); const view = h.views.at(-1);
+  assert.equal(await h.invoke('player:fullscreen'), false, '動画が表示されていない（画面側の枠がない）ときは入らない'); assert.ok(!h.main.fullscreen);
+  const bounds = value => h.ipcMain.emit('view:bounds', h.event, { x: 100, y: 100, width: 500, height: 300, visible: true, ...value });
+  bounds({}); assert.equal(await h.invoke('player:fullscreen'), true);
+  bounds({ modalOpen: true, visible: false }); assert.equal(h.main.fullscreen, false, 'モーダルを開く（画面側が動画を表示しない）と解除'); assert.equal(view.visible, false);
+  bounds({}); assert.equal(await h.invoke('player:fullscreen'), true);
+  h.ipcMain.emit('view:bounds', h.event, { x: 100, y: 100, width: 500, height: 300, visible: true, modalOpen: true }); assert.equal(h.main.fullscreen, false, 'モーダルが開いているという報告だけでも解除');
+  bounds({}); assert.equal(await h.invoke('player:fullscreen'), true);
+  await h.invoke('library:action', { type: 'settings', settings: { thumbnailMode: true } }); assert.equal(h.main.fullscreen, false, '曲モードで解除'); await h.invoke('library:action', { type: 'settings', settings: { thumbnailMode: false } });
+  assert.equal(await h.invoke('player:fullscreen'), true); h.main.emit('hide'); assert.equal(h.main.fullscreen, false, 'ウィンドウを隠すと解除');
+  assert.equal(await h.invoke('player:fullscreen'), true); h.main.fullscreen = false; h.main.emit('leave-full-screen'); assert.deepEqual({ ...view.bounds }, { x: 100, y: 100, width: 500, height: 300 }, 'OS側で全画面が解除されたら枠へ戻る');
+  assert.equal(await h.invoke('player:fullscreen'), true); await h.invoke('player:command', 'stop'); assert.equal(h.main.fullscreen, false, '停止で解除');
+});
+test('067 the same enlarged state follows the next track and ends when the player view is stopped', async t => {
+  const { h, view } = await PlayingView(t);
+  assert.equal(await h.invoke('player:fullscreen'), true);
+  await h.invoke('player:command', 'next'); assert.equal(h.views.at(-1), view, '同じ再生画面のまま'); assert.equal(h.main.fullscreen, true); assert.deepEqual({ ...view.bounds }, { x: 0, y: 0, width: 1440, height: 900 });
+  await h.invoke('player:command', 'stop'); assert.equal(h.main.fullscreen, false);
+});
+test('067 Bilibili own fullscreen button enters and leaves the same state; a hidden video leaves HTML fullscreen', async t => {
+  const { h, view, slot } = await PlayingView(t);
+  view.webContents.emit('enter-html-full-screen'); assert.deepEqual({ ...view.bounds }, { x: 0, y: 0, width: 1440, height: 900 }); assert.ok(!h.main.fullscreen, '窓の全画面はElectronのHTML全画面が行う（アプリは重ねて切り替えない）');
+  view.webContents.emit('leave-html-full-screen'); assert.deepEqual({ ...view.bounds }, slot);
+  assert.ok(!(view.webContents.scripts || []).some(code => /exitFullscreen/.test(code)), 'ページ側から先に解除された場合は重ねて解除しない');
+  view.webContents.emit('enter-html-full-screen'); const esc = EscapeKey(); view.webContents.emit('before-input-event', esc, { type: 'keyDown', key: 'Escape' });
+  assert.equal(esc.stopped, true); assert.deepEqual({ ...view.bounds }, slot); assert.ok(view.webContents.scripts.some(code => /exitFullscreen/.test(code)), 'Escを横取りするため、ページのHTML全画面も解除する');
+  view.webContents.scripts.length = 0; view.webContents.emit('enter-html-full-screen'); h.main.emit('hide'); assert.ok(view.webContents.scripts.some(code => /exitFullscreen/.test(code)), '隠したときもHTML全画面を解除する');
+  h.ipcMain.emit('view:bounds', h.event, { x: 100, y: 100, width: 500, height: 300, visible: false });
+  view.webContents.emit('enter-html-full-screen'); assert.ok(view.webContents.scripts.some(code => /exitFullscreen/.test(code)), '見えていない動画ではHTML全画面を解除する'); assert.equal(view.visible, false);
+});
+test('067 only the local player page may request enlarging or a quality change, and only for the current saved video', async t => {
+  const { h, view } = await PlayingView(t);
+  const events = () => h.messages.filter(m => m.type === 'app:event' && m.value.type === 'change-quality'), send = (channel, sender = view.webContents) => h.ipcMain.emit(channel, { sender, senderFrame: sender.mainFrame });
+  view.navigationReady = true;
+  send('media:fullscreen'); assert.ok(!h.main.fullscreen, '公式プレイヤー（player.bilibili.com）の画面からは受け付けない'); send('media:quality'); assert.equal(events().length, 0);
+  view.webContents.frame.url = 'favecus://app/local.html?media=00000000-0000-4000-8000-000000000001.mp3';
+  send('media:fullscreen', h.main.webContents); assert.ok(!h.main.fullscreen, '再生画面以外の送信元は受け付けない');
+  send('media:fullscreen'); assert.equal(h.main.fullscreen, true, 'ローカル再生画面からは受け付ける'); send('media:fullscreen'); assert.equal(h.main.fullscreen, false);
+  send('media:fullscreen'); h.main.emit('leave-full-screen'); assert.equal(h.main.fullscreen, true, '遅れて届いた古い全画面解除の通知では、再度入った拡大を解除しない'); h.main.fullscreen = false; h.main.emit('leave-full-screen'); assert.equal(h.main.fullscreen, false);
+  send('media:quality'); assert.equal(events().length, 0, '保存済みの動画でないとき（オンライン再生・ローカルファイル）は画質の要求を受け付けない');
+});
+test('067 a saved video passes its saved height to the local page; the quality request carries no page arguments and leaves enlargement first', async t => {
+  const h = await MainHarness(t), id = h.store.data.activePlaylistId;
+  const state = await h.invoke('library:action', { type: 'add', playlistId: id, urls: 'av123' }), entry = state.playlists[0].entries[0]; SavedTrack(h, entry, 'media', 1080);
+  await h.invoke('player:play', id, entry.id); const view = h.views.at(-1); assert.match(view.webContents.getURL(), /favecus:\/\/app\/local\.html\?offline=[a-f0-9]{64}\.mp4&playback=[a-f0-9-]{36}&kind=video&height=1080$/);
+  h.ipcMain.emit('view:bounds', h.event, { x: 100, y: 100, width: 500, height: 300, visible: true }); view.navigationReady = true;
+  const events = () => h.messages.filter(m => m.type === 'app:event' && m.value.type === 'change-quality');
+  assert.equal(await h.invoke('player:fullscreen'), true);
+  h.ipcMain.emit('media:quality', { sender: view.webContents, senderFrame: view.webContents.mainFrame }, { playlistId: 'attacker', entryId: 'x' });
+  assert.equal(events().length, 1); assert.deepEqual({ ...events()[0].value.value }, { playlistId: id, entryId: entry.id }, 'ページの引数ではなくmainの現在の曲を使う');
+  assert.equal(h.main.fullscreen, false, '保存画面を開く前に拡大を解除する');
 });
 test('063 contents released during close never get dereferenced again and views are detached once', async t => {
   let closes = 0, detaches = 0;

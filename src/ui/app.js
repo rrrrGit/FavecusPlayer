@@ -1154,6 +1154,7 @@ $('add-files').onclick = AddLocalFiles;
 $('mini-player').onclick = () => Run(() => api.mini());
 $('transport-volume').oninput = () => VolumeInput($('transport-volume'));
 $('mute').onclick = () => Run(() => api.volume(state.settings.volume > 0 ? 0 : lastVolume));
+$('video-fullscreen').onclick = () => Run(async () => { if (!(await api.videoFullscreen())) Toast('動画を表示しているときに、画面全体へ拡大できます。'); });
 $('filter').addEventListener('input', () => { queueFollower?.Interact(); RenderEntries(); });
 $('entries').addEventListener('wheel', event => { queueFollower?.Interact(); queueDrag?.Wheel(event); }, { passive: false });
 $('entries').addEventListener('touchmove', () => queueFollower?.Interact(), { passive: true });
@@ -1191,6 +1192,15 @@ if (api) {
     else if (event.type === 'accounts') { accounts = event.value; UpdateAccounts(); }
     else if (event.type === 'queue') { queueInfo = event.value; RenderNext(); if (state) UpdateTransport(); }
     else if (event.type === 'foreground') { const changed = foreground !== (event.value === true); foreground = event.value === true; listArtwork?.SetEnabled(foreground); BackgroundInteractive(foreground); if (!foreground) { queueDrag?.Cancel(); queueFollower?.Release(); } if (foreground) { if (changed) queueFollower?.Request(); PumpDurations(); } }
+    else if (event.type === 'change-quality') {
+      // ローカル再生画面の「別の画質で保存し直す」。既存の1曲の保存画面を開く（切り替えは再保存。新しい画質は次の再生から使う）。
+      const target = event.value;
+      if ($('modal').open) Toast('開いている画面を閉じてから、もう一度画質の変更を押してください。');
+      else {
+        const found = target && state.playlists.find(p => p.id === target.playlistId)?.entries.find(e => e.id === target.entryId && e.type === 'bilibili');
+        if (found) DownloadsDialog({ playlistId: target.playlistId, entryId: target.entryId, entryURL: found.url });
+      }
+    }
     else if (event.type === 'add-url') { if (!$('modal').open) AddURL(event.value); else Toast('追加画面が開いています。閉じてから検索画面の追加ボタンを押してください。'); }
   });
   new ResizeObserver(SendBounds).observe($('player-slot'));

@@ -1,5 +1,9 @@
 'use strict';
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, contextBridge } = require('electron');
+// ローカル再生画面（アプリ自身のページ）にだけ、拡大・画質のボタン用の最小のAPIを公開する。Bilibiliなど外部ページには公開しない。
+if (typeof location !== 'undefined' && /^favecus:\/\/app\/local\.html(?:\?|$)/.test(location.href)) {
+  contextBridge.exposeInMainWorld('favecusPlayer', Object.freeze({ fullscreen: () => ipcRenderer.send('media:fullscreen'), changeQuality: () => ipcRenderer.send('media:quality') }));
+}
 let currentMedia = null, endReported = false, lastSend = 0, masterVolume = null;
 let lastHealth = '';
 const knownMedia = new WeakSet();

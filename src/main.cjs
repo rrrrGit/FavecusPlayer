@@ -119,7 +119,9 @@ function Status(kind, code, text) { statuses[kind] = { code, text }; Emit('statu
 function ViewBounds() {
   if (!LivePlayer() || !win || win.isDestroyed()) return;
   const [width, height] = win.getContentSize();
-  const b = visibleBounds;
+  // 拡大中でも、モーダル・曲モード・音声のみ・再生なしのときは拡大を解除する（古い拡大状態を残さない）。
+  if (videoFullscreen && (visibleBounds.modalOpen || store?.data.settings.thumbnailMode || current?.offline?.kind === 'audio' || !current)) ExitVideoFullscreen();
+  const b = videoFullscreen ? { x: 0, y: 0, width, height, visible: true } : visibleBounds;
   const x = Math.min(width, Math.max(0, Math.ceil(b.x))), y = Math.min(height, Math.max(0, Math.ceil(b.y)));
   const bounds = { x, y, width: Math.max(0, Math.min(width, Math.floor(b.x + b.width)) - x), height: Math.max(0, Math.min(height, Math.floor(b.y + b.height)) - y) };
   const visible = !!b.visible && !store?.data.settings.thumbnailMode && current?.offline?.kind !== 'audio' && bounds.width > 0 && bounds.height > 0;
@@ -127,12 +129,34 @@ function ViewBounds() {
   if (visible && !viewVisible) RefreshVideo();
   viewVisible = visible;
 }
+// 動画の拡大（画面全体）。状態はmainだけが持つ。HTMLの全画面（Bilibili自身のボタン）・アプリ内の拡大ボタン・ローカル再生画面の拡大ボタンのどれからでも同じ状態へ入り、
+// Esc・動画の入れ替え・モーダル・曲モード・ウィンドウの非表示/全画面解除で必ず解除する。
+function EnterVideoFullscreen(byApp) {
+  const wc = LivePlayer();
+  if (videoFullscreen) return true;
+  if (!wc || !win || win.isDestroyed() || !viewVisible || visibleBounds.modalOpen || store?.data.settings.thumbnailMode || current?.offline?.kind === 'audio') return false;
+  videoFullscreen = true; fullscreenHtml = byApp ? null : wc;
+  if (byApp && !win.isFullScreen()) { fullscreenByApp = true; win.setFullScreen(true); }
+  ViewBounds(); try { wc.focus(); } catch {}
+  return true;
+}
+function ExitVideoFullscreen() {
+  if (!videoFullscreen) return;
+  videoFullscreen = false;
+  // Bilibili自身のHTML全画面で入っていた場合は、ページ側の全画面（とElectronが行ったウィンドウの全画面）も解除する。Escを横取りしているため、ここで解除しないと残る。
+  const html = fullscreenHtml; fullscreenHtml = null;
+  if (html && !html.isDestroyed()) html.executeJavaScript('document.fullscreenElement && document.exitFullscreen()').catch(() => {});
+  if (fullscreenByApp) { fullscreenByApp = false; if (win && !win.isDestroyed() && win.isFullScreen()) win.setFullScreen(false); }
+  ViewBounds();
+}
+const ToggleVideoFullscreen = () => { if (videoFullscreen) ExitVideoFullscreen(); else EnterVideoFullscreen(true); return videoFullscreen; };
 function RefreshVideo() {
   const wc = remoteView?.webContents;
   if (!remoteView?.navigationReady || !wc || wc.isDestroyed() || store?.data.settings.thumbnailMode) return;
   wc.invalidate?.(); SendToPlayer('media:command', { type: 'refresh-display' });
 }
 const retiredPlayers = new Map(), playbackRoutes = new Map(); let quitting = false, sessionEnding = false, sessionTimer = null;
+let videoFullscreen = false, fullscreenByApp = false, fullscreenHtml = null;
 function DisposePlayer(view) {
   const retired = retiredPlayers.get(view);
   if (!retired || retired.closing) return;
@@ -145,6 +169,7 @@ function DisposePlayer(view) {
   if (!wc || wc.isDestroyed()) { view.releaseOffline?.(); retiredPlayers.delete(view); }
 }
 function CloseView() {
+  ExitVideoFullscreen();
   generation++; viewVisible = false; recovery?.Cancel();
   const old = remoteView; remoteView = null;
   if (!old) return;
@@ -289,6 +314,10 @@ function MakeView(source, forceNew = false, officialPlayer = false) {
     else { StopPlayer(); Notify('[FP-PLAYER-VIEW-DESTROYED] 再生画面が閉じられました。曲を選び直して再生できます。'); }
   });
   wc.on('focus', () => { if (remoteView === view) UpdateForeground(); });
+  // Bilibili自身の全画面ボタン（HTMLの全画面）も、同じ拡大状態へ入る。入れないとき（動画が見えていない等）はHTML側を解除する。
+  wc.on('enter-html-full-screen', () => { if (remoteView !== view) return; if (!EnterVideoFullscreen(false)) wc.executeJavaScript('document.fullscreenElement && document.exitFullscreen()').catch(() => {}); });
+  wc.on('leave-html-full-screen', () => { if (remoteView !== view) return; fullscreenHtml = null; ExitVideoFullscreen(); });
+  wc.on('before-input-event', (event, input) => { if (remoteView === view && videoFullscreen && input.type === 'keyDown' && input.key === 'Escape') { event.preventDefault(); ExitVideoFullscreen(); } });
   wc.setAudioMuted(true);
   wc.setWindowOpenHandler(({ url }) => {
     if (IsAllowedRemote(url, source)) {
@@ -373,7 +402,7 @@ async function LoadEntry(playlistId, entryId, pageMode = false, { allowRecovery 
   PlayerDiagnostic('track-change', { source, saved: !!saved });
   playback = null; thumbnail = null; UpdatePresence(); UpdateForeground(); Emit('current', current); void LoadThumbnail(); backgroundMode?.Refresh();
   recovery?.Begin(gen, source === 'bilibili' && !pageMode && allowRecovery);
-  const url = saved ? `favecus://app/local.html?offline=${saved.token}&playback=${view.offlineRoute}` : entry.type === 'local' ? `favecus://app/local.html?media=${entry.fileName}` : pageMode ? entry.url : officialPlayer ? `${entry.url}${entry.url.includes('?') ? '&' : '?'}autoplay=1` : PlayerURL(entry, details);
+  const url = saved ? `favecus://app/local.html?offline=${saved.token}&playback=${view.offlineRoute}&kind=${saved.kind === 'audio' ? 'audio' : 'video'}${Number.isInteger(saved.height) && saved.height > 0 && saved.height < 10000 ? `&height=${saved.height}` : ''}` : entry.type === 'local' ? `favecus://app/local.html?media=${entry.fileName}` : pageMode ? entry.url : officialPlayer ? `${entry.url}${entry.url.includes('?') ? '&' : '?'}autoplay=1` : PlayerURL(entry, details);
   view.requestedURL = url;
   if (source === 'bilibili') { void WarmMetadata(entry); const upcoming = queue.Timeline(store.data.settings.repeat).upcoming.slice(0, 2); for (const id of upcoming) void WarmMetadata(queue.catalog.get(id)); }
   PlayerDiagnostic('navigation-start'); nativeDiagnostics?.Annotate({ operation: 'load-url' });
@@ -549,6 +578,13 @@ async function Start() {
   for (const event of ['show', 'restore']) win.on(event, () => { UpdateForeground(); RefreshVideo(); });
   // ×ボタンは通知領域（トレイ）へ格納する。通知は出さない。終了はトレイの「終了」から行う。
   // 終了中・OSのシャットダウン/ログオフ/更新ツールの終了要求・トレイのアイコンが無いとき（再表示できなくなるため）は、通常どおり閉じる。
+  // 拡大中にウィンドウが隠れる・全画面が解除される・メイン画面側でEscが押されたときも解除する。
+  for (const event of ['hide', 'minimize', 'leave-full-screen']) win.on(event, () => {
+    // leave-full-screen は非同期に届く。すぐ再度拡大した後に遅れて届いた古い通知では解除しない（まだ全画面なら無視）。
+    if (event === 'leave-full-screen') { if (win?.isFullScreen()) return; fullscreenByApp = false; fullscreenHtml = null; }
+    ExitVideoFullscreen();
+  });
+  win.webContents.on('before-input-event', (event, input) => { if (videoFullscreen && input.type === 'keyDown' && input.key === 'Escape') { event.preventDefault(); ExitVideoFullscreen(); } });
   win.on('close', event => {
     if (quitting || sessionEnding || !mini?.CanHideToTray?.()) return;
     event.preventDefault(); win.hide();
@@ -678,6 +714,7 @@ async function Start() {
   });
   Handle('player:play', Play);
   Handle('player:shuffle', ShufflePlay);
+  Handle('player:fullscreen', () => ToggleVideoFullscreen());
   Handle('player:all', AllPlay);
   Handle('player:command', Command);
   Handle('player:shortcut', Shortcut);
@@ -707,7 +744,16 @@ async function Start() {
   });
   ipcMain.on('view:bounds', (event, bounds) => {
     if (!SecureIPC(event) || !bounds || !['x', 'y', 'width', 'height'].every(k => Number.isFinite(bounds[k]) && Math.abs(bounds[k]) < 20000)) return;
+    // 画面側が動画を表示しないと報告したとき（モーダル・ホーム・曲モード等）は、拡大を残さない。
+    if (videoFullscreen && !bounds.visible) ExitVideoFullscreen();
     visibleBounds = bounds; ViewBounds(); SyncShortcuts();
+  });
+  // ローカル再生画面（favecus://app/local.html）の拡大・画質ボタン。Bilibiliなど外部ページには公開しない（preload側でも同じ条件）。引数は受け取らず、mainの現在の曲を使う。
+  const TrustedLocalPlayer = event => TrustedMediaEvent(event) && /^favecus:\/\/app\/local\.html(?:\?|$)/.test(String(event.senderFrame?.url || ''));
+  ipcMain.on('media:fullscreen', event => { if (TrustedLocalPlayer(event)) ToggleVideoFullscreen(); });
+  ipcMain.on('media:quality', event => {
+    if (!TrustedLocalPlayer(event) || current?.offline?.kind !== 'video' || !current.playlistId || !current.entryId) return;
+    ExitVideoFullscreen(); Emit('change-quality', { playlistId: current.playlistId, entryId: current.entryId });
   });
   ipcMain.on('media:shortcut', (event, input) => {
     if (TrustedMediaEvent(event)) void Shortcut(input).catch(error => Notify(error.message));
