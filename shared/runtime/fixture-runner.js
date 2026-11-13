@@ -4,6 +4,8 @@
 const urls = require('../core/urls.cjs');
 const mediaIdentity = require('../core/media-identity.cjs');
 const data = require('../core/library-data.cjs');
+const libraryIdentity = require('../core/library-identity.cjs');
+const deviceMedia = require('../core/device-media.cjs');
 const share = require('../core/library-share.cjs');
 const importIdentity = require('../core/import-identity.cjs');
 const iconData = require('../core/playlist-icon-data.cjs');
@@ -40,7 +42,12 @@ const CALLS = {
     const plan = importIdentity.PlanImportIdentity(existing, lists, roots, { keyOf: KeyOf, createId: Counter(), ...(options || {}) });
     return { playlists: plan.playlists, rootPlaylistIds: plan.rootPlaylistIds, idMap: [...plan.idMap.entries()] };
   },
-  ValidateIcon: value => iconData.ValidateIcon(value)
+  ValidateIcon: value => iconData.ValidateIcon(value),
+  SyncMediaKey: (entry, aliases) => libraryIdentity.LibrarySyncKey(aliases || [])(entry),
+  SyncKeyForms: (entry, aliases) => libraryIdentity.LibrarySyncKeyForms(aliases || [])(entry),
+  AuditIds: playlists => libraryIdentity.AuditIds(playlists),
+  RestoredState: state => deviceMedia.RestoredState(state),
+  DeviceMediaList: (records, aliases, available) => deviceMedia.DeviceMediaList({ records, videoAliases: aliases || [], isAvailable: record => (available || []).includes(record.token) })
 };
 
 function Execute(testCase) {

@@ -8,6 +8,7 @@ const ROOT = path.resolve(__dirname, '..');
 const MODULES = {
   'core/library-data.cjs': 'src/core/library-data.cjs',
   'core/library-identity.cjs': 'src/core/library-identity.cjs',
+  'core/device-media.cjs': 'src/core/device-media.cjs',
   'core/media-identity.cjs': 'src/core/media-identity.cjs',
   'core/urls.cjs': 'src/core/urls.cjs',
   'core/library-share.cjs': 'src/core/library-share.cjs',

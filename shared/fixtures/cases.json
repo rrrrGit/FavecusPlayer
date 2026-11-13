@@ -3344,5 +3344,831 @@
    "data:image/png;base64,iVBORw0KGgoAAAANSU hEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aYl8AAAAASUVORK5CYII="
   ],
   "expectError": "プレイリスト画像の形式が正しくありません。"
+ },
+ {
+  "name": "syncKey: BV part 1",
+  "call": "SyncMediaKey",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://www.bilibili.com/video/BV1xx411c7mD/",
+    "title": "t"
+   },
+   []
+  ],
+  "expect": "bili:BV1xx411c7mD:p1"
+ },
+ {
+  "name": "syncKey: BV part 2",
+  "call": "SyncMediaKey",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2",
+    "title": "t"
+   },
+   []
+  ],
+  "expect": "bili:BV1xx411c7mD:p2"
+ },
+ {
+  "name": "syncKey: av without alias",
+  "call": "SyncMediaKey",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://www.bilibili.com/video/av555/",
+    "title": "t"
+   },
+   []
+  ],
+  "expect": "bili-av:555:p1"
+ },
+ {
+  "name": "syncKey: av with alias becomes BV",
+  "call": "SyncMediaKey",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://www.bilibili.com/video/av170001/?p=3",
+    "title": "t"
+   },
+   [
+    {
+     "aid": "170001",
+     "bvid": "BV1xx411c7mD"
+    }
+   ]
+  ],
+  "expect": "bili:BV1xx411c7mD:p3"
+ },
+ {
+  "name": "syncKey: BV with alias",
+  "call": "SyncMediaKey",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=3",
+    "title": "t"
+   },
+   [
+    {
+     "aid": "170001",
+     "bvid": "BV1xx411c7mD"
+    }
+   ]
+  ],
+  "expect": "bili:BV1xx411c7mD:p3"
+ },
+ {
+  "name": "syncKey: other video unaffected by alias",
+  "call": "SyncMediaKey",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://www.bilibili.com/video/BV1GJ411x7h7/",
+    "title": "t"
+   },
+   [
+    {
+     "aid": "170001",
+     "bvid": "BV1xx411c7mD"
+    }
+   ]
+  ],
+  "expect": "bili:BV1GJ411x7h7:p1"
+ },
+ {
+  "name": "syncKey: max part",
+  "call": "SyncMediaKey",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=10000",
+    "title": "t"
+   },
+   []
+  ],
+  "expect": "bili:BV1xx411c7mD:p10000"
+ },
+ {
+  "name": "syncKey: local is null",
+  "call": "SyncMediaKey",
+  "args": [
+   {
+    "type": "local",
+    "fileName": "00000000-0000-4000-8000-0000000000aa.mp3"
+   },
+   []
+  ],
+  "expect": null
+ },
+ {
+  "name": "syncKey: stored fields match the canonical url",
+  "call": "SyncMediaKey",
+  "args": [
+   {
+    "type": "bilibili",
+    "videoId": "BV1xx411c7mD",
+    "part": 2,
+    "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+   },
+   []
+  ],
+  "expect": "bili:BV1xx411c7mD:p2"
+ },
+ {
+  "name": "syncKey: invalid stored fields fall back to url",
+  "call": "SyncMediaKey",
+  "args": [
+   {
+    "type": "bilibili",
+    "videoId": "bad",
+    "part": 0,
+    "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+   },
+   []
+  ],
+  "expect": "bili:BV1xx411c7mD:p2"
+ },
+ {
+  "name": "syncKey: invalid url",
+  "call": "SyncMediaKey",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://example.com/x",
+    "title": "t"
+   },
+   []
+  ],
+  "expectError": "Bilibiliの通常URLに対応しています。短縮URL（b23.tv）はブラウザーで開いた後のURLを使用してください。"
+ },
+ {
+  "name": "syncKey: same key regardless of title and ids",
+  "call": "SyncMediaKey",
+  "args": [
+   {
+    "type": "bilibili",
+    "id": "x",
+    "mediaId": "y",
+    "title": "別の曲名",
+    "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+   },
+   []
+  ],
+  "expect": "bili:BV1xx411c7mD:p2"
+ },
+ {
+  "name": "syncKey: conflicting alias table",
+  "call": "SyncMediaKey",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://www.bilibili.com/video/BV1xx411c7mD/",
+    "title": "t"
+   },
+   [
+    {
+     "aid": "1",
+     "bvid": "BV1xx411c7mD"
+    },
+    {
+     "aid": "2",
+     "bvid": "BV1xx411c7mD"
+    }
+   ]
+  ],
+  "expectError": "avとBVの対応情報が矛盾しています。"
+ },
+ {
+  "name": "syncKeyForms: BV with alias",
+  "call": "SyncKeyForms",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2",
+    "title": "t"
+   },
+   [
+    {
+     "aid": "170001",
+     "bvid": "BV1xx411c7mD"
+    }
+   ]
+  ],
+  "expect": [
+   "bili:BV1xx411c7mD:p2",
+   "bili-av:170001:p2"
+  ]
+ },
+ {
+  "name": "syncKeyForms: av with alias",
+  "call": "SyncKeyForms",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://www.bilibili.com/video/av170001/?p=2",
+    "title": "t"
+   },
+   [
+    {
+     "aid": "170001",
+     "bvid": "BV1xx411c7mD"
+    }
+   ]
+  ],
+  "expect": [
+   "bili:BV1xx411c7mD:p2",
+   "bili-av:170001:p2"
+  ]
+ },
+ {
+  "name": "syncKeyForms: av without alias",
+  "call": "SyncKeyForms",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://www.bilibili.com/video/av555/",
+    "title": "t"
+   },
+   []
+  ],
+  "expect": [
+   "bili-av:555:p1"
+  ]
+ },
+ {
+  "name": "syncKeyForms: local",
+  "call": "SyncKeyForms",
+  "args": [
+   {
+    "type": "local",
+    "fileName": "a.mp3"
+   },
+   []
+  ],
+  "expect": []
+ },
+ {
+  "name": "auditIds: all uuid v4",
+  "call": "AuditIds",
+  "args": [
+   [
+    {
+     "id": "00000001-0000-4000-8000-000000000001",
+     "entries": [
+      {
+       "id": "00000001-0000-4000-8000-000000000002",
+       "mediaId": "00000001-0000-4000-8000-000000000003"
+      }
+     ]
+    }
+   ]
+  ],
+  "expect": {
+   "lists": 0,
+   "entries": 0,
+   "media": 0,
+   "total": 2
+  }
+ },
+ {
+  "name": "auditIds: lax ids are counted",
+  "call": "AuditIds",
+  "args": [
+   [
+    {
+     "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "entries": [
+      {
+       "id": "000000000000000000000000000000000000",
+       "mediaId": "00000001-0000-4000-8000-000000000003"
+      },
+      {
+       "id": "00000001-0000-4000-8000-000000000004"
+      }
+     ]
+    },
+    {
+     "id": "00000001-0000-4000-8000-000000000005",
+     "entries": []
+    }
+   ]
+  ],
+  "expect": {
+   "lists": 1,
+   "entries": 1,
+   "media": 0,
+   "total": 4
+  }
+ },
+ {
+  "name": "auditIds: no mediaId is fine",
+  "call": "AuditIds",
+  "args": [
+   [
+    {
+     "id": "00000001-0000-4000-8000-000000000001",
+     "entries": [
+      {
+       "id": "00000001-0000-4000-8000-000000000002"
+      }
+     ]
+    }
+   ]
+  ],
+  "expect": {
+   "lists": 0,
+   "entries": 0,
+   "media": 0,
+   "total": 2
+  }
+ },
+ {
+  "name": "restoredState: Completed",
+  "call": "RestoredState",
+  "args": [
+   "Completed"
+  ],
+  "expect": "Completed"
+ },
+ {
+  "name": "restoredState: Failed",
+  "call": "RestoredState",
+  "args": [
+   "Failed"
+  ],
+  "expect": "Failed"
+ },
+ {
+  "name": "restoredState: Cancelled",
+  "call": "RestoredState",
+  "args": [
+   "Cancelled"
+  ],
+  "expect": "Cancelled"
+ },
+ {
+  "name": "restoredState: NotDownloaded",
+  "call": "RestoredState",
+  "args": [
+   "NotDownloaded"
+  ],
+  "expect": "NotDownloaded"
+ },
+ {
+  "name": "restoredState: Preparing",
+  "call": "RestoredState",
+  "args": [
+   "Preparing"
+  ],
+  "expect": "NotDownloaded"
+ },
+ {
+  "name": "restoredState: Downloading",
+  "call": "RestoredState",
+  "args": [
+   "Downloading"
+  ],
+  "expect": "NotDownloaded"
+ },
+ {
+  "name": "restoredState: Processing",
+  "call": "RestoredState",
+  "args": [
+   "Processing"
+  ],
+  "expect": "NotDownloaded"
+ },
+ {
+  "name": "restoredState: Validating",
+  "call": "RestoredState",
+  "args": [
+   "Validating"
+  ],
+  "expect": "NotDownloaded"
+ },
+ {
+  "name": "restoredState: Unknown",
+  "call": "RestoredState",
+  "args": [
+   "Unknown"
+  ],
+  "expect": "NotDownloaded"
+ },
+ {
+  "name": "restoredState: empty",
+  "call": "RestoredState",
+  "args": [
+   ""
+  ],
+  "expect": "NotDownloaded"
+ },
+ {
+  "name": "restoredState: null",
+  "call": "RestoredState",
+  "args": [
+   null
+  ],
+  "expect": "NotDownloaded"
+ },
+ {
+  "name": "deviceMedia: available and missing",
+  "call": "DeviceMediaList",
+  "args": [
+   [
+    {
+     "url": "https://www.bilibili.com/video/BV1xx411c7mD/",
+     "kind": "video",
+     "height": 720,
+     "bytes": 1000,
+     "duration": 60,
+     "token": "t1"
+    },
+    {
+     "url": "https://www.bilibili.com/video/BV1xx411c7mD/",
+     "kind": "audio",
+     "height": 0,
+     "bytes": 1000,
+     "duration": 60,
+     "token": "t2"
+    },
+    {
+     "url": "https://www.bilibili.com/video/BV1GJ411x7h7/",
+     "kind": "video",
+     "height": 1080,
+     "bytes": 1000,
+     "duration": 60,
+     "token": "t3"
+    }
+   ],
+   [],
+   [
+    "t1",
+    "t3"
+   ]
+  ],
+  "expect": {
+   "items": [
+    {
+     "syncKey": "bili:BV1GJ411x7h7:p1",
+     "kind": "video",
+     "height": 1080,
+     "bytes": 1000,
+     "duration": 60,
+     "state": "Completed",
+     "collision": 1
+    },
+    {
+     "syncKey": "bili:BV1xx411c7mD:p1",
+     "kind": "audio",
+     "height": 0,
+     "bytes": 1000,
+     "duration": 60,
+     "state": "NotDownloaded",
+     "collision": 1
+    },
+    {
+     "syncKey": "bili:BV1xx411c7mD:p1",
+     "kind": "video",
+     "height": 720,
+     "bytes": 1000,
+     "duration": 60,
+     "state": "Completed",
+     "collision": 1
+    }
+   ],
+   "skipped": 0
+  }
+ },
+ {
+  "name": "deviceMedia: av and BV records collapse only by flag",
+  "call": "DeviceMediaList",
+  "args": [
+   [
+    {
+     "url": "https://www.bilibili.com/video/av170001/",
+     "kind": "video",
+     "height": 720,
+     "bytes": 500,
+     "duration": 60,
+     "token": "t1"
+    },
+    {
+     "url": "https://www.bilibili.com/video/BV1xx411c7mD/",
+     "kind": "video",
+     "height": 1080,
+     "bytes": 900,
+     "duration": 60,
+     "token": "t2"
+    }
+   ],
+   [
+    {
+     "aid": "170001",
+     "bvid": "BV1xx411c7mD"
+    }
+   ],
+   [
+    "t1",
+    "t2"
+   ]
+  ],
+  "expect": {
+   "items": [
+    {
+     "syncKey": "bili:BV1xx411c7mD:p1",
+     "kind": "video",
+     "height": 1080,
+     "bytes": 900,
+     "duration": 60,
+     "state": "Completed",
+     "collision": 2
+    },
+    {
+     "syncKey": "bili:BV1xx411c7mD:p1",
+     "kind": "video",
+     "height": 720,
+     "bytes": 500,
+     "duration": 60,
+     "state": "Completed",
+     "collision": 2
+    }
+   ],
+   "skipped": 0
+  }
+ },
+ {
+  "name": "deviceMedia: av and BV without alias stay separate",
+  "call": "DeviceMediaList",
+  "args": [
+   [
+    {
+     "url": "https://www.bilibili.com/video/av170001/",
+     "kind": "video",
+     "height": 720,
+     "bytes": 1000,
+     "duration": 60,
+     "token": "t1"
+    },
+    {
+     "url": "https://www.bilibili.com/video/BV1xx411c7mD/",
+     "kind": "video",
+     "height": 1080,
+     "bytes": 1000,
+     "duration": 60,
+     "token": "t2"
+    }
+   ],
+   [],
+   [
+    "t1"
+   ]
+  ],
+  "expect": {
+   "items": [
+    {
+     "syncKey": "bili-av:170001:p1",
+     "kind": "video",
+     "height": 720,
+     "bytes": 1000,
+     "duration": 60,
+     "state": "Completed",
+     "collision": 1
+    },
+    {
+     "syncKey": "bili:BV1xx411c7mD:p1",
+     "kind": "video",
+     "height": 1080,
+     "bytes": 1000,
+     "duration": 60,
+     "state": "NotDownloaded",
+     "collision": 1
+    }
+   ],
+   "skipped": 0
+  }
+ },
+ {
+  "name": "deviceMedia: parts are separate",
+  "call": "DeviceMediaList",
+  "args": [
+   [
+    {
+     "url": "https://www.bilibili.com/video/BV1xx411c7mD/",
+     "kind": "video",
+     "height": 720,
+     "bytes": 1000,
+     "duration": 60,
+     "token": "t1"
+    },
+    {
+     "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2",
+     "kind": "video",
+     "height": 720,
+     "bytes": 1000,
+     "duration": 60,
+     "token": "t2"
+    }
+   ],
+   [],
+   [
+    "t1",
+    "t2"
+   ]
+  ],
+  "expect": {
+   "items": [
+    {
+     "syncKey": "bili:BV1xx411c7mD:p1",
+     "kind": "video",
+     "height": 720,
+     "bytes": 1000,
+     "duration": 60,
+     "state": "Completed",
+     "collision": 1
+    },
+    {
+     "syncKey": "bili:BV1xx411c7mD:p2",
+     "kind": "video",
+     "height": 720,
+     "bytes": 1000,
+     "duration": 60,
+     "state": "Completed",
+     "collision": 1
+    }
+   ],
+   "skipped": 0
+  }
+ },
+ {
+  "name": "deviceMedia: invalid records are skipped and counted",
+  "call": "DeviceMediaList",
+  "args": [
+   [
+    {
+     "url": "https://example.com/x",
+     "kind": "video",
+     "height": 720,
+     "bytes": 1000,
+     "duration": 60,
+     "token": "t1"
+    },
+    {
+     "url": "https://www.bilibili.com/video/BV1xx411c7mD/",
+     "kind": "image"
+    },
+    null,
+    {
+     "url": "https://www.bilibili.com/video/BV1xx411c7mD/",
+     "kind": "audio",
+     "height": 0,
+     "bytes": 1000,
+     "duration": 60,
+     "token": "t2"
+    }
+   ],
+   [],
+   [
+    "t2"
+   ]
+  ],
+  "expect": {
+   "items": [
+    {
+     "syncKey": "bili:BV1xx411c7mD:p1",
+     "kind": "audio",
+     "height": 0,
+     "bytes": 1000,
+     "duration": 60,
+     "state": "Completed",
+     "collision": 1
+    }
+   ],
+   "skipped": 3
+  }
+ },
+ {
+  "name": "deviceMedia: no paths or tokens in output",
+  "call": "DeviceMediaList",
+  "args": [
+   [
+    {
+     "url": "https://www.bilibili.com/video/BV1xx411c7mD/",
+     "kind": "video",
+     "height": 720,
+     "bytes": 1000,
+     "duration": 60,
+     "token": "t1",
+     "file": "C:/secret/x.mp4",
+     "path": "D:/y.mp4",
+     "aliases": [
+      "https://www.bilibili.com/video/av170001/"
+     ]
+    }
+   ],
+   [
+    {
+     "aid": "170001",
+     "bvid": "BV1xx411c7mD"
+    }
+   ],
+   [
+    "t1"
+   ]
+  ],
+  "expect": {
+   "items": [
+    {
+     "syncKey": "bili:BV1xx411c7mD:p1",
+     "kind": "video",
+     "height": 720,
+     "bytes": 1000,
+     "duration": 60,
+     "state": "Completed",
+     "collision": 1
+    }
+   ],
+   "skipped": 0
+  }
+ },
+ {
+  "name": "deviceMedia: empty",
+  "call": "DeviceMediaList",
+  "args": [
+   [],
+   [],
+   []
+  ],
+  "expect": {
+   "items": [],
+   "skipped": 0
+  }
+ },
+ {
+  "name": "syncKey: stored fields conflicting with url use the url",
+  "call": "SyncMediaKey",
+  "args": [
+   {
+    "type": "bilibili",
+    "videoId": "BV1xx411c7mD",
+    "part": 5,
+    "url": "https://www.bilibili.com/video/BV17x411w7KC/?p=2"
+   },
+   []
+  ],
+  "expect": "bili:BV17x411w7KC:p2"
+ },
+ {
+  "name": "syncKey: stored fields with a foreign url are rejected",
+  "call": "SyncMediaKey",
+  "args": [
+   {
+    "type": "bilibili",
+    "videoId": "BV1xx411c7mD",
+    "part": 2,
+    "url": "https://evil.example/ignored"
+   },
+   []
+  ],
+  "expectError": "Bilibiliの通常URLに対応しています。短縮URL（b23.tv）はブラウザーで開いた後のURLを使用してください。"
+ },
+ {
+  "name": "auditIds: null items are tolerated",
+  "call": "AuditIds",
+  "args": [
+   [
+    null,
+    {
+     "id": "000000000000000000000000000000000000",
+     "entries": [
+      null,
+      {
+       "id": 5
+      }
+     ]
+    }
+   ]
+  ],
+  "expect": {
+   "lists": 2,
+   "entries": 2,
+   "media": 0,
+   "total": 4
+  }
+ },
+ {
+  "name": "deviceMedia: invalid inputs are treated as empty",
+  "call": "DeviceMediaList",
+  "args": [
+   null,
+   null,
+   null
+  ],
+  "expect": {
+   "items": [],
+   "skipped": 0
+  }
  }
 ]

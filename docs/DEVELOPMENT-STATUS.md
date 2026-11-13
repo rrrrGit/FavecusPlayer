@@ -2,7 +2,7 @@
 
 更新日：2026-11-13（日本時間）
 対象：v0.7.0 / `release/v0.7.0`
-現在地：Step3完了（共通JSのiOS実行をシミュレーターと実機で確認）。次はStep4（MediaKeyと端末依存情報の分離）。
+現在地：Step4完了（SyncMediaKey・DeviceMediaの純粋な導入）。次はStep5（Windows版の改善、ユーザーの指示待ち）。
 基準コミット：`79255411dfbcb240cbad064fa8d1ae0ca4e085d4`（`release/v0.6.7` 最新。配布済みv0.6.7 startup-hotfix-1を含む）。
 v0.6.7の開発・検証記録は `docs/VALIDATION-067.md` に移しました。
 
@@ -78,7 +78,7 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 | Step1 iOS版方針と共通データ仕様 | 完了 | 設計をDESIGN.md冒頭「v0.7.0」節へ確定（コード変更なし）。判断1〜3は確定済み |
 | Step2 iOSビルド基盤の検証 | 完了 | XcodeGenの最小SwiftUIアプリをCIでビルド・テストし、署名なしIPAを取得。AltStore経由でiPhone 16e（iOS 26.7.2）へ導入し起動を確認 |
 | Step3 共通処理のiOS実行 | 完了 | 共通JSの束ね方とJSContextでの実行を実装し、共通テストデータ116件をNodeとiOSシミュレーターの両方で全件一致。999リスト・約1万登録の速度をシミュレーターで計測 |
-| Step4 MediaKeyと端末依存情報の分離 | 未着手 | 端末非依存のMediaKeyとDeviceMediaをWindows版へ導入。既存JSON・DLカタログ・ZIPの互換と移行時の原本保護を確認 |
+| Step4 MediaKeyと端末依存情報の分離 | 完了 | SyncMediaKey・DeviceMediaを共通JSとWindows版（読み取り専用の投影）へ導入。保存形式は変更せず、共通テストデータ158件で確認 |
 | Step5 Windows版の改善 | 指示待ち | ユーザーが提示する改善項目。内容に応じてStep5-1、5-2…に分割し、他のStepの間へ挿入することもある |
 | Step6 同期の共通基盤 | 未着手 | 変更レコード、親子の辺と並び順、Tombstone、競合解決、同期キューを共通JSで実装。SyncRepositoryの抽象とメモリ実装で、同時変更・オフライン編集・削除後の復活防止をテスト |
 | Step7 Supabase接続 | 未着手 | テーブル・行単位のアクセス制御・認証の設計、SupabaseSyncRepository。Windows版の同期接続と、トークンの安全な保存 |
@@ -121,7 +121,16 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 
 ## 現在の工程
 
-Step3完了。次はStep4（MediaKeyと端末依存情報の分離）です。
+Step4完了。次はStep5（Windows版の改善）です。Step5の内容はユーザーの指示を受けて決めます。指示がなければStep6（同期の共通基盤）へ進むこともできます。
+
+### Step4の結果
+
+- 設計は `docs/DESIGN.md` の「SyncMediaKeyとDeviceMedia（Step4で実装）」に記載しました（重複して書きません）。**保存形式は変更していません**（書き込みなし。移行・原本保護の対象なし）。
+- 追加：`src/core/device-media.cjs`、`library-identity.cjs` に `LibrarySyncKey` / `LibrarySyncKeyForms` / `AuditIds` / `SYNC_KEY`、`OfflineLibrary.DeviceMedia()`（読み取り専用）、`test/sync-identity.test.cjs`（7件）、共通テストデータ42件（計158件）。共有JSの許可リストとiOSワークフローのpathsに `device-media.cjs` を追加し、`src/` の共有モジュールがpathsから漏れると失敗するテストを追加しました。
+- Nodeの検証：新規9件と、更新した共通テストデータ158件（ECMAScriptのみのvm）が成功。`node scripts/check.cjs`：123ファイル成功。全478件のうち、成功466・失敗9・スキップ3（checker指摘の修正後に新規テスト2件を追加。失敗9件は同じ名前）。失敗9件は、Step3で記録した既知の環境起因（symlink権限・FFmpeg・ZIP64）と**テスト名が一致**することを確認しました。
+- ID点検：過去版（v0.6.2以降）のIDは `randomUUID` で作られ、旧形式から移行するIDも検証時に再割当されるため、同期前のID付け替えは不要と判断しました（根拠はDESIGN.md）。
+- iOS：Step4のコードを含むCI実行は、Push後の結果をここへ追記します。実機検証は不要なStepのため、IPAのドライブ保存は行いません。
+- 未確認：iPhoneのJavaScriptCoreでの結果はCI（シミュレーター）のみ。Step6で同期レコードとして使う際の、aliasの確認順序による昇格の扱い。
 
 ### Step3の結果
 
@@ -135,3 +144,32 @@ Step3完了。次はStep4（MediaKeyと端末依存情報の分離）です。
 - 未確認：`Intl.Collator` の順序差（Step8）、ローカルMacでのxcodegen。
 - **実機（iPhone 16e、AltStore経由、2026-11-13、ユーザー）**：999リスト・9,990登録で、検証1,095ms、共有出力1,141ms、検索インデックス23ms、検索1ページ3ms、取り込み計画286ms（1回の計測）。検証・共有はシミュレーター・Nodeより遅い（約2倍）が1秒台で、取り込み計画も含め実用範囲と判断します。検索は十分高速です。複数回の値、JITの有無、電源状態の影響は未確認です。
 - 実機への導入手順（参考）：GitHub Actionsの該当実行のArtifact `ios-outputs`（保持14日）から `FavecusPlayer-unsigned.ipa` を取得し、AltStoreで入れ直して（同じアプリの更新）、「共通処理の速度を計測」ボタンを押すと数値が表示されます。
+
+### Step2の結果
+
+- 追加：`ios/project.yml`（XcodeGen）、仮の最小SwiftUI画面（`ios/FavecusPlayer/`）、単体テスト2件（`ios/FavecusPlayerTests/`）、`.github/workflows/ios.yml`。`.pbxproj`・IPAはGitへ入れず、CIで生成します。Windows版・既存テスト・バージョン番号は変更していません。
+- CI実行（macos-15、Xcode 16.4、run 43327091224）：成功。シミュレーターでのビルド・テスト（2件成功・失敗0）、スクリーンショット、署名なしIPA（約11KB）を取得し、Artifact `ios-outputs`（保持14日）に保存しました。スクリーンショットは画面の表示（FavecusPlayer 0.7.0）を目視確認しました。
+- 実行条件：`release/v0.7.0` へのpushで `ios/**` またはworkflowが変わったときと、手動実行のみ。同一ブランチの古い実行は取り消します。
+- macOS実行時間：ジョブ全体で約11分（ビルド・テスト約2分22秒、スクリーンショット約6分46秒＝シミュレーター起動待ちが大半、IPA約27秒）。$0.062/分で換算すると約$0.7（概算）で、GitHub Freeの含有$12/月の約6%。GitHub側の実際の課金表示は未確認です。起動待ちの短縮はStep3以降で検討します。
+- **実機確認（2026-11-13、ユーザー）**：iPhone 16e（iOS 26.7.2）へAltStore経由で導入でき、起動して「FavecusPlayer 0.7.0」の画面が表示されました。AltStoreの「My Apps」ではAltStoreとFavecusPlayerがActiveで、どちらも期限7日、「8 App IDs Remaining」の表示でした。
+- 未確認：AltStore自体が有効アプリ3枠を使うか（表示だけでは判断不可）、7日後のRefresh（Step16・17）、デベロッパモードの項目が現れた時点と有効化の操作（ユーザーの操作の詳細は未記録）。
+
+### 実機導入の手順（Step2で確認。Step16で詳細化・整理）
+
+前提：Windows PC、iPhone、USBケーブル、Apple Account（無料、個人利用）。パスワードと確認コードは本人だけが入力し、記録・共有しない。
+
+1. **PCに部品を導入**（wingetで導入済み。いずれもApple・AltStore公式の配布物）：`Apple.iTunes`（Microsoft Store版ではない）、`Apple.iCloud`（Legacy 7.21、導入後にPC再起動）、`RileyTestut.AltServer`（1.8.00）。`winget install --id <ID> --exact --source winget --interactive` で、UACと使用許諾は本人が操作する。iCloudへのサインインは不要（求められたら「キャンセル」）。
+2. **IPAの取得**：GitHubの該当Actions実行ページ下部のArtifact `ios-outputs` をダウンロード・展開し、`FavecusPlayer-unsigned.ipa` を得る。
+3. **iPhoneをUSBでPCに接続**し、iPhone側で「このコンピュータを信頼」を選ぶ。iTunesがiPhoneを認識し、自動バックアップが始まるが、導入には不要（中止してよい）。
+4. **iTunesで「Wi-Fi経由でこのiPhoneと同期」を有効にして適用**（USB接続だけの初回導入には必須ではないが、Refreshに必要）。
+5. **AltServerを起動**（管理者として実行、プライベートネットワークの許可は「許可」）。タスクトレイのアイコンから「Install AltStore」を選び、iPhoneを選ぶ。Apple Accountのメールとパスワードを入力し、iPhoneに届く確認コードを、PCに出る入力画面へ入力する。入力画面が見えないときは、Alt+Tabやタスクバーで探す。時間切れのときはAltServerを終了して再起動し、やり直す。
+6. **iPhoneで開発者を信頼**：AltStoreは入るが、初回起動時に「信頼されていないデベロッパ」と出て開けない。「設定 → 一般 → VPNとデバイス管理」の「デベロッパAPP」の自分のApple Accountを開き「信頼」を押す。
+7. **デベロッパモード**：項目は導入前には表示されない。AltStore導入後に「設定 → プライバシーとセキュリティ」の一番下に現れる場合があり、求められたらオンにして再起動し、確認で有効化する。
+8. **AltStoreを起動**し、Apple Accountでサインインする。
+9. **FavecusPlayerのIPAを選ぶ**：IPAをiPhoneの「ファイル」アプリへ送る（今回はGoogleドライブにアップロードし、iPhoneのドライブアプリから「ファイルに保存」）。AltStoreの「My Apps」で `+` を押し、そのIPAを選ぶ。Apple Accountのパスワードを求められたら本人が入力する。
+10. ホーム画面のFavecusPlayerを起動し、表示を確認する。
+
+### PC再起動後の動作（確認済みの登録）
+
+- 自動で起動する：`AltServer`（ユーザーのログオン時）、`iTunesHelper`、`iCloudServices`。いずれもスタートアップ（Run）に登録済み。AltServerは通常権限で起動する。
+- 毎回の操作は不要。ただし、7日ごとのRefresh（AltStoreの「Refresh All」またはBackground Refresh）にはPCが起動していてAltServerが動き、iPhoneと同じWi-Fiにあることが必要（公式FAQの記載）。管理者権限でないと動作しない場合は、「管理者として実行」へ切り替える（Step16で確認）。

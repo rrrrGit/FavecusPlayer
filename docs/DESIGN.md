@@ -24,6 +24,16 @@
 - **iOSの呼び出し：** `ios/FavecusPlayer/Core/SharedCore.swift` がバンドルを読み、JSON文字列だけを入出力します（JSValueの木を渡さない）。JS例外は `exceptionHandler` で収集して失敗にします。1つのJSContextを複数スレッドで共有しません。
 - **未確認・後続で確認：** 実機（JITなし）での速度、`Intl.Collator('ja')`（library-tree.js）による名前順がNodeのICUとiOSのICUで異なる可能性（表示順のみ。Step8で確認）、ローカルMacでの `xcodegen`（先にバンドル生成が必要）。
 
+### SyncMediaKeyとDeviceMedia（Step4で実装）
+
+**Step4は純粋な派生値と読み取り専用の投影だけを導入し、保存形式（library.json・DLカタログ・ZIP/JSON共有）を変更しません。** 何も新しく書き込まないため、移行と原本保護の対象はありません。ZIPのmanifest拡張はStep10で行います。
+
+- **SyncMediaKey**（`library-identity.cjs` の `LibrarySyncKey(videoAliases)`）：確認済みのBVがあれば `bili:<BV>:p<パート>`、avのみなら `bili-av:<aid>:p<パート>`、ローカル曲は `null`。曲名・所属リスト・登録曲id・mediaId・ファイル名・端末のパスに依存しません。BVの大小文字は保持し、aidは桁を保つ数字列、パートは1〜10000で `p1` も省略しません。保存済みの `videoId` / `part` は、URLがその値から作られた正規の形（検証時に作られる形）と完全に一致するときだけ使い、URLを再解析しません（iPhoneでの検証が1秒台のため、1万件の再解析を避ける）。食い違い・不正な値・未検証の項目はURLを解析して求め、**URLを正**とします（保存値を無条件に信頼しない）。
+- **同じ動画の別の形**（`LibrarySyncKeyForms`）：確認済みのav/BV対応があれば `[bili:…, bili-av:…]` の両方を返します。Step6の同期で、片方の端末だけが対応を確認している場合の照合に使います。av/BV対応表は一対一で、矛盾すれば例外です（既存の検証と同じ）。
+- **DeviceMedia**（`device-media.cjs`）：状態は NotDownloaded / Preparing / Downloading / Processing / Validating / Completed / Failed / Cancelled。`RestoredState` は再起動後、保存途中の状態と未知の状態を NotDownloaded に戻し、Completed・Failed・Cancelled・NotDownloaded だけを保持します（完成扱いは Completed のみ）。`DeviceMediaList` はDLカタログ相当の記録の読み取り専用の投影で、出力は syncKey・形式・画質・容量・時間・状態・collision（同じsyncKeyと形式の記録の件数）だけです。**パス・トークン・URLを含まず、同期しません。** カタログが証明できる範囲（確認済みの実体があれば Completed、なければ NotDownloaded）だけを写し、途中の状態は作りません。同じsyncKeyと形式に複数の記録（av URLとBV URLの別保存など）がある場合も、推測で統合せず全件を画質・容量の降順など決定的な順で返し、何も削除しません。型の異なる入力は空として扱い、実体確認の例外はその記録だけ NotDownloaded とします（完成扱いは isAvailable が true を返したときだけ）。矛盾したav/BV対応表は誤ったキーを黙って作らないため、例外のまま伝えます。Windows版は `OfflineLibrary.DeviceMedia()` が `File(token)` による実体確認を渡して使います。
+- **IDの点検**（`AuditIds`）：リスト・登録曲・mediaIdがUUID（版1〜8）でない件数だけを返す読み取り専用の関数です（値は返さない）。現行の検証 `ID = /^[a-f0-9-]{36}$/` は緩い形式ですが、過去版（v0.6.2以降）のIDは `randomUUID` で作られ、旧形式（階層なし）から移行するIDも検証時に `randomUUID` で再割当されます。このため、独立して作られたライブラリのID衝突を避けるための付け替えは**不要**と判断します。外部から取り込んだデータや将来の同期の有効化時に点検に使います。利用者の実データには触れていません。
+- 共通テストデータ：`shared/fixtures/cases.json` に42件追加（SyncMediaKey・形式・点検・状態・DeviceMedia投影、計158件）。iOSのJavaScriptCoreでもNodeと同じ結果を確認します。
+
 ### 識別：MediaKeyを端末間の正本にする
 
 - 名称：既存の `media-identity.cjs` の `MediaKey()`（正規化URL＋パートの照合キー）と区別するため、同期用の文字列を**SyncMediaKey**と呼び、同期レコードのフィールド名は `syncKey` とします。SyncMediaKeyは `MediaKey()` の結果（確認済みav/BVの対応後の代表URL＋パート）から導出する純粋な変換で、Step4で実装します。以下「mediaKey」と書いた箇所はこのSyncMediaKeyを指します。

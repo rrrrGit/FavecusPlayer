@@ -6,6 +6,7 @@ const { setTimeout: delay } = require('node:timers/promises');
 const { ParseBilibili } = require('./urls.cjs');
 const { DownloadIdentity, VideoIdentity } = require('./media-identity.cjs');
 const { LibraryMediaKey } = require('./library-identity.cjs');
+const { DeviceMediaList } = require('./device-media.cjs');
 const { BilibiliDownloadSource } = require('./bilibili-download.cjs');
 const { DownloadStream, Assemble } = require('./download-transfer.cjs');
 const { RemoteImage, ImageData, ImageURL } = require('./thumbnail.cjs');
@@ -110,6 +111,10 @@ class OfflineLibrary {
   ScheduleCleanup() { this.cleanup.Request(); }
   FlushCleanup() { this.cleanup.Flush(); }
   Pin(record) { return this.cleanup.Pin(record); }
+  // 端末ごとの保存状態（DeviceMedia）の読み取り専用の投影。保存形式は変更せず、パス・トークンを含まない。同期はしない。
+  DeviceMedia() {
+    return DeviceMediaList({ records: [...this.records.values()], videoAliases: this.libraryData()?.videoAliases || [], isAvailable: record => !!this.File(record.token) });
+  }
   Snapshot() {
     const aliases = new Map();
     for (const pair of this.libraryData()?.videoAliases || []) { aliases.set(`av${pair.aid}`, pair); aliases.set(pair.bvid, pair); }
