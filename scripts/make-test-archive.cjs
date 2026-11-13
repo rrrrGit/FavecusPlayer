@@ -40,6 +40,12 @@ async function main() {
   const bytes = Buffer.from(fs.readFileSync(path.join(out, 'windows-media.zip'))), at = bytes.indexOf(Buffer.from('RIFF'));
   if (at < 0) throw new Error('メディアの位置が見つかりません。');
   bytes[at + 100] ^= 0xff; fs.writeFileSync(path.join(out, 'corrupt-media.zip'), bytes);
+  // 悪意のあるZIP64の値（桁あふれ）。どちらもWindows版の読み取りは「サイズが上限を超えています」で拒否する。iPhone版は落ちずに拒否すること。
+  const locator = offset => { const b = Buffer.alloc(20); b.writeUInt32LE(0x07064b50); b.writeBigUInt64LE(offset, 8); b.writeUInt32LE(1, 16); return b; };
+  const eocd = Buffer.alloc(22); eocd.writeUInt32LE(0x06054b50); eocd.writeUInt16LE(0xffff, 8); eocd.writeUInt16LE(0xffff, 10); eocd.writeUInt32LE(0xffffffff, 12); eocd.writeUInt32LE(0xffffffff, 16);
+  fs.writeFileSync(path.join(out, 'overflow-a.zip'), Buffer.concat([locator(0xffffffffffffff00n), eocd]));
+  const record = Buffer.alloc(56); record.writeUInt32LE(0x06064b50); record.writeBigUInt64LE(44n, 4); record.writeBigUInt64LE(1n, 24); record.writeBigUInt64LE(1n, 32); record.writeBigUInt64LE(1n, 40); record.writeBigUInt64LE(0xffffffffffffffffn, 48);
+  fs.writeFileSync(path.join(out, 'overflow-b.zip'), Buffer.concat([record, locator(0n), eocd]));
   fs.writeFileSync(path.join(out, 'expected.json'), JSON.stringify({ lists: ['親', '子', '独立'], rootLists: ['親', '独立'], localSizes: { A: wavA.length, B: wavB.length }, mediaZipLocals: [localA, localB] }, null, 2));
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('wrote', out);

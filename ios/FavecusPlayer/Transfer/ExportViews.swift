@@ -45,7 +45,7 @@ struct ExportSheet: View {
             .navigationTitle("出力")
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("閉じる") { coordinator.cleanup(); isPresented = false }
+                    Button("閉じる") { coordinator.cleanup(); isPresented = false }.disabled(coordinator.phase == .working)
                 }
             }
         }

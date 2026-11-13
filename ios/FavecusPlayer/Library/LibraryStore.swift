@@ -84,6 +84,7 @@ final class LibraryStore: ObservableObject {
             if result.status == "new" || restored { try persist(loaded) }
             try show(loaded)
             state = .ready
+            cleanStaging()
         } catch {
             state = .blocked("保存データを読み込めません：\(error)")
         }
@@ -108,11 +109,32 @@ final class LibraryStore: ObservableObject {
     }
 
     /// 取り込みの結果で、ライブラリ全体を置き換える。取り込み準備中に保存データが変わっていたら、何も書かずに失敗する。
-    func replaceLibrary(expecting base: String, with newText: String) throws {
+    /// 編集操作と同じ順番待ち（chain）に積む：実行中の編集の結果を、取り込みが上書きしたり、取り込みを編集が上書きしたりしない。
+    func replaceLibrary(expecting base: String, with newText: String) async throws {
+        let previous = chain
+        let work = Task { () -> Result<Void, Error> in
+            await previous?.value
+            do { try self.replaceNow(expecting: base, with: newText); return .success(()) }
+            catch { return .failure(error) }
+        }
+        chain = Task { _ = await work.value }
+        try await work.value.get()
+    }
+
+    private func replaceNow(expecting base: String, with newText: String) throws {
         guard isReady else { throw ZipError.invalid("保存データを開けないため、取り込めません。") }
         guard text == base else { throw ZipError.invalid("取り込み中に保存データが変更されました。取り込みをやり直してください。") }
+        // 先に表示用の読み取りを確認してから保存する（保存した後に失敗して、参照されるメディアを消すことがないように）。
+        let decoded = try JSONDecoder().decode(LibraryDocument.self, from: Data(newText.utf8))
         try persist(newText)
-        try show(newText)
+        text = newText
+        document = decoded
+    }
+
+    /// 前回の取り込みが途中で終了して残った、自分のステージング（.import-*）を片付ける。
+    func cleanStaging() {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: mediaDirectory.path) else { return }
+        for name in names where name.hasPrefix(".import-") { try? FileManager.default.removeItem(at: mediaDirectory.appendingPathComponent(name)) }
     }
 
     // MARK: 編集

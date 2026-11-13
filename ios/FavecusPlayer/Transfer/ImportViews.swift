@@ -27,7 +27,7 @@ struct ImportSheet: View {
             .navigationTitle("取り込み")
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("閉じる") { coordinator.cancel(); isPresented = false }
+                    Button("閉じる") { coordinator.cancel(); isPresented = false }.disabled(coordinator.isBusy) // 取り込み中は閉じられない
                 }
             }
         }
@@ -39,6 +39,7 @@ struct ImportSheet: View {
             Section {
                 Text(plan.mode == "information" ? "情報のみ（ローカル曲の実体は含まれません）" : plan.mode == "media" ? "メディア付き" : "旧形式")
                     .font(.footnote).foregroundStyle(.secondary)
+                if plan.ignoredEntries > 0 { Text("ダウンロード済みのデータ \(plan.ignoredEntries)件は、この版では取り込みません。").font(.footnote).foregroundStyle(.secondary) }
                 Text("親を選ぶと、その子も一緒に取り込みます。同じ名前のリストは「（取り込みN）」を付けて追加し、既存のリストは変更しません。")
                     .font(.footnote).foregroundStyle(.secondary)
             }

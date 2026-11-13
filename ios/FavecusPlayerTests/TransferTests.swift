@@ -241,6 +241,26 @@ final class TransferTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: description).write(to: folder.appendingPathComponent("expected-ios.json"))
     }
 
+    func testHostileZip64ValuesAreRejectedWithoutCrashing() throws {
+        for name in ["overflow-a.zip", "overflow-b.zip"] {
+            XCTAssertThrowsError(try ZipArchive(source: try FileSource(url: fixture(name))), name)
+        }
+    }
+
+    func testAReplaceWithAStaleBaseFailsAndKeepsTheLibrary() async throws {
+        let (store, _) = try await makeStore()
+        let base = store.currentText
+        store.perform(["type": "create", "name": "先に編集", "select": false])
+        await store.waitUntilIdle()
+        let edited = store.currentText
+        do {
+            try await store.replaceLibrary(expecting: base, with: base)
+            XCTFail("古い内容を基にした置き換えは失敗するはず")
+        } catch {
+            XCTAssertEqual(store.currentText, edited)
+        }
+    }
+
     func testAPasswordProtectedContainerIsReportedClearly() {
         var bytes = Data("FVPA0001".utf8)
         bytes.append(Data(repeating: 1, count: 80))

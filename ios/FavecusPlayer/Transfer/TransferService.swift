@@ -23,6 +23,8 @@ struct ImportPlan {
     let lists: [ImportList]
     let rootPlaylistIds: [String]
     let plan: Any
+    /// この版では取り込まない部分（ダウンロード済みメディアなど。Step13で対応）の件数。
+    let ignoredEntries: Int
 }
 
 struct ImportOutcome: Equatable {
@@ -65,6 +67,12 @@ final class TransferService: @unchecked Sendable {
         var files: [ImportFile]?
     }
 
+    /// 不正なUTF-8は置き換えずに拒否する（Windows版のReadJSONと同じ）。
+    private static func text(_ data: Data) throws -> String {
+        guard let value = String(data: data, encoding: .utf8) else { throw TransferError.message("文字コードを読み取れません。") }
+        return value
+    }
+
     private static func json(_ object: [String: Any]) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: object)
         guard let text = String(data: data, encoding: .utf8) else { throw TransferError.message("内部の形式エラーです。") }
@@ -80,14 +88,12 @@ final class TransferService: @unchecked Sendable {
             guard zip.has("playlists.fvpa") else { throw FvpaError.notArchive }
             let plain = try Fvpa.decrypt(try zip.data("playlists.fvpa", limit: TransferService.innerLimit + 96))
             let inner = try ZipArchive(source: DataSource(plain))
+            // 読み込む前に件数と合計サイズを確認する（重なったエントリでメモリを使い切らせない。Windows版は検査してから読む）。
+            guard inner.names.count <= 1001, inner.totalBytes <= UInt64(TransferService.innerLimit) else { throw TransferError.message("プレイリスト情報が大きすぎます。") }
             var identity: Any = NSNull()
-            if inner.has("identity.json") {
-                identity = String(decoding: try inner.data("identity.json", limit: TransferService.innerLimit), as: UTF8.self)
-            }
+            if inner.has("identity.json") { identity = try TransferService.text(try inner.data("identity.json", limit: TransferService.innerLimit)) }
             var records: [String] = []
-            for name in inner.names where name != "identity.json" {
-                records.append(String(decoding: try inner.data(name, limit: TransferService.innerLimit), as: UTF8.self))
-            }
+            for name in inner.names where name != "identity.json" { records.append(try TransferService.text(try inner.data(name, limit: TransferService.innerLimit))) }
             let request: [String: Any] = ["identity": identity, "records": records, "innerNames": inner.names, "outerNames": zip.names]
             let response = try core.call("TransferPrepare", try TransferService.json(request))
             let decoded = try JSONDecoder().decode(PrepareResponse.self, from: Data(response.utf8))
@@ -96,7 +102,8 @@ final class TransferService: @unchecked Sendable {
                   let object = try JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any], let plan = object["plan"] else {
                 throw TransferError.message("取り込み内容を読み取れません。")
             }
-            return ImportPlan(url: url, mode: mode, lists: lists, rootPlaylistIds: roots, plan: plan)
+            let ignored = zip.names.filter { $0 != "playlists.fvpa" && !$0.hasPrefix("media/") }.count
+            return ImportPlan(url: url, mode: mode, lists: lists, rootPlaylistIds: roots, plan: plan, ignoredEntries: ignored)
         }.value
     }
 

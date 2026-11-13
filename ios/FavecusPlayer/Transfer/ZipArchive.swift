@@ -92,6 +92,8 @@ final class ZipArchive {
     private let source: ZipSource
     private(set) var entries: [String: ZipEntry] = [:]
     private(set) var names: [String] = []
+    /// 全エントリの展開後サイズの合計（呼び出し側が、読み込む前に上限を確認できる）。
+    private(set) var totalBytes: UInt64 = 0
 
     init(source: ZipSource) throws {
         self.source = source
@@ -100,6 +102,12 @@ final class ZipArchive {
 
     func has(_ name: String) -> Bool { entries[name] != nil }
 
+    /// 64ビットの値は、足し算の前に上限（1TB）で確認する（オーバーフローでトラップしないため）。
+    private static func bounded(_ value: UInt64) throws -> UInt64 {
+        guard value <= maxBytes else { throw ZipError.invalid("ZIPのサイズが上限を超えています。") }
+        return value
+    }
+
     private func open() throws {
         let size = source.size
         guard size >= 22, size <= ZipArchive.maxBytes else { throw ZipError.invalid("対応するZIPファイルではありません。") }
@@ -107,7 +115,7 @@ final class ZipArchive {
         let tail = try source.read(at: tailStart, count: tailLength)
         var end = tail.count - 22
         while end >= 0 && !(tail.u32(end) == 0x06054b50 && end + 22 + tail.u16(end + 20) == tail.count) { end -= 1 }
-        guard end >= 0, tail.u16(end + 4) == 0 else { throw ZipError.invalid("ZIPの一覧を読み取れません。") }
+        guard end >= 0, tail.u16(end + 4) == 0, tail.u16(end + 6) == 0 else { throw ZipError.invalid("ZIPの一覧を読み取れません。") }
         var count = UInt64(tail.u16(end + 10)), directorySize = tail.u32(end + 12), directoryOffset = tail.u32(end + 16)
         var boundary = tailStart + UInt64(end)
         guard count == UInt64(tail.u16(end + 8)) else { throw ZipError.unsupported("分割ZIPは対応していません。") }
@@ -116,13 +124,13 @@ final class ZipArchive {
             let locator = try source.read(at: boundary - 20, count: 20)
             guard locator.u32(0) == 0x07064b50, locator.u32(4) == 0, locator.u32(16) == 1 else { throw ZipError.unsupported("分割ZIPは対応していません。") }
             let endOffset = locator.u64(8)
-            guard endOffset + 56 <= boundary else { throw ZipError.invalid("ZIP64が壊れています。") }
+            guard try ZipArchive.bounded(endOffset) + 56 <= boundary else { throw ZipError.invalid("ZIP64が壊れています。") }
             let info = try source.read(at: endOffset, count: 56)
-            let recordSize = info.u64(4)
+            let recordSize = try ZipArchive.bounded(info.u64(4))
             guard info.u32(0) == 0x06064b50, recordSize >= 44, endOffset + 12 + recordSize <= boundary - 20, info.u32(16) == 0, info.u32(20) == 0, info.u64(24) == info.u64(32) else {
                 throw ZipError.invalid("ZIP64が壊れています。")
             }
-            count = info.u64(32); directorySize = info.u64(40); directoryOffset = info.u64(48); boundary = endOffset
+            count = try ZipArchive.bounded(info.u64(32)); directorySize = try ZipArchive.bounded(info.u64(40)); directoryOffset = try ZipArchive.bounded(info.u64(48)); boundary = endOffset
         }
         guard count <= UInt64(ZipArchive.maxFiles), directorySize <= 16 * 1024 * 1024, directoryOffset + directorySize <= boundary else {
             throw ZipError.invalid("ZIPが大きすぎるか壊れています。")
@@ -163,7 +171,7 @@ final class ZipArchive {
             }
             at = next
             total += bytes
-            guard flags & ~0x808 == 0, entries[name] == nil, local + 30 + packed <= directoryOffset, total <= ZipArchive.maxBytes else { throw ZipError.invalid("対応しないZIP構造です。") }
+            guard local <= ZipArchive.maxBytes, packed <= ZipArchive.maxBytes, flags & ~0x808 == 0, entries[name] == nil, local + 30 + packed <= directoryOffset, total <= ZipArchive.maxBytes else { throw ZipError.invalid("対応しないZIP構造です。") }
             guard method == 0 else { throw ZipError.unsupported("この版では圧縮されたZIPを扱えません。FavecusPlayerが出力したZIPを使ってください。") }
             let header = try source.read(at: local, count: 30)
             guard header.u32(0) == 0x04034b50, header.u16(6) == flags, header.u16(8) == method else { throw ZipError.invalid("ZIPのヘッダーが一致しません。") }
@@ -175,6 +183,7 @@ final class ZipArchive {
             names.append(name)
         }
         guard at == directory.count else { throw ZipError.invalid("ZIPの一覧サイズが一致しません。") }
+        totalBytes = total
     }
 
     /// 小さなエントリを丸ごと読む（CRCとサイズを検証）。

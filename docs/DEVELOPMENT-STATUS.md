@@ -129,7 +129,10 @@ Step6完了（下記）。次はStep7（Supabase接続、Windows版の同期配�
 
 - 10-0：形式の確定と範囲の決定（DESIGN.md「ZIPの出力・取り込みの仕様」）。
 - 10-1：`src/core/library-transfer.cjs`（共通の規則）を追加。Windows版は名前の規則・構成検査を共有。`test/library-transfer.test.cjs`（出力のバイト一致、Windows Prepare/Commitと共通Prepare/Importの結果一致）と共通テストデータ229件（TransferPrepare/Import/Export）。CIでJavaScriptCoreの結果を確認する。
-- 次：10-2 Swiftの ZIP読み取り・復号・取り込み（Nodeで生成したWindows版ZIPをCIで読む）／10-3 出力と画面（ファイル選択・共有）／10-4 実機でのラウンドトリップ。
+- 10-2：Swiftの `ZipArchive`（無圧縮のみ・ZIP64・CRC）、`Fvpa`（AES-GCM）、`TransferService`/`ImportCoordinator`。**CIでWindows版の実際のZIP**（`scripts/make-test-archive.cjs` が `LibraryArchive.Export` で生成）を取り込み、構造・メディアのバイト数・再取り込み（（取り込みN）、既存メディア不変）・CRC不一致での失敗と後片付け・情報のみ・祖先の器を確認。
+- 10-3：`ZipWriter`/`ExportService`/`ExportCoordinator`（ShareLink）、取り込み・出力の仮の画面、ドキュメントタイプ（`project.yml` の `info:`、App拡張は作らない）＋`onOpenURL`。**CIで、iPhone版が出力したZIPをWindows版の取り込み処理で読む**（`scripts/verify-ios-export.cjs`）ことと、ビルドされたInfo.plistのドキュメントタイプを確認。
+- checker（Opus）指摘の修正：ZIP64の64ビット値を足し算の前に1TBで検査（桁あふれで落ちない）／内側ZIPは読む前に件数・合計サイズを検査（重なったエントリ対策）／取り込み中は「閉じる」・新しいZIPの受付を無効にし、準備中の世代管理／取り込み結果の置き換えを編集と同じ順番待ちに積む／保存前に表示用の読み取りを確認／バックグラウンドタスクの期限切れ処理／途中終了で残った`.import-*`を起動時に片付け／出力中は「閉じる」を無効／不正なUTF-8を拒否／ダウンロード済みデータは取り込まない旨を表示。
+- 未確認（Step10）：実機でのファイルアプリ・共有シートからの取り込み／出力の共有／4GB超のZIP64の書き出し・読み取り（Windows側のZIP64は既存テスト、iPhone側は桁あふれの拒否のみ確認）／deflate圧縮のZIP（iPhone版は拒否）／パスワード付きアーカイブ（iPhone版は未対応）／大きなZIP（数GB）での時間・メモリ。実機での確認はユーザー指示によりStep12・13の後に行う。
 
 ### Step8の進捗（2026-11-13）
 
