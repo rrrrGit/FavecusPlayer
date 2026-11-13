@@ -6,8 +6,26 @@ on:
     branches: ["release/v0.7.0"]
     paths:
       - "ios/**"
+      - "shared/**"
+      - "scripts/build-shared-bundle.cjs"
       - ".github/workflows/ios.yml"
+      # 共通JSの正本（変更するとiOSの検証が必要）
+      - "src/core/library-data.cjs"
+      - "src/core/library-identity.cjs"
+      - "src/core/media-identity.cjs"
+      - "src/core/urls.cjs"
+      - "src/core/library-share.cjs"
+      - "src/core/import-identity.cjs"
+      - "src/core/playlist-icon-data.cjs"
+      - "src/core/queue.cjs"
+      - "src/ui/library-tree.js"
+      - "src/ui/library-search.js"
   workflow_dispatch:
+    inputs:
+      screenshot:
+        description: "シミュレーターのスクリーンショットも取得する（時間がかかる）"
+        type: boolean
+        default: false
 
 concurrency:
   group: ios-${{ github.ref }}
@@ -33,6 +51,14 @@ jobs:
           swift --version
           sw_vers
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build shared JS bundle
+        run: node scripts/build-shared-bundle.cjs
+        working-directory: .
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
@@ -48,14 +74,21 @@ jobs:
 
       - name: Build and test (simulator)
         run: |
+          set -o pipefail
+          mkdir -p build
           xcodebuild test \
             -project FavecusPlayer.xcodeproj \
             -scheme FavecusPlayer \
             -destination "id=$SIM_UDID" \
             -derivedDataPath build/sim \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/test.log
+          {
+            echo '### iOSシミュレーターでの共通処理の結果'
+            { grep -E 'FAVECUS_(FIXTURES|BENCH)' build/test.log || true; } | sort -u | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Screenshot
+        if: github.event_name == 'workflow_dispatch' && inputs.screenshot
         run: |
           APP=$(find build/sim -name FavecusPlayer.app -path "*iphonesimulator*" | head -1)
           xcrun simctl boot "$SIM_UDID" || true
@@ -90,6 +123,7 @@ jobs:
           path: |
             ios/out/screenshot.png
             ios/out/FavecusPlayer-unsigned.ipa
+          if-no-files-found: warn
           retention-days: 14
 
       - name: Record duration

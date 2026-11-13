@@ -1,0 +1,3348 @@
+[
+ {
+  "name": "parse: BV only",
+  "call": "ParseBilibili",
+  "args": [
+   "BV1xx411c7mD"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+  }
+ },
+ {
+  "name": "parse: av lowercase",
+  "call": "ParseBilibili",
+  "args": [
+   "av170001"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "av170001",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/av170001/"
+  }
+ },
+ {
+  "name": "parse: AV uppercase",
+  "call": "ParseBilibili",
+  "args": [
+   "AV170001"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "av170001",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/av170001/"
+  }
+ },
+ {
+  "name": "parse: BV URL",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD/"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+  }
+ },
+ {
+  "name": "parse: BV URL p=2",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 2,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+  }
+ },
+ {
+  "name": "parse: av URL p=3",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/video/av170001/?p=3"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "av170001",
+   "part": 3,
+   "url": "https://www.bilibili.com/video/av170001/?p=3"
+  }
+ },
+ {
+  "name": "parse: no trailing slash",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+  }
+ },
+ {
+  "name": "parse: m host",
+  "call": "ParseBilibili",
+  "args": [
+   "https://m.bilibili.com/video/BV1xx411c7mD"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+  }
+ },
+ {
+  "name": "parse: bilibili.com host",
+  "call": "ParseBilibili",
+  "args": [
+   "https://bilibili.com/video/BV1xx411c7mD"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+  }
+ },
+ {
+  "name": "parse: player bvid",
+  "call": "ParseBilibili",
+  "args": [
+   "https://player.bilibili.com/player.html?bvid=BV1xx411c7mD&p=2"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 2,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+  }
+ },
+ {
+  "name": "parse: player aid",
+  "call": "ParseBilibili",
+  "args": [
+   "https://player.bilibili.com/player.html?aid=170001&p=4"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "av170001",
+   "part": 4,
+   "url": "https://www.bilibili.com/video/av170001/?p=4"
+  }
+ },
+ {
+  "name": "parse: explicit :443",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com:443/video/BV1xx411c7mD/?p=2"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 2,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+  }
+ },
+ {
+  "name": "parse: uppercase host and scheme",
+  "call": "ParseBilibili",
+  "args": [
+   "HTTPS://WWW.BILIBILI.COM/video/BV1xx411c7mD"
+  ],
+  "expectError": "1行に1件のBilibiliのURLを貼り付けてください。"
+ },
+ {
+  "name": "parse: trailing dot host",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com./video/BV1xx411c7mD"
+  ],
+  "expectError": "Bilibiliの通常URLに対応しています。短縮URL（b23.tv）はブラウザーで開いた後のURLを使用してください。"
+ },
+ {
+  "name": "parse: backslashes",
+  "call": "ParseBilibili",
+  "args": [
+   "https:\\\\www.bilibili.com\\video\\BV1xx411c7mD"
+  ],
+  "expectError": "1行に1件のBilibiliのURLを貼り付けてください。"
+ },
+ {
+  "name": "parse: tab and newline inside",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bili\tbili.com/vid\neo/BV1xx411c7mD"
+  ],
+  "expectError": "Bilibiliの通常URLに対応しています。短縮URL（b23.tv）はブラウザーで開いた後のURLを使用してください。"
+ },
+ {
+  "name": "parse: leading and trailing spaces",
+  "call": "ParseBilibili",
+  "args": [
+   "  https://www.bilibili.com/video/BV1xx411c7mD  "
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+  }
+ },
+ {
+  "name": "parse: userinfo",
+  "call": "ParseBilibili",
+  "args": [
+   "https://user:pw@www.bilibili.com/video/BV1xx411c7mD"
+  ],
+  "expectError": "Bilibiliの通常URLに対応しています。短縮URL（b23.tv）はブラウザーで開いた後のURLを使用してください。"
+ },
+ {
+  "name": "parse: username only",
+  "call": "ParseBilibili",
+  "args": [
+   "https://user@www.bilibili.com/video/BV1xx411c7mD"
+  ],
+  "expectError": "Bilibiliの通常URLに対応しています。短縮URL（b23.tv）はブラウザーで開いた後のURLを使用してください。"
+ },
+ {
+  "name": "parse: empty userinfo",
+  "call": "ParseBilibili",
+  "args": [
+   "https://@www.bilibili.com/video/BV1xx411c7mD"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+  }
+ },
+ {
+  "name": "parse: other port",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com:8443/video/BV1xx411c7mD"
+  ],
+  "expectError": "Bilibiliの通常URLに対応しています。短縮URL（b23.tv）はブラウザーで開いた後のURLを使用してください。"
+ },
+ {
+  "name": "parse: http scheme",
+  "call": "ParseBilibili",
+  "args": [
+   "http://www.bilibili.com/video/BV1xx411c7mD"
+  ],
+  "expectError": "Bilibiliの通常URLに対応しています。短縮URL（b23.tv）はブラウザーで開いた後のURLを使用してください。"
+ },
+ {
+  "name": "parse: b23.tv",
+  "call": "ParseBilibili",
+  "args": [
+   "https://b23.tv/abcdef"
+  ],
+  "expectError": "Bilibiliの通常URLに対応しています。短縮URL（b23.tv）はブラウザーで開いた後のURLを使用してください。"
+ },
+ {
+  "name": "parse: other host",
+  "call": "ParseBilibili",
+  "args": [
+   "https://evil.example/video/BV1xx411c7mD"
+  ],
+  "expectError": "Bilibiliの通常URLに対応しています。短縮URL（b23.tv）はブラウザーで開いた後のURLを使用してください。"
+ },
+ {
+  "name": "parse: lookalike host suffix",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com.evil.example/video/BV1xx411c7mD"
+  ],
+  "expectError": "Bilibiliの通常URLに対応しています。短縮URL（b23.tv）はブラウザーで開いた後のURLを使用してください。"
+ },
+ {
+  "name": "parse: lookalike host prefix",
+  "call": "ParseBilibili",
+  "args": [
+   "https://evilwww.bilibili.com/video/BV1xx411c7mD"
+  ],
+  "expectError": "Bilibiliの通常URLに対応しています。短縮URL（b23.tv）はブラウザーで開いた後のURLを使用してください。"
+ },
+ {
+  "name": "parse: repeated p",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD/?p=2&p=3"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 2,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+  }
+ },
+ {
+  "name": "parse: p=0",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD/?p=0"
+  ],
+  "expectError": "動画のパート番号が正しくありません。"
+ },
+ {
+  "name": "parse: p=10000",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD/?p=10000"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 10000,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=10000"
+  }
+ },
+ {
+  "name": "parse: p=10001",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD/?p=10001"
+  ],
+  "expectError": "動画のパート番号が正しくありません。"
+ },
+ {
+  "name": "parse: p=abc",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD/?p=abc"
+  ],
+  "expectError": "動画のパート番号が正しくありません。"
+ },
+ {
+  "name": "parse: p=1.5",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD/?p=1.5"
+  ],
+  "expectError": "動画のパート番号が正しくありません。"
+ },
+ {
+  "name": "parse: p empty",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD/?p="
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+  }
+ },
+ {
+  "name": "parse: p plus-encoded space",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD/?p=+2"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 2,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+  }
+ },
+ {
+  "name": "parse: p percent-encoded digit",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD/?p=%32"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 2,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+  }
+ },
+ {
+  "name": "parse: fragment",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD/#reply"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+  }
+ },
+ {
+  "name": "parse: tracking query",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD/?spm_id_from=333&p=2&vd_source=abc"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 2,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+  }
+ },
+ {
+  "name": "parse: percent-encoded path char",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/video/%42V1xx411c7mD"
+  ],
+  "expectError": "通常の投稿動画（BV / av）に対応しています。"
+ },
+ {
+  "name": "parse: dot segments",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/a/../video/./BV1xx411c7mD"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+  }
+ },
+ {
+  "name": "parse: encoded dot segments",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/a/%2e%2e/video/BV1xx411c7mD"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+  }
+ },
+ {
+  "name": "parse: double slash path",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com//video/BV1xx411c7mD"
+  ],
+  "expectError": "通常の投稿動画（BV / av）に対応しています。"
+ },
+ {
+  "name": "parse: share text with title",
+  "call": "ParseBilibili",
+  "args": [
+   "【テスト動画】 https://www.bilibili.com/video/BV1xx411c7mD/?p=2 より"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 2,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+  }
+ },
+ {
+  "name": "parse: two URLs in text",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD https://www.bilibili.com/video/BV1GJ411x7h7"
+  ],
+  "expectError": "1行に1件のBilibiliのURLを貼り付けてください。"
+ },
+ {
+  "name": "parse: space.bilibili.com",
+  "call": "ParseBilibili",
+  "args": [
+   "https://space.bilibili.com/12345"
+  ],
+  "expectError": "https://www.bilibili.com/video/… の動画URLに対応しています。短縮URLはブラウザーで開いた後のURLを使用してください。"
+ },
+ {
+  "name": "parse: empty",
+  "call": "ParseBilibili",
+  "args": [
+   ""
+  ],
+  "expectError": "1行に1件のBilibiliのURLを貼り付けてください。"
+ },
+ {
+  "name": "parse: av 19 digits",
+  "call": "ParseBilibili",
+  "args": [
+   "av1234567890123456789"
+  ],
+  "expectError": "1行に1件のBilibiliのURLを貼り付けてください。"
+ },
+ {
+  "name": "parse: av 18 digits",
+  "call": "ParseBilibili",
+  "args": [
+   "av123456789012345678"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "av123456789012345678",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/av123456789012345678/"
+  }
+ },
+ {
+  "name": "parse: BV with 9 chars",
+  "call": "ParseBilibili",
+  "args": [
+   "BV1xx411c7m"
+  ],
+  "expectError": "1行に1件のBilibiliのURLを貼り付けてください。"
+ },
+ {
+  "name": "parse: query only url",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.bilibili.com/?p=2"
+  ],
+  "expectError": "通常の投稿動画（BV / av）に対応しています。"
+ },
+ {
+  "name": "parse: IPv4-looking host (divergence)",
+  "call": "ParseBilibili",
+  "args": [
+   "https://127.0.0.1/video/BV1xx411c7mD"
+  ],
+  "divergence": "ios-rejects",
+  "expectError": "Bilibiliの通常URLに対応しています。短縮URL（b23.tv）はブラウザーで開いた後のURLを使用してください。"
+ },
+ {
+  "name": "parse: IPv6 host (divergence)",
+  "call": "ParseBilibili",
+  "args": [
+   "https://[::1]/video/BV1xx411c7mD"
+  ],
+  "divergence": "ios-rejects",
+  "expectError": "Bilibiliの通常URLに対応しています。短縮URL（b23.tv）はブラウザーで開いた後のURLを使用してください。"
+ },
+ {
+  "name": "parse: fullwidth host (divergence)",
+  "call": "ParseBilibili",
+  "args": [
+   "https://ｗｗｗ．ｂｉｌｉｂｉｌｉ．ｃｏｍ/video/BV1xx411c7mD"
+  ],
+  "divergence": "ios-rejects",
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+  }
+ },
+ {
+  "name": "parse: percent-encoded host",
+  "call": "ParseBilibili",
+  "args": [
+   "https://www.%62ilibili.com/video/BV1xx411c7mD"
+  ],
+  "expect": {
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+  }
+ },
+ {
+  "name": "remote: allowed bilibili",
+  "call": "IsAllowedRemote",
+  "args": [
+   "https://passport.bilibili.com/login",
+   "bilibili"
+  ],
+  "expect": true
+ },
+ {
+  "name": "remote: space",
+  "call": "IsAllowedRemote",
+  "args": [
+   "https://space.bilibili.com/1",
+   "bilibili"
+  ],
+  "expect": true
+ },
+ {
+  "name": "remote: http",
+  "call": "IsAllowedRemote",
+  "args": [
+   "http://www.bilibili.com/",
+   "bilibili"
+  ],
+  "expect": false
+ },
+ {
+  "name": "remote: port",
+  "call": "IsAllowedRemote",
+  "args": [
+   "https://www.bilibili.com:444/",
+   "bilibili"
+  ],
+  "expect": false
+ },
+ {
+  "name": "remote: default port",
+  "call": "IsAllowedRemote",
+  "args": [
+   "https://www.bilibili.com:443/",
+   "bilibili"
+  ],
+  "expect": true
+ },
+ {
+  "name": "remote: userinfo",
+  "call": "IsAllowedRemote",
+  "args": [
+   "https://a@www.bilibili.com/",
+   "bilibili"
+  ],
+  "expect": false
+ },
+ {
+  "name": "remote: other host",
+  "call": "IsAllowedRemote",
+  "args": [
+   "https://example.com/",
+   "bilibili"
+  ],
+  "expect": false
+ },
+ {
+  "name": "remote: garbage",
+  "call": "IsAllowedRemote",
+  "args": [
+   "not a url",
+   "bilibili"
+  ],
+  "expect": false
+ },
+ {
+  "name": "remote: javascript scheme",
+  "call": "IsAllowedRemote",
+  "args": [
+   "javascript:alert(1)",
+   "bilibili"
+  ],
+  "expect": false
+ },
+ {
+  "name": "player url bv",
+  "call": "PlayerURL",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2",
+    "title": "t"
+   },
+   null
+  ],
+  "expect": "https://player.bilibili.com/player.html?bvid=BV1xx411c7mD&p=2&autoplay=1&muted=0&danmaku=0&qn=16&high_quality=0"
+ },
+ {
+  "name": "player url av with cid",
+  "call": "PlayerURL",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://www.bilibili.com/video/av170001/",
+    "title": "t"
+   },
+   {
+    "pages": [
+     {
+      "page": 1,
+      "cid": 123456789
+     }
+    ]
+   }
+  ],
+  "expect": "https://player.bilibili.com/player.html?aid=170001&p=1&cid=123456789&autoplay=1&muted=0&danmaku=0&qn=16&high_quality=0"
+ },
+ {
+  "name": "player url part with cid",
+  "call": "PlayerURL",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2",
+    "title": "t"
+   },
+   {
+    "pages": [
+     {
+      "page": 1,
+      "cid": 11
+     },
+     {
+      "page": 2,
+      "cid": 22
+     }
+    ]
+   }
+  ],
+  "expect": "https://player.bilibili.com/player.html?bvid=BV1xx411c7mD&p=2&cid=22&autoplay=1&muted=0&danmaku=0&qn=16&high_quality=0"
+ },
+ {
+  "name": "player url local",
+  "call": "PlayerURL",
+  "args": [
+   {
+    "type": "local",
+    "fileName": "x.mp3"
+   },
+   null
+  ],
+  "expectError": "Bilibiliの動画を指定してください。"
+ },
+ {
+  "name": "identity: BV alone",
+  "call": "VideoIdentity",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD/",
+   null
+  ],
+  "expect": {
+   "version": 1,
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/",
+   "originalURL": "https://www.bilibili.com/video/BV1xx411c7mD/",
+   "key": "bilibili:https://www.bilibili.com/video/BV1xx411c7mD/",
+   "aliases": [
+    "https://www.bilibili.com/video/BV1xx411c7mD/"
+   ],
+   "verified": false
+  }
+ },
+ {
+  "name": "identity: verified av+BV (input BV)",
+  "call": "VideoIdentity",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD/?p=2",
+   {
+    "aid": 170001,
+    "bvid": "BV1xx411c7mD"
+   }
+  ],
+  "expect": {
+   "version": 1,
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 2,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2",
+   "originalURL": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2",
+   "key": "bilibili:https://www.bilibili.com/video/BV1xx411c7mD/?p=2",
+   "aliases": [
+    "https://www.bilibili.com/video/BV1xx411c7mD/?p=2",
+    "https://www.bilibili.com/video/av170001/?p=2"
+   ],
+   "verified": true
+  }
+ },
+ {
+  "name": "identity: verified av+BV (input av)",
+  "call": "VideoIdentity",
+  "args": [
+   "https://www.bilibili.com/video/av170001/",
+   {
+    "aid": "170001",
+    "bvid": "BV1xx411c7mD"
+   }
+  ],
+  "expect": {
+   "version": 1,
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/",
+   "originalURL": "https://www.bilibili.com/video/av170001/",
+   "key": "bilibili:https://www.bilibili.com/video/BV1xx411c7mD/",
+   "aliases": [
+    "https://www.bilibili.com/video/BV1xx411c7mD/",
+    "https://www.bilibili.com/video/av170001/"
+   ],
+   "verified": true
+  }
+ },
+ {
+  "name": "identity: metadata for another video",
+  "call": "VideoIdentity",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD/",
+   {
+    "aid": 999,
+    "bvid": "BV1GJ411x7h7"
+   }
+  ],
+  "expect": {
+   "version": 1,
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/",
+   "originalURL": "https://www.bilibili.com/video/BV1xx411c7mD/",
+   "key": "bilibili:https://www.bilibili.com/video/BV1xx411c7mD/",
+   "aliases": [
+    "https://www.bilibili.com/video/BV1xx411c7mD/"
+   ],
+   "verified": false
+  }
+ },
+ {
+  "name": "identity: incomplete metadata",
+  "call": "VideoIdentity",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD/",
+   {
+    "bvid": "BV1xx411c7mD"
+   }
+  ],
+  "expect": {
+   "version": 1,
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/",
+   "originalURL": "https://www.bilibili.com/video/BV1xx411c7mD/",
+   "key": "bilibili:https://www.bilibili.com/video/BV1xx411c7mD/",
+   "aliases": [
+    "https://www.bilibili.com/video/BV1xx411c7mD/"
+   ],
+   "verified": false
+  }
+ },
+ {
+  "name": "identity: huge aid string",
+  "call": "VideoIdentity",
+  "args": [
+   "https://www.bilibili.com/video/av123456789012345678/",
+   {
+    "aid": "123456789012345678",
+    "bvid": "BV1xx411c7mD"
+   }
+  ],
+  "expect": {
+   "version": 1,
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/",
+   "originalURL": "https://www.bilibili.com/video/av123456789012345678/",
+   "key": "bilibili:https://www.bilibili.com/video/BV1xx411c7mD/",
+   "aliases": [
+    "https://www.bilibili.com/video/BV1xx411c7mD/",
+    "https://www.bilibili.com/video/av123456789012345678/"
+   ],
+   "verified": true
+  }
+ },
+ {
+  "name": "identity: unsafe numeric aid",
+  "call": "VideoIdentity",
+  "args": [
+   "https://www.bilibili.com/video/av9007199254740993/",
+   {
+    "aid": 9007199254740992,
+    "bvid": "BV1xx411c7mD"
+   }
+  ],
+  "expect": {
+   "version": 1,
+   "type": "bilibili",
+   "videoId": "av9007199254740993",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/av9007199254740993/",
+   "originalURL": "https://www.bilibili.com/video/av9007199254740993/",
+   "key": "bilibili:https://www.bilibili.com/video/av9007199254740993/",
+   "aliases": [
+    "https://www.bilibili.com/video/av9007199254740993/"
+   ],
+   "verified": false
+  }
+ },
+ {
+  "name": "mediaKey: bilibili",
+  "call": "MediaKey",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2",
+    "title": "t"
+   },
+   null
+  ],
+  "expect": "bilibili:https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+ },
+ {
+  "name": "mediaKey: local",
+  "call": "MediaKey",
+  "args": [
+   {
+    "type": "local",
+    "fileName": "a.mp3"
+   },
+   null
+  ],
+  "expect": "local:a.mp3"
+ },
+ {
+  "name": "mediaKey: verified",
+  "call": "MediaKey",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://www.bilibili.com/video/av170001/",
+    "title": "t"
+   },
+   {
+    "aid": 170001,
+    "bvid": "BV1xx411c7mD"
+   }
+  ],
+  "expect": "bilibili:https://www.bilibili.com/video/BV1xx411c7mD/"
+ },
+ {
+  "name": "download identity: video",
+  "call": "DownloadIdentity",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://www.bilibili.com/video/BV1xx411c7mD/",
+    "title": "t"
+   },
+   "video",
+   null
+  ],
+  "expect": {
+   "version": 1,
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 1,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/",
+   "originalURL": "https://www.bilibili.com/video/BV1xx411c7mD/",
+   "key": "https://www.bilibili.com/video/BV1xx411c7mD/\nvideo",
+   "aliases": [
+    "https://www.bilibili.com/video/BV1xx411c7mD/"
+   ],
+   "verified": false,
+   "kind": "video"
+  }
+ },
+ {
+  "name": "download identity: audio part",
+  "call": "DownloadIdentity",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=3",
+    "title": "t"
+   },
+   "audio",
+   null
+  ],
+  "expect": {
+   "version": 1,
+   "type": "bilibili",
+   "videoId": "BV1xx411c7mD",
+   "part": 3,
+   "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=3",
+   "originalURL": "https://www.bilibili.com/video/BV1xx411c7mD/?p=3",
+   "key": "https://www.bilibili.com/video/BV1xx411c7mD/?p=3\naudio",
+   "aliases": [
+    "https://www.bilibili.com/video/BV1xx411c7mD/?p=3"
+   ],
+   "verified": false,
+   "kind": "audio"
+  }
+ },
+ {
+  "name": "download identity: bad kind",
+  "call": "DownloadIdentity",
+  "args": [
+   {
+    "type": "bilibili",
+    "url": "https://www.bilibili.com/video/BV1xx411c7mD/",
+    "title": "t"
+   },
+   "image",
+   null
+  ],
+  "expectError": "保存形式は動画または音声を指定してください。"
+ },
+ {
+  "name": "same video: av vs BV verified",
+  "call": "SameVideo",
+  "args": [
+   "https://www.bilibili.com/video/av170001/",
+   "https://www.bilibili.com/video/BV1xx411c7mD/",
+   {
+    "aid": 170001,
+    "bvid": "BV1xx411c7mD"
+   }
+  ],
+  "expect": true
+ },
+ {
+  "name": "same video: av vs BV unverified",
+  "call": "SameVideo",
+  "args": [
+   "https://www.bilibili.com/video/av170001/",
+   "https://www.bilibili.com/video/BV1xx411c7mD/",
+   null
+  ],
+  "expect": false
+ },
+ {
+  "name": "same video: different part",
+  "call": "SameVideo",
+  "args": [
+   "https://www.bilibili.com/video/BV1xx411c7mD/?p=2",
+   "https://www.bilibili.com/video/BV1xx411c7mD/",
+   null
+  ],
+  "expect": false
+ },
+ {
+  "name": "validate: sample library",
+  "call": "ValidateLibrary",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "expect": [
+   {
+    "id": "00000001-0000-4000-8000-000000000001",
+    "childIds": [
+     "00000001-0000-4000-8000-000000000002"
+    ],
+    "icon": "",
+    "name": "親",
+    "createdAt": "",
+    "lastAddedAt": "",
+    "includeInAll": true,
+    "entries": [
+     {
+      "id": "00000002-0000-4000-8000-000000000001",
+      "title": "親の曲",
+      "addedAt": "",
+      "mediaId": "00000003-0000-4000-8000-000000000001",
+      "type": "bilibili",
+      "videoId": "BV1xx411c7mD",
+      "part": 1,
+      "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+     }
+    ]
+   },
+   {
+    "id": "00000001-0000-4000-8000-000000000002",
+    "childIds": [],
+    "icon": "",
+    "name": "子",
+    "createdAt": "",
+    "lastAddedAt": "",
+    "includeInAll": false,
+    "entries": [
+     {
+      "id": "00000002-0000-4000-8000-000000000002",
+      "title": "子の曲 パート2",
+      "addedAt": "",
+      "mediaId": "00000003-0000-4000-8000-000000000002",
+      "type": "bilibili",
+      "videoId": "BV1xx411c7mD",
+      "part": 2,
+      "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+     },
+     {
+      "id": "00000002-0000-4000-8000-000000000003",
+      "title": "avの曲",
+      "addedAt": "",
+      "mediaId": "00000003-0000-4000-8000-000000000003",
+      "type": "bilibili",
+      "videoId": "av555",
+      "part": 1,
+      "url": "https://www.bilibili.com/video/av555/"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "validate: fresh ids",
+  "call": "ValidateLibrary",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   },
+   true
+  ],
+  "expect": [
+   {
+    "id": "00000000-0000-4000-8000-000000900000",
+    "childIds": [
+     "00000000-0000-4000-8000-000000900002"
+    ],
+    "icon": "",
+    "name": "親",
+    "createdAt": "",
+    "lastAddedAt": "",
+    "includeInAll": true,
+    "entries": [
+     {
+      "id": "00000000-0000-4000-8000-000000900001",
+      "title": "親の曲",
+      "addedAt": "",
+      "type": "bilibili",
+      "videoId": "BV1xx411c7mD",
+      "part": 1,
+      "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+     }
+    ]
+   },
+   {
+    "id": "00000000-0000-4000-8000-000000900002",
+    "childIds": [],
+    "icon": "",
+    "name": "子",
+    "createdAt": "",
+    "lastAddedAt": "",
+    "includeInAll": false,
+    "entries": [
+     {
+      "id": "00000000-0000-4000-8000-000000900003",
+      "title": "子の曲 パート2",
+      "addedAt": "",
+      "type": "bilibili",
+      "videoId": "BV1xx411c7mD",
+      "part": 2,
+      "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+     },
+     {
+      "id": "00000000-0000-4000-8000-000000900004",
+      "title": "avの曲",
+      "addedAt": "",
+      "type": "bilibili",
+      "videoId": "av555",
+      "part": 1,
+      "url": "https://www.bilibili.com/video/av555/"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "validate: cycle",
+  "call": "ValidateLibrary",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000001"
+      ],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "expectError": "自分自身や子孫を親にはできません。"
+ },
+ {
+  "name": "validate: bad mediaId",
+  "call": "ValidateLibrary",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "bad",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "expectError": "メディア識別番号がありません。保存データは変更していません。"
+ },
+ {
+  "name": "validate: unknown identityVersion",
+  "call": "ValidateLibrary",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 99,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "expectError": "対応していないメディア識別形式です。保存データは変更していません。"
+ },
+ {
+  "name": "validate: same mediaId for different media",
+  "call": "ValidateLibrary",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "expectError": "メディア識別番号と参照先が矛盾しています。"
+ },
+ {
+  "name": "validate: same media different mediaId",
+  "call": "ValidateLibrary",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000009",
+        "mediaId": "00000003-0000-4000-8000-000000000009",
+        "type": "bilibili",
+        "title": "同じ動画",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "expectError": "メディア識別番号と参照先が矛盾しています。"
+ },
+ {
+  "name": "validate: foreign url",
+  "call": "ValidateLibrary",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://evil.example/x"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "expectError": "Bilibiliの通常URLに対応しています。短縮URL（b23.tv）はブラウザーで開いた後のURLを使用してください。"
+ },
+ {
+  "name": "validate: name cleanup",
+  "call": "ValidateLibrary",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "  名前\u0007  ",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "expect": [
+   {
+    "id": "00000001-0000-4000-8000-000000000001",
+    "childIds": [
+     "00000001-0000-4000-8000-000000000002"
+    ],
+    "icon": "",
+    "name": "名前",
+    "createdAt": "",
+    "lastAddedAt": "",
+    "includeInAll": true,
+    "entries": [
+     {
+      "id": "00000002-0000-4000-8000-000000000001",
+      "title": "親の曲",
+      "addedAt": "",
+      "mediaId": "00000003-0000-4000-8000-000000000001",
+      "type": "bilibili",
+      "videoId": "BV1xx411c7mD",
+      "part": 1,
+      "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+     }
+    ]
+   },
+   {
+    "id": "00000001-0000-4000-8000-000000000002",
+    "childIds": [],
+    "icon": "",
+    "name": "子",
+    "createdAt": "",
+    "lastAddedAt": "",
+    "includeInAll": false,
+    "entries": [
+     {
+      "id": "00000002-0000-4000-8000-000000000002",
+      "title": "子の曲 パート2",
+      "addedAt": "",
+      "mediaId": "00000003-0000-4000-8000-000000000002",
+      "type": "bilibili",
+      "videoId": "BV1xx411c7mD",
+      "part": 2,
+      "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+     },
+     {
+      "id": "00000002-0000-4000-8000-000000000003",
+      "title": "avの曲",
+      "addedAt": "",
+      "mediaId": "00000003-0000-4000-8000-000000000003",
+      "type": "bilibili",
+      "videoId": "av555",
+      "part": 1,
+      "url": "https://www.bilibili.com/video/av555/"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "validate: optional field missing",
+  "call": "ValidateLibrary",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "expect": [
+   {
+    "id": "00000001-0000-4000-8000-000000000001",
+    "childIds": [
+     "00000001-0000-4000-8000-000000000002"
+    ],
+    "icon": "",
+    "name": "親",
+    "createdAt": "",
+    "lastAddedAt": "",
+    "includeInAll": true,
+    "entries": [
+     {
+      "id": "00000002-0000-4000-8000-000000000001",
+      "title": "親の曲",
+      "addedAt": "",
+      "mediaId": "00000003-0000-4000-8000-000000000001",
+      "type": "bilibili",
+      "videoId": "BV1xx411c7mD",
+      "part": 1,
+      "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+     }
+    ]
+   },
+   {
+    "id": "00000001-0000-4000-8000-000000000002",
+    "childIds": [],
+    "icon": "",
+    "name": "子",
+    "createdAt": "",
+    "lastAddedAt": "",
+    "includeInAll": true,
+    "entries": [
+     {
+      "id": "00000002-0000-4000-8000-000000000002",
+      "title": "子の曲 パート2",
+      "addedAt": "",
+      "mediaId": "00000003-0000-4000-8000-000000000002",
+      "type": "bilibili",
+      "videoId": "BV1xx411c7mD",
+      "part": 2,
+      "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+     },
+     {
+      "id": "00000002-0000-4000-8000-000000000003",
+      "title": "avの曲",
+      "addedAt": "",
+      "mediaId": "00000003-0000-4000-8000-000000000003",
+      "type": "bilibili",
+      "videoId": "av555",
+      "part": 1,
+      "url": "https://www.bilibili.com/video/av555/"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "name": "validate: unreferenced playlist",
+  "call": "ValidateLibrary",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000003",
+      "name": "孤立",
+      "childIds": [],
+      "entries": []
+     }
+    ]
+   }
+  ],
+  "expectError": "表示できないプレイリストが含まれています。"
+ },
+ {
+  "name": "share: information with local",
+  "call": "ShareData",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000005",
+        "mediaId": "00000003-0000-4000-8000-000000000005",
+        "type": "local",
+        "title": "ローカル",
+        "fileName": "00000000-0000-4000-8000-0000000000aa.mp3"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   },
+   "information"
+  ],
+  "expect": {
+   "version": 3,
+   "shareVersion": 1,
+   "exportMode": "information",
+   "identityVersion": 2,
+   "videoAliases": [
+    {
+     "aid": "170001",
+     "bvid": "BV1xx411c7mD"
+    }
+   ],
+   "playlists": [
+    {
+     "id": "00000001-0000-4000-8000-000000000001",
+     "childIds": [
+      "00000001-0000-4000-8000-000000000002"
+     ],
+     "icon": "",
+     "name": "親",
+     "createdAt": "",
+     "lastAddedAt": "",
+     "includeInAll": true,
+     "entries": [
+      {
+       "id": "00000002-0000-4000-8000-000000000001",
+       "title": "親の曲",
+       "addedAt": "",
+       "mediaId": "00000003-0000-4000-8000-000000000001",
+       "type": "bilibili",
+       "videoId": "BV1xx411c7mD",
+       "part": 1,
+       "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+      },
+      {
+       "id": "00000002-0000-4000-8000-000000000005",
+       "title": "ローカル",
+       "addedAt": "",
+       "mediaId": "00000003-0000-4000-8000-000000000005",
+       "type": "local",
+       "fileName": "00000000-0000-4000-8000-0000000000aa.mp3",
+       "mediaIncluded": false
+      }
+     ]
+    },
+    {
+     "id": "00000001-0000-4000-8000-000000000002",
+     "childIds": [],
+     "icon": "",
+     "name": "子",
+     "createdAt": "",
+     "lastAddedAt": "",
+     "includeInAll": false,
+     "entries": [
+      {
+       "id": "00000002-0000-4000-8000-000000000002",
+       "title": "子の曲 パート2",
+       "addedAt": "",
+       "mediaId": "00000003-0000-4000-8000-000000000002",
+       "type": "bilibili",
+       "videoId": "BV1xx411c7mD",
+       "part": 2,
+       "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+      },
+      {
+       "id": "00000002-0000-4000-8000-000000000003",
+       "title": "avの曲",
+       "addedAt": "",
+       "mediaId": "00000003-0000-4000-8000-000000000003",
+       "type": "bilibili",
+       "videoId": "av555",
+       "part": 1,
+       "url": "https://www.bilibili.com/video/av555/"
+      }
+     ]
+    }
+   ],
+   "rootPlaylistIds": [
+    "00000001-0000-4000-8000-000000000001"
+   ]
+  }
+ },
+ {
+  "name": "share: media mode",
+  "call": "ShareData",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   },
+   "media"
+  ],
+  "expect": {
+   "version": 3,
+   "shareVersion": 1,
+   "exportMode": "media",
+   "identityVersion": 2,
+   "videoAliases": [
+    {
+     "aid": "170001",
+     "bvid": "BV1xx411c7mD"
+    }
+   ],
+   "playlists": [
+    {
+     "id": "00000001-0000-4000-8000-000000000001",
+     "childIds": [
+      "00000001-0000-4000-8000-000000000002"
+     ],
+     "icon": "",
+     "name": "親",
+     "createdAt": "",
+     "lastAddedAt": "",
+     "includeInAll": true,
+     "entries": [
+      {
+       "id": "00000002-0000-4000-8000-000000000001",
+       "title": "親の曲",
+       "addedAt": "",
+       "mediaId": "00000003-0000-4000-8000-000000000001",
+       "type": "bilibili",
+       "videoId": "BV1xx411c7mD",
+       "part": 1,
+       "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+      }
+     ]
+    },
+    {
+     "id": "00000001-0000-4000-8000-000000000002",
+     "childIds": [],
+     "icon": "",
+     "name": "子",
+     "createdAt": "",
+     "lastAddedAt": "",
+     "includeInAll": false,
+     "entries": [
+      {
+       "id": "00000002-0000-4000-8000-000000000002",
+       "title": "子の曲 パート2",
+       "addedAt": "",
+       "mediaId": "00000003-0000-4000-8000-000000000002",
+       "type": "bilibili",
+       "videoId": "BV1xx411c7mD",
+       "part": 2,
+       "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+      },
+      {
+       "id": "00000002-0000-4000-8000-000000000003",
+       "title": "avの曲",
+       "addedAt": "",
+       "mediaId": "00000003-0000-4000-8000-000000000003",
+       "type": "bilibili",
+       "videoId": "av555",
+       "part": 1,
+       "url": "https://www.bilibili.com/video/av555/"
+      }
+     ]
+    }
+   ],
+   "rootPlaylistIds": [
+    "00000001-0000-4000-8000-000000000001"
+   ]
+  }
+ },
+ {
+  "name": "share: bad mode",
+  "call": "ShareData",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   },
+   "zip"
+  ],
+  "expectError": "出力方式が正しくありません。"
+ },
+ {
+  "name": "read share: legacy",
+  "call": "ReadShare",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "expect": {
+   "mode": "legacy",
+   "locals": []
+  }
+ },
+ {
+  "name": "read share: unknown version",
+  "call": "ReadShare",
+  "args": [
+   {
+    "version": 3,
+    "shareVersion": 2,
+    "exportMode": "media",
+    "playlists": []
+   }
+  ],
+  "expectError": "対応していないプレイリスト共有形式です。"
+ },
+ {
+  "name": "read share: information with included local",
+  "call": "ReadShare",
+  "args": [
+   {
+    "version": 3,
+    "shareVersion": 1,
+    "exportMode": "information",
+    "playlists": [
+     {
+      "entries": [
+       {
+        "type": "local",
+        "fileName": "a.mp3",
+        "mediaIncluded": true
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "expectError": "ローカル曲の同梱情報が正しくありません。"
+ },
+ {
+  "name": "read share: media local flags",
+  "call": "ReadShare",
+  "args": [
+   {
+    "version": 3,
+    "shareVersion": 1,
+    "exportMode": "media",
+    "playlists": [
+     {
+      "entries": [
+       {
+        "type": "local",
+        "fileName": "a.mp3",
+        "mediaIncluded": false
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "expect": {
+   "mode": "media",
+   "locals": [
+    [
+     "a.mp3",
+     false
+    ]
+   ]
+  }
+ },
+ {
+  "name": "search: hierarchy path",
+  "call": "SearchPage",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   },
+   "子の曲",
+   0
+  ],
+  "expect": {
+   "total": 1,
+   "page": 0,
+   "pages": 1,
+   "items": [
+    {
+     "playlistId": "00000001-0000-4000-8000-000000000002",
+     "title": "子の曲 パート2",
+     "pathText": "ホーム ＞ 親 ＞ 子"
+    }
+   ]
+  }
+ },
+ {
+  "name": "search: two terms across path",
+  "call": "SearchPage",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   },
+   "曲 親",
+   0
+  ],
+  "expect": {
+   "total": 3,
+   "page": 0,
+   "pages": 1,
+   "items": [
+    {
+     "playlistId": "00000001-0000-4000-8000-000000000001",
+     "title": "親の曲",
+     "pathText": "ホーム ＞ 親"
+    },
+    {
+     "playlistId": "00000001-0000-4000-8000-000000000002",
+     "title": "子の曲 パート2",
+     "pathText": "ホーム ＞ 親 ＞ 子"
+    },
+    {
+     "playlistId": "00000001-0000-4000-8000-000000000002",
+     "title": "avの曲",
+     "pathText": "ホーム ＞ 親 ＞ 子"
+    }
+   ]
+  }
+ },
+ {
+  "name": "search: av id",
+  "call": "SearchPage",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   },
+   "av555",
+   0
+  ],
+  "expect": {
+   "total": 1,
+   "page": 0,
+   "pages": 1,
+   "items": [
+    {
+     "playlistId": "00000001-0000-4000-8000-000000000002",
+     "title": "avの曲",
+     "pathText": "ホーム ＞ 親 ＞ 子"
+    }
+   ]
+  }
+ },
+ {
+  "name": "search: full-width and case",
+  "call": "SearchPage",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   },
+   "ＢＶ1ＸＸ",
+   0
+  ],
+  "expect": {
+   "total": 2,
+   "page": 0,
+   "pages": 1,
+   "items": [
+    {
+     "playlistId": "00000001-0000-4000-8000-000000000001",
+     "title": "親の曲",
+     "pathText": "ホーム ＞ 親"
+    },
+    {
+     "playlistId": "00000001-0000-4000-8000-000000000002",
+     "title": "子の曲 パート2",
+     "pathText": "ホーム ＞ 親 ＞ 子"
+    }
+   ]
+  }
+ },
+ {
+  "name": "search: empty query",
+  "call": "SearchPage",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   },
+   "   ",
+   0
+  ],
+  "expect": {
+   "total": 0,
+   "page": 0,
+   "pages": 1,
+   "items": []
+  }
+ },
+ {
+  "name": "search: no match",
+  "call": "SearchPage",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   },
+   "zzz",
+   0
+  ],
+  "expect": {
+   "total": 0,
+   "page": 0,
+   "pages": 1,
+   "items": []
+  }
+ },
+ {
+  "name": "search: page out of range",
+  "call": "SearchPage",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [
+     {
+      "aid": "170001",
+      "bvid": "BV1xx411c7mD"
+     }
+    ],
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "親の曲",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+       }
+      ]
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "childIds": [],
+      "includeInAll": false,
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "子の曲 パート2",
+        "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+       },
+       {
+        "id": "00000002-0000-4000-8000-000000000003",
+        "mediaId": "00000003-0000-4000-8000-000000000003",
+        "type": "bilibili",
+        "title": "avの曲",
+        "url": "https://www.bilibili.com/video/av555/"
+       }
+      ]
+     }
+    ]
+   },
+   "曲",
+   99
+  ],
+  "expect": {
+   "total": 3,
+   "page": 0,
+   "pages": 1,
+   "items": [
+    {
+     "playlistId": "00000001-0000-4000-8000-000000000001",
+     "title": "親の曲",
+     "pathText": "ホーム ＞ 親"
+    },
+    {
+     "playlistId": "00000001-0000-4000-8000-000000000002",
+     "title": "子の曲 パート2",
+     "pathText": "ホーム ＞ 親 ＞ 子"
+    },
+    {
+     "playlistId": "00000001-0000-4000-8000-000000000002",
+     "title": "avの曲",
+     "pathText": "ホーム ＞ 親 ＞ 子"
+    }
+   ]
+  }
+ },
+ {
+  "name": "import: preserve ids, no existing",
+  "call": "ImportPlan",
+  "args": [
+   [],
+   [
+    {
+     "id": "00000001-0000-4000-8000-000000000001",
+     "name": "親",
+     "childIds": [
+      "00000001-0000-4000-8000-000000000002"
+     ],
+     "entries": [
+      {
+       "id": "00000002-0000-4000-8000-000000000001",
+       "mediaId": "00000003-0000-4000-8000-000000000001",
+       "type": "bilibili",
+       "title": "親の曲",
+       "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+      }
+     ]
+    },
+    {
+     "id": "00000001-0000-4000-8000-000000000002",
+     "name": "子",
+     "childIds": [],
+     "includeInAll": false,
+     "entries": [
+      {
+       "id": "00000002-0000-4000-8000-000000000002",
+       "mediaId": "00000003-0000-4000-8000-000000000002",
+       "type": "bilibili",
+       "title": "子の曲 パート2",
+       "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+      },
+      {
+       "id": "00000002-0000-4000-8000-000000000003",
+       "mediaId": "00000003-0000-4000-8000-000000000003",
+       "type": "bilibili",
+       "title": "avの曲",
+       "url": "https://www.bilibili.com/video/av555/"
+      }
+     ]
+    }
+   ],
+   [
+    "00000001-0000-4000-8000-000000000001"
+   ],
+   {
+    "preserveIds": true
+   }
+  ],
+  "expect": {
+   "playlists": [
+    {
+     "id": "00000001-0000-4000-8000-000000000001",
+     "name": "親",
+     "childIds": [
+      "00000001-0000-4000-8000-000000000002"
+     ],
+     "entries": [
+      {
+       "id": "00000002-0000-4000-8000-000000000001",
+       "mediaId": "00000003-0000-4000-8000-000000000001",
+       "type": "bilibili",
+       "title": "親の曲",
+       "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+      }
+     ]
+    },
+    {
+     "id": "00000001-0000-4000-8000-000000000002",
+     "name": "子",
+     "childIds": [],
+     "includeInAll": false,
+     "entries": [
+      {
+       "id": "00000002-0000-4000-8000-000000000002",
+       "mediaId": "00000003-0000-4000-8000-000000000002",
+       "type": "bilibili",
+       "title": "子の曲 パート2",
+       "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+      },
+      {
+       "id": "00000002-0000-4000-8000-000000000003",
+       "mediaId": "00000003-0000-4000-8000-000000000003",
+       "type": "bilibili",
+       "title": "avの曲",
+       "url": "https://www.bilibili.com/video/av555/"
+      }
+     ]
+    }
+   ],
+   "rootPlaylistIds": [
+    "00000001-0000-4000-8000-000000000001"
+   ],
+   "idMap": [
+    [
+     "00000001-0000-4000-8000-000000000001",
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    [
+     "00000002-0000-4000-8000-000000000001",
+     "00000002-0000-4000-8000-000000000001"
+    ],
+    [
+     "00000001-0000-4000-8000-000000000002",
+     "00000001-0000-4000-8000-000000000002"
+    ],
+    [
+     "00000002-0000-4000-8000-000000000002",
+     "00000002-0000-4000-8000-000000000002"
+    ],
+    [
+     "00000002-0000-4000-8000-000000000003",
+     "00000002-0000-4000-8000-000000000003"
+    ]
+   ]
+  }
+ },
+ {
+  "name": "import: collide with existing ids",
+  "call": "ImportPlan",
+  "args": [
+   [
+    {
+     "id": "00000001-0000-4000-8000-000000000001",
+     "name": "親",
+     "childIds": [
+      "00000001-0000-4000-8000-000000000002"
+     ],
+     "entries": [
+      {
+       "id": "00000002-0000-4000-8000-000000000001",
+       "mediaId": "00000003-0000-4000-8000-000000000001",
+       "type": "bilibili",
+       "title": "親の曲",
+       "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+      }
+     ]
+    },
+    {
+     "id": "00000001-0000-4000-8000-000000000002",
+     "name": "子",
+     "childIds": [],
+     "includeInAll": false,
+     "entries": [
+      {
+       "id": "00000002-0000-4000-8000-000000000002",
+       "mediaId": "00000003-0000-4000-8000-000000000002",
+       "type": "bilibili",
+       "title": "子の曲 パート2",
+       "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+      }
+     ]
+    }
+   ],
+   [
+    {
+     "id": "00000001-0000-4000-8000-000000000001",
+     "name": "親",
+     "childIds": [
+      "00000001-0000-4000-8000-000000000002"
+     ],
+     "entries": [
+      {
+       "id": "00000002-0000-4000-8000-000000000001",
+       "mediaId": "00000003-0000-4000-8000-000000000001",
+       "type": "bilibili",
+       "title": "親の曲",
+       "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+      }
+     ]
+    },
+    {
+     "id": "00000001-0000-4000-8000-000000000002",
+     "name": "子",
+     "childIds": [],
+     "includeInAll": false,
+     "entries": [
+      {
+       "id": "00000002-0000-4000-8000-000000000002",
+       "mediaId": "00000003-0000-4000-8000-000000000002",
+       "type": "bilibili",
+       "title": "子の曲 パート2",
+       "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+      },
+      {
+       "id": "00000002-0000-4000-8000-000000000003",
+       "mediaId": "00000003-0000-4000-8000-000000000003",
+       "type": "bilibili",
+       "title": "avの曲",
+       "url": "https://www.bilibili.com/video/av555/"
+      }
+     ]
+    }
+   ],
+   [
+    "00000001-0000-4000-8000-000000000001"
+   ],
+   {
+    "preserveIds": true
+   }
+  ],
+  "expect": {
+   "playlists": [
+    {
+     "id": "00000000-0000-4000-8000-000000900000",
+     "name": "親",
+     "childIds": [
+      "00000000-0000-4000-8000-000000900002"
+     ],
+     "entries": [
+      {
+       "id": "00000000-0000-4000-8000-000000900001",
+       "mediaId": "00000003-0000-4000-8000-000000000001",
+       "type": "bilibili",
+       "title": "親の曲",
+       "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+      }
+     ]
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000900002",
+     "name": "子",
+     "childIds": [],
+     "includeInAll": false,
+     "entries": [
+      {
+       "id": "00000000-0000-4000-8000-000000900003",
+       "mediaId": "00000003-0000-4000-8000-000000000002",
+       "type": "bilibili",
+       "title": "子の曲 パート2",
+       "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+      },
+      {
+       "id": "00000002-0000-4000-8000-000000000003",
+       "mediaId": "00000003-0000-4000-8000-000000000003",
+       "type": "bilibili",
+       "title": "avの曲",
+       "url": "https://www.bilibili.com/video/av555/"
+      }
+     ]
+    }
+   ],
+   "rootPlaylistIds": [
+    "00000000-0000-4000-8000-000000900000"
+   ],
+   "idMap": [
+    [
+     "00000001-0000-4000-8000-000000000001",
+     "00000000-0000-4000-8000-000000900000"
+    ],
+    [
+     "00000002-0000-4000-8000-000000000001",
+     "00000000-0000-4000-8000-000000900001"
+    ],
+    [
+     "00000001-0000-4000-8000-000000000002",
+     "00000000-0000-4000-8000-000000900002"
+    ],
+    [
+     "00000002-0000-4000-8000-000000000002",
+     "00000000-0000-4000-8000-000000900003"
+    ],
+    [
+     "00000002-0000-4000-8000-000000000003",
+     "00000002-0000-4000-8000-000000000003"
+    ]
+   ]
+  }
+ },
+ {
+  "name": "import: legacy new ids",
+  "call": "ImportPlan",
+  "args": [
+   [],
+   [
+    {
+     "id": "00000001-0000-4000-8000-000000000001",
+     "name": "親",
+     "childIds": [
+      "00000001-0000-4000-8000-000000000002"
+     ],
+     "entries": [
+      {
+       "id": "00000002-0000-4000-8000-000000000001",
+       "mediaId": "00000003-0000-4000-8000-000000000001",
+       "type": "bilibili",
+       "title": "親の曲",
+       "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+      }
+     ]
+    },
+    {
+     "id": "00000001-0000-4000-8000-000000000002",
+     "name": "子",
+     "childIds": [],
+     "includeInAll": false,
+     "entries": [
+      {
+       "id": "00000002-0000-4000-8000-000000000002",
+       "mediaId": "00000003-0000-4000-8000-000000000002",
+       "type": "bilibili",
+       "title": "子の曲 パート2",
+       "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+      },
+      {
+       "id": "00000002-0000-4000-8000-000000000003",
+       "mediaId": "00000003-0000-4000-8000-000000000003",
+       "type": "bilibili",
+       "title": "avの曲",
+       "url": "https://www.bilibili.com/video/av555/"
+      }
+     ]
+    }
+   ],
+   [
+    "00000001-0000-4000-8000-000000000001"
+   ],
+   {
+    "preserveIds": false
+   }
+  ],
+  "expect": {
+   "playlists": [
+    {
+     "id": "00000000-0000-4000-8000-000000900000",
+     "name": "親",
+     "childIds": [
+      "00000000-0000-4000-8000-000000900002"
+     ],
+     "entries": [
+      {
+       "id": "00000000-0000-4000-8000-000000900001",
+       "mediaId": "00000000-0000-4000-8000-000000900005",
+       "type": "bilibili",
+       "title": "親の曲",
+       "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+      }
+     ]
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000900002",
+     "name": "子",
+     "childIds": [],
+     "includeInAll": false,
+     "entries": [
+      {
+       "id": "00000000-0000-4000-8000-000000900003",
+       "mediaId": "00000000-0000-4000-8000-000000900006",
+       "type": "bilibili",
+       "title": "子の曲 パート2",
+       "url": "https://www.bilibili.com/video/BV1xx411c7mD/?p=2"
+      },
+      {
+       "id": "00000000-0000-4000-8000-000000900004",
+       "mediaId": "00000000-0000-4000-8000-000000900007",
+       "type": "bilibili",
+       "title": "avの曲",
+       "url": "https://www.bilibili.com/video/av555/"
+      }
+     ]
+    }
+   ],
+   "rootPlaylistIds": [
+    "00000000-0000-4000-8000-000000900000"
+   ],
+   "idMap": [
+    [
+     "00000001-0000-4000-8000-000000000001",
+     "00000000-0000-4000-8000-000000900000"
+    ],
+    [
+     "00000002-0000-4000-8000-000000000001",
+     "00000000-0000-4000-8000-000000900001"
+    ],
+    [
+     "00000001-0000-4000-8000-000000000002",
+     "00000000-0000-4000-8000-000000900002"
+    ],
+    [
+     "00000002-0000-4000-8000-000000000002",
+     "00000000-0000-4000-8000-000000900003"
+    ],
+    [
+     "00000002-0000-4000-8000-000000000003",
+     "00000000-0000-4000-8000-000000900004"
+    ]
+   ]
+  }
+ },
+ {
+  "name": "icon: valid png",
+  "call": "ValidateIcon",
+  "args": [
+   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aYl8AAAAASUVORK5CYII="
+  ],
+  "expect": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aYl8AAAAASUVORK5CYII="
+ },
+ {
+  "name": "icon: empty",
+  "call": "ValidateIcon",
+  "args": [
+   ""
+  ],
+  "expect": ""
+ },
+ {
+  "name": "icon: bad padding",
+  "call": "ValidateIcon",
+  "args": [
+   "data:image/png;base64,AAA=="
+  ],
+  "expectError": "プレイリスト画像の形式が正しくありません。"
+ },
+ {
+  "name": "icon: not png",
+  "call": "ValidateIcon",
+  "args": [
+   "data:image/png;base64,AAAA"
+  ],
+  "expectError": "プレイリスト画像のサイズが正しくありません。"
+ },
+ {
+  "name": "icon: not data url",
+  "call": "ValidateIcon",
+  "args": [
+   "http://x/y.png"
+  ],
+  "expectError": "プレイリスト画像の形式が正しくありません。"
+ },
+ {
+  "name": "icon: whitespace in base64",
+  "call": "ValidateIcon",
+  "args": [
+   "data:image/png;base64,iVBORw0KGgoAAAANSU hEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aYl8AAAAASUVORK5CYII="
+  ],
+  "expectError": "プレイリスト画像の形式が正しくありません。"
+ }
+]

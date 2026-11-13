@@ -15,6 +15,9 @@ targets:
     platform: iOS
     sources:
       - FavecusPlayer
+      # 端末共通JS（node scripts/build-shared-bundle.cjs で生成。Gitには含めない）
+      - path: ../shared/dist/favecus-core.js
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.favecus.player
@@ -28,6 +31,9 @@ targets:
     platform: iOS
     sources:
       - FavecusPlayerTests
+      # Windows版（Node）と共有するテストデータ
+      - path: ../shared/fixtures/cases.json
+        buildPhase: resources
     dependencies:
       - target: FavecusPlayer
     settings:
