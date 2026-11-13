@@ -103,7 +103,7 @@ struct LibraryRootView: View {
             if let importer { ImportSheet(coordinator: importer, isPresented: $showImport) }
         }
         .fullScreenCover(isPresented: $showPlayer) {
-            if let player { FullPlayerView(player: player, services: services, isPresented: $showPlayer).preferredColorScheme(.dark) }
+            if let player { FullPlayerView(player: player, services: services, isPresented: $showPlayer).tint(Theme.accent).preferredColorScheme(.dark) }
         }
         .alert("お知らせ", isPresented: Binding(get: { store.notice != nil }, set: { if !$0 { store.notice = nil } })) {
             Button("閉じる", role: .cancel) { store.notice = nil }
@@ -365,6 +365,7 @@ private struct PlaylistDetail: View {
             header
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
+                .listRowBackground(Theme.background)
             if let parent, !parent.childIds.isEmpty {
                 Section {
                     PlaylistChildren(store: store, services: services, parentId: parentId)
@@ -444,6 +445,8 @@ private struct PlaylistChildren: View {
                     }
                 }
             }
+            .listRowBackground(Theme.background)
+            .listRowSeparatorTint(Theme.rowLine)
         }
         .onMove { source, destination in
             guard let move = MoveMapper.map(ids: children.map(\.id), from: source, to: destination) else { return }
