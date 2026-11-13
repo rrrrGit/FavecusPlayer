@@ -10,6 +10,21 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     /// 背面で起こされたときも、画面（Scene）を待たずに、保存の通信のセッションを作り直して、続きを受け取る。
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         _ = AppEnvironment.shared
+        // PC版と同じ配色（タブバー・ナビゲーションバー）
+        let tab = UITabBarAppearance()
+        tab.configureWithOpaqueBackground()
+        tab.backgroundColor = UIColor(Theme.panel)
+        tab.shadowColor = UIColor(Theme.line)
+        UITabBar.appearance().standardAppearance = tab
+        UITabBar.appearance().scrollEdgeAppearance = tab
+        let bar = UINavigationBarAppearance()
+        bar.configureWithOpaqueBackground()
+        bar.backgroundColor = UIColor(Theme.panel)
+        bar.shadowColor = UIColor(Theme.line)
+        bar.titleTextAttributes = [.foregroundColor: UIColor(Theme.text)]
+        bar.largeTitleTextAttributes = [.foregroundColor: UIColor(Theme.text)]
+        UINavigationBar.appearance().standardAppearance = bar
+        UINavigationBar.appearance().scrollEdgeAppearance = bar
         return true
     }
 }

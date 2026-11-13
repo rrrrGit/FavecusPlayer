@@ -23,29 +23,26 @@ final class ServicesObserver: ObservableObject {
     }
 }
 
-/// 曲・リストの画像。サムネイルがなければ、名前から決めた色の代わりの画像（先頭の1文字）を出す。
+/// 曲の画像。PC版と同じ16:9の枠。サムネイルがなければ、音符の代わりの画像を出す。
 struct ArtworkTile: View {
     let image: UIImage?
     let title: String
-    var side: CGFloat = 48
-    var corner: CGFloat = 6
-
-    static func color(_ title: String) -> Color {
-        let hue = title.unicodeScalars.reduce(7) { ($0 &* 31 &+ Int($1.value)) % 360 }
-        return Color(hue: Double(hue) / 360, saturation: 0.45, brightness: 0.55)
-    }
+    /// 幅（高さは16:9。PC版の曲の画像枠と同じ比率で、画像は切らずに収める）。
+    var side: CGFloat = 72
+    var corner: CGFloat = 5
 
     var body: some View {
         ZStack {
+            Theme.background
             if let image {
-                Image(uiImage: image).resizable().scaledToFill()
+                Image(uiImage: image).resizable().scaledToFit()
             } else {
-                LinearGradient(colors: [Self.color(title), Self.color(title).opacity(0.55)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                Text(String(title.prefix(1))).font(.system(size: side * 0.42, weight: .bold)).foregroundStyle(.white.opacity(0.9))
+                Image(systemName: "music.note").font(.system(size: side * 0.2)).foregroundStyle(Color(hex: 0x50586F))
             }
         }
-        .frame(width: side, height: side)
+        .frame(width: side, height: side * 9 / 16)
         .clipShape(RoundedRectangle(cornerRadius: corner))
+        .overlay(RoundedRectangle(cornerRadius: corner).stroke(Theme.coverLine, lineWidth: 1))
     }
 }
 
@@ -92,21 +89,21 @@ private struct RowLayout<Actions: View>: View {
         HStack(spacing: 12) {
             HStack(spacing: 12) {
                 ZStack {
-                    ArtworkTile(image: image, title: title)
+                    ArtworkTile(image: image, title: title, side: 80)
                     if current {
-                        Color.black.opacity(0.45).clipShape(RoundedRectangle(cornerRadius: 6))
-                        Image(systemName: playing ? "speaker.wave.2.fill" : "speaker.fill").foregroundStyle(.white)
+                        Color.black.opacity(0.5).clipShape(RoundedRectangle(cornerRadius: 5))
+                        Image(systemName: playing ? "speaker.wave.2.fill" : "speaker.fill").foregroundStyle(Theme.accent)
                     }
                 }
-                .frame(width: 48, height: 48)
+                .frame(width: 80, height: 45)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title.isEmpty ? "（無題）" : title)
-                        .font(.body)
-                        .foregroundStyle(current ? Color.accentColor : (dimmed ? Color.secondary : Color.primary))
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(current ? Theme.accent : (dimmed ? Theme.muted : Theme.text))
                         .lineLimit(2)
                     HStack(spacing: 6) {
-                        Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        if let progress { ProgressView(value: progress).frame(width: 48) }
+                        Text(subtitle).font(.system(size: 11)).foregroundStyle(Theme.faint).lineLimit(1)
+                        if let progress { ProgressView(value: progress).tint(Theme.accent).frame(width: 48) }
                     }
                 }
                 Spacer(minLength: 0)
@@ -114,9 +111,12 @@ private struct RowLayout<Actions: View>: View {
             .contentShape(Rectangle())
             .onTapGesture(perform: tap)
             Menu { menu() } label: {
-                Image(systemName: "ellipsis").foregroundStyle(.secondary).frame(width: 36, height: 44).contentShape(Rectangle())
+                Image(systemName: "ellipsis").foregroundStyle(Theme.muted).frame(width: 36, height: 44).contentShape(Rectangle())
             }
         }
+        .padding(.vertical, 2)
+        .listRowBackground(current ? Theme.currentRow : Theme.background)
+        .listRowSeparatorTint(Theme.rowLine)
     }
 }
 

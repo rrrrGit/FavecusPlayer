@@ -61,20 +61,22 @@ private struct DownloadsList: View {
                 Text("画面を閉じたり、ロックしたりしても、保存は続きます。ただし、アプリを上へスワイプして終了すると、iOSの仕様で保存は止まります。")
             }
             if !active.isEmpty {
-                Section("保存中") { ForEach(active) { row($0) } }
+                Section { ForEach(active) { row($0) } } header: { SectionLabel(text: "保存中") }
             }
             if !problems.isEmpty {
-                Section("保存できなかったもの") { ForEach(problems) { row($0) } }
+                Section { ForEach(problems) { row($0) } } header: { SectionLabel(text: "保存できなかったもの") }
             }
             Section {
                 if saved.isEmpty { Text("保存した曲はありません").foregroundStyle(.secondary) }
                 ForEach(saved) { row($0) }
             } header: {
-                Text("保存済み")
+                SectionLabel(text: "保存済み")
             } footer: {
                 if !saved.isEmpty { Text("合計 " + ByteCountFormatter.string(fromByteCount: saved.reduce(0) { $0 + $1.record.bytes }, countStyle: .file)) }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Theme.background)
     }
 
     @ViewBuilder
@@ -83,7 +85,7 @@ private struct DownloadsList: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(item.entry.title.isEmpty ? "（無題）" : item.entry.title).lineLimit(2)
             HStack(spacing: 8) {
-                Text(detail(record)).font(.caption).foregroundStyle(record.state == .failed ? Color.orange : Color.secondary).lineLimit(2)
+                Text(detail(record)).font(.caption).foregroundStyle(record.state == .failed ? Theme.warning : Theme.muted).lineLimit(2)
                 if record.state.inProgress {
                     if let value = downloads.progress[record.id] { ProgressView(value: value).frame(maxWidth: 80) } else { ProgressView().controlSize(.mini) }
                 }
@@ -154,6 +156,8 @@ struct SettingsTab: View {
                 }
             }
             .buttonStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Theme.background)
             .navigationTitle("設定")
         }
         .miniPlayer(services, showPlayer: $showPlayer)

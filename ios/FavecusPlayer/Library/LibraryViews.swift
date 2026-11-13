@@ -51,6 +51,8 @@ struct LibraryRootView: View {
             }
         }
         .environmentObject(observer)
+        .tint(Theme.accent)
+        .background(Theme.background.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .task {
             await store.load()
@@ -169,6 +171,12 @@ private struct LibraryTab: View {
     var body: some View {
         NavigationStack(path: $path) {
             VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    SectionLabel(text: "HOME")
+                    Text("\(allSongs.count)曲").font(.system(size: 12)).foregroundStyle(Theme.mint)
+                    Spacer()
+                }
+                .padding(.horizontal, 16).padding(.top, 4)
                 chips
                 switch filter {
                 case .playlists:
@@ -179,18 +187,18 @@ private struct LibraryTab: View {
                     songList(allSongs.filter { isOffline($0.entry) })
                 }
             }
-            .navigationTitle("ライブラリ")
+            .navigationTitle("マイライブラリ")
+            .background(Theme.background)
             .toolbar { if filter == .playlists { ToolbarItem(placement: .navigationBarTrailing) { EditButton() } } }
             .navigationDestination(for: String.self) { id in
                 PlaylistDetail(store: store, services: services, parentId: id)
             }
             .overlay(alignment: .bottomTrailing) {
                 if filter == .playlists {
-                    Button { newName = ""; creating = true } label: {
-                        Label("新規作成", systemImage: "plus").font(.headline).padding(.horizontal, 18).padding(.vertical, 12)
-                            .background(Capsule().fill(Color.white)).foregroundStyle(.black)
-                    }
-                    .padding(16)
+                    Button { newName = ""; creating = true } label: { Label("新規作成", systemImage: "plus") }
+                        .buttonStyle(PrimaryButtonStyle())
+                        .shadow(color: .black.opacity(0.4), radius: 8, y: 3)
+                        .padding(16)
                 }
             }
             .alert("新しいプレイリスト", isPresented: $creating) {
@@ -207,9 +215,10 @@ private struct LibraryTab: View {
             HStack(spacing: 8) {
                 ForEach(LibraryFilter.allCases) { item in
                     Button { filter = item } label: {
-                        Text(item.rawValue).font(.subheadline.weight(.medium)).padding(.horizontal, 16).padding(.vertical, 8)
-                            .background(Capsule().fill(filter == item ? Color.white : Color.white.opacity(0.12)))
-                            .foregroundStyle(filter == item ? Color.black : Color.primary)
+                        Text(item.rawValue).font(.system(size: 14, weight: .medium)).padding(.horizontal, 16).padding(.vertical, 8)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(filter == item ? Theme.accent : Theme.control))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(filter == item ? Color.clear : Theme.controlLine, lineWidth: 1))
+                            .foregroundStyle(filter == item ? Theme.accentText : Theme.text)
                     }
                     .buttonStyle(.plain)
                 }
@@ -238,6 +247,8 @@ private struct LibraryTab: View {
                 }
             }
             .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Theme.background)
         }
     }
 }
@@ -270,13 +281,15 @@ private struct PlaylistList: View {
             ForEach(children) { list in
                 NavigationLink(value: list.id) {
                     HStack(spacing: 12) {
-                        ArtworkTile(image: cover(of: list), title: list.name, side: 56)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(list.name).font(.body.weight(.medium)).lineLimit(1)
-                            Text("プレイリスト・\(list.entries.count)曲" + (list.childIds.isEmpty ? "" : "・子 \(list.childIds.count)")).font(.caption).foregroundStyle(.secondary)
+                        ArtworkTile(image: cover(of: list), title: list.name, side: 80)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(list.name).font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                            Text("\(list.entries.count)曲" + (list.childIds.isEmpty ? "" : " ・ 子 \(list.childIds.count)")).font(.system(size: 12)).foregroundStyle(Theme.muted)
                         }
                     }
                 }
+                .listRowBackground(Theme.background)
+                .listRowSeparatorTint(Theme.rowLine)
                 .contextMenu {
                     Button("名前を変更") { renaming = list; renameText = list.name }
                     Button("削除", role: .destructive) { pendingDelete = list }
@@ -290,6 +303,8 @@ private struct PlaylistList: View {
             }
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Theme.background)
         .alert("名前を変更", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("名前", text: $renameText)
             Button("変更") {
@@ -351,12 +366,12 @@ private struct PlaylistDetail: View {
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
             if let parent, !parent.childIds.isEmpty {
-                Section("子のプレイリスト") {
+                Section {
                     PlaylistChildren(store: store, services: services, parentId: parentId)
-                }
+                } header: { SectionLabel(text: "子のプレイリスト") }
             }
-            Section("曲") {
-                if entries.isEmpty { Text("曲はありません").foregroundStyle(.secondary) }
+            Section {
+                if entries.isEmpty { Text("曲はありません").foregroundStyle(Theme.muted) }
                 ForEach(entries) { entry in
                     SongRow(entry: entry, scope: parentId, services: services) {
                         store.perform(["type": "remove", "playlistId": parentId, "entryId": entry.id])
@@ -366,29 +381,42 @@ private struct PlaylistDetail: View {
                     guard let move = MoveMapper.map(ids: entries.map(\.id), from: source, to: destination) else { return }
                     store.perform(["type": "reorder", "playlistId": parentId, "entryId": move.id, "targetId": move.targetId, "after": move.after])
                 }
-            }
+            } header: { SectionLabel(text: "曲") }
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Theme.background)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .navigationBarTrailing) { EditButton() } }
     }
 
     private var header: some View {
-        VStack(spacing: 14) {
-            ArtworkTile(image: cover, title: parent?.name ?? "", side: 180, corner: 10)
-                .shadow(radius: 12)
-                .padding(.top, 12)
-            Text(parent?.name ?? "").font(.title.bold()).multilineTextAlignment(.center).padding(.horizontal)
-            Text("\(entries.count)曲" + ((parent?.childIds.isEmpty ?? true) ? "" : "・子のプレイリスト \(parent?.childIds.count ?? 0)")).font(.subheadline).foregroundStyle(.secondary)
-            HStack(spacing: 16) {
-                Button { play(shuffled: true) } label: { Image(systemName: "shuffle").font(.title3).frame(width: 48, height: 48).background(Circle().fill(Color.white.opacity(0.12))) }
-                Button { play(shuffled: false) } label: { Image(systemName: "play.fill").font(.title2).foregroundStyle(.black).frame(width: 60, height: 60).background(Circle().fill(Color.white)) }
+        VStack(alignment: .leading, spacing: 10) {
+            Text(breadcrumb).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
+            Text(parent?.name ?? "").font(.system(size: 28, weight: .bold)).foregroundStyle(Theme.text).lineLimit(2)
+            Text("\(entries.count)曲" + ((parent?.childIds.isEmpty ?? true) ? "" : " ・ 子のプレイリスト \(parent?.childIds.count ?? 0)") + " ・ 選んだ動画を、選んだ順番で。").font(.system(size: 12)).foregroundStyle(Theme.muted)
+            HStack(spacing: 10) {
+                Button { play(shuffled: false) } label: { Label("再生", systemImage: "play.fill") }.buttonStyle(PrimaryButtonStyle())
+                Button { play(shuffled: true) } label: { Label("シャッフル", systemImage: "shuffle") }.buttonStyle(SecondaryButtonStyle())
             }
-            .buttonStyle(.plain)
             .disabled(services.player == nil || entries.isEmpty)
-            .padding(.bottom, 8)
+            .padding(.top, 4)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16).padding(.vertical, 12)
+    }
+
+    /// パンくず（マイライブラリ / 親 / このリスト）。
+    private var breadcrumb: String {
+        var names: [String] = []
+        var current: PlaylistItem? = parent
+        var guardCount = 0
+        while let item = current, guardCount < 20 {
+            names.insert(item.name, at: 0)
+            current = store.document?.playlists.first { $0.childIds.contains(item.id) }
+            guardCount += 1
+        }
+        return (["マイライブラリ"] + names).joined(separator: " / ")
     }
 
     private func play(shuffled: Bool) {
@@ -410,10 +438,9 @@ private struct PlaylistChildren: View {
         ForEach(children) { list in
             NavigationLink(value: list.id) {
                 HStack(spacing: 12) {
-                    ArtworkTile(image: nil, title: list.name, side: 44)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(list.name).lineLimit(1)
-                        Text("プレイリスト・\(list.entries.count)曲").font(.caption).foregroundStyle(.secondary)
+                        Text(list.name).font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
+                        Text("\(list.entries.count)曲").font(.system(size: 11)).foregroundStyle(Theme.faint)
                     }
                 }
             }
