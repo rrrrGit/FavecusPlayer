@@ -109,7 +109,7 @@ jobs:
             -scheme FavecusPlayer \
             -destination "id=$SIM_UDID" \
             -derivedDataPath build/sim \
-            CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/test.log
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES 2>&1 | tee build/test.log
           kill $SPIKE_PID || true
           {
             echo '### iOSシミュレーターでの共通処理の結果'
