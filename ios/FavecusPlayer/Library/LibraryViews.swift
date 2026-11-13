@@ -5,9 +5,10 @@ import SwiftUI
 struct LibraryRootView: View {
     @ObservedObject var store: LibraryStore
     @State private var showDiagnostics = false
+    @State private var path = NavigationPath()
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 switch store.state {
                 case .loading:
@@ -27,7 +28,13 @@ struct LibraryRootView: View {
                 }
             }
         }
-        .task { await store.load() }
+        .task {
+            await store.load()
+            // 画面確認用（シミュレーターのスクリーンショット）：起動引数 -FavecusDemoPath <ID,ID...> で、指定の階層まで開く。通常の起動では何もしない。
+            if let raw = UserDefaults.standard.string(forKey: "FavecusDemoPath"), path.isEmpty {
+                for id in raw.split(separator: ",") { path.append(String(id)) }
+            }
+        }
         .sheet(isPresented: $showDiagnostics) { PlaceholderView() }
         .alert("お知らせ", isPresented: Binding(get: { store.notice != nil }, set: { if !$0 { store.notice = nil } })) {
             Button("閉じる", role: .cancel) { store.notice = nil }

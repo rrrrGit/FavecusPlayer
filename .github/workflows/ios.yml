@@ -103,10 +103,29 @@ jobs:
           xcrun simctl boot "$SIM_UDID" || true
           xcrun simctl bootstatus "$SIM_UDID" -b
           xcrun simctl install "$SIM_UDID" "$APP"
-          xcrun simctl launch "$SIM_UDID" dev.favecus.player
-          sleep 5
           mkdir -p out
-          xcrun simctl io "$SIM_UDID" screenshot out/screenshot.png
+          # 模擬ライブラリ（実データなし）を保存場所へ置き、階層ごとに起動して撮影する。
+          xcrun simctl launch "$SIM_UDID" dev.favecus.player && sleep 3 && xcrun simctl terminate "$SIM_UDID" dev.favecus.player
+          DATA=$(xcrun simctl get_app_container "$SIM_UDID" dev.favecus.player data)
+          DIR="$DATA/Library/Application Support/FavecusPlayer"
+          mkdir -p "$DIR"
+          node ../scripts/demo-library.cjs "$DIR/library.json"
+          shot() { # 名前 起動引数...
+            NAME=$1; shift
+            xcrun simctl launch "$SIM_UDID" dev.favecus.player "$@" > /dev/null
+            sleep 4
+            xcrun simctl io "$SIM_UDID" screenshot "out/$NAME.png"
+            xcrun simctl terminate "$SIM_UDID" dev.favecus.player
+          }
+          P1=00000001-0000-4000-8000-000000000001
+          P2=00000001-0000-4000-8000-000000000002
+          shot 1-root
+          shot 2-parent -FavecusDemoPath $P1
+          shot 3-child -FavecusDemoPath $P1,$P2
+          xcrun simctl ui "$SIM_UDID" appearance dark
+          shot 4-parent-dark -FavecusDemoPath $P1
+          xcrun simctl ui "$SIM_UDID" appearance light
+          ls -l out
 
       - name: Build unsigned IPA
         run: |
@@ -130,7 +149,7 @@ jobs:
         with:
           name: ios-outputs
           path: |
-            ios/out/screenshot.png
+            ios/out/*.png
             ios/out/FavecusPlayer-unsigned.ipa
           if-no-files-found: warn
           retention-days: 14
