@@ -114,7 +114,7 @@ final class ExportCoordinator: ObservableObject {
         self.store = store
     }
 
-    static var exportDirectory: URL { FileManager.default.temporaryDirectory.appendingPathComponent("FavecusPlayer-export", isDirectory: true) }
+    nonisolated static var exportDirectory: URL { FileManager.default.temporaryDirectory.appendingPathComponent("FavecusPlayer-export", isDirectory: true) }
 
     func run(mode: String, directory: URL = ExportCoordinator.exportDirectory) async {
         guard store.isReady else {
