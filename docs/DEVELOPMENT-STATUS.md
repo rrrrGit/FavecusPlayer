@@ -2,7 +2,7 @@
 
 更新日：2026-11-13（日本時間）
 対象：v0.7.0 / `release/v0.7.0`
-現在地：Step5（5-1〜5-3）完了。実Electron（Windows）で拡大・Esc・トレイ格納を確認済み。Bilibili実通信・実機の通常操作は未確認。次はStep6（同期の共通基盤）。
+現在地：Step6（同期の共通基盤）の実装・Nodeでの検証が完了。iOS（JavaScriptCore）での共通テストデータ実行はCI待ち。次はStep7（Supabase接続とWindows版の同期）。Bilibili実通信・実機の通常操作は未確認。
 基準コミット：`79255411dfbcb240cbad064fa8d1ae0ca4e085d4`（`release/v0.6.7` 最新。配布済みv0.6.7 startup-hotfix-1を含む）。
 v0.6.7の開発・検証記録は `docs/VALIDATION-067.md` に移しました。
 
@@ -80,7 +80,7 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 | Step3 共通処理のiOS実行 | 完了 | 共通JSの束ね方とJSContextでの実行を実装し、共通テストデータ116件をNodeとiOSシミュレーターの両方で全件一致。999リスト・約1万登録の速度をシミュレーターで計測 |
 | Step4 MediaKeyと端末依存情報の分離 | 完了 | SyncMediaKey・DeviceMediaを共通JSとWindows版（読み取り専用の投影）へ導入。保存形式は変更せず、共通テストデータ158件で確認 |
 | Step5 Windows版の改善 | 完了（実Electronで主要動作を確認） | ユーザー提示の8項目（`C:\Dev\v0.6.7改善点`）。5-1 ホーム・再生バー／5-2 ×でトレイ格納／5-3 オリジナルのプレイヤーUIと拡大。実Electron 44.2.0で、拡大・Esc・×のトレイ格納を確認（Bilibili実通信・Windowsの実キー操作・シャットダウンは未確認）。下記「Step5の計画」 |
-| Step6 同期の共通基盤 | 未着手 | 変更レコード、親子の辺と並び順、Tombstone、競合解決、同期キューを共通JSで実装。SyncRepositoryの抽象とメモリ実装で、同時変更・オフライン編集・削除後の復活防止をテスト |
+| Step6 同期の共通基盤 | 完了（iOS CIの確認待ち） | 変更レコード、親子の辺と並び順、Tombstone、競合解決、同期キューを共通JSで実装。SyncRepositoryの抽象とメモリ実装で、同時変更・オフライン編集・削除後の復活防止をテスト |
 | Step7 Supabase接続 | 未着手 | テーブル・行単位のアクセス制御・認証の設計、SupabaseSyncRepository。Windows版の同期接続と、トークンの安全な保存 |
 | Step8 iOS基本アプリとローカルDB | 未着手 | ローカルDB、プレイリスト階層の表示・編集・並び替え。画面はユーザーのUI案を受けて決定 |
 | Step9 iOSローカル再生 | 未着手 | AVPlayerによる再生、ミニプレイヤー、バックグラウンド音声、ロック画面操作、再生順 |
@@ -121,7 +121,16 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 
 ## 現在の工程
 
-Step4完了。次はStep5（Windows版の改善）です。Step5の内容はユーザーの指示を受けて決めます。指示がなければStep6（同期の共通基盤）へ進むこともできます。
+Step6完了（下記）。次はStep7（Supabase接続、Windows版の同期配線、`sync/state.json`）です。
+
+### Step6の結果（2026-11-13）
+
+- 実装：`src/core/sync-clock.cjs`（HLC）、`sync-order.cjs`（並び順キー）、`sync-state.cjs`（レコード・マージ・整理）、`sync-library.cjs`（ライブラリとの相互変換・差分・導出）、`sync-engine.cjs`（端末・outbox・SyncRepository抽象・メモリ実装）。仕様は `docs/DESIGN.md` の「Step6の実装」。`scripts/build-shared-bundle.cjs` と `.github/workflows/ios.yml` のpathsにも追加済み。
+- 検証済み（Node）：`test/sync-core.test.cjs`、`test/sync-devices.test.cjs`（オフライン編集、削除後の復活防止、重複送信、共有子とorphan、循環の解決、復旧リスト、上限の収束、91日オフラインの全量再同期、乱数による3端末の収束）、共通テストデータ14件（NodeでJavaScriptCore互換の実行器を通過）。
+- 性能（Node、999リスト・約1万登録）：変換24ms、マージ97ms、導出506ms、1回の編集の差分54ms。
+- 検証（checker指摘の修正）：整理（Compact）は削除があったときだけ古い端末を全量再同期にし、その場合も新規作成・既知レコードの更新は送信を残す／非同期Push中の編集を保持／救った曲が参照するTombstoneは整理しない／並び順キーの伸びで全体を振り直す／不正・24時間超の未来時刻の受信は状態を変えず失敗／導出リストは利用者が編集したときだけ保存。回帰テスト7件を追加。
+- Step7への申し送り：Editは直前のdevice.viewを基準にするため、呼び出し側は同期後の最新のviewを編集して渡すこと。部分項目だけの変更は復活の原因になるため送らないこと。
+- 未確認：iOS（JavaScriptCore）での共通テストデータと速度（CIの実行が必要）。編集のたびに全体を導出する方式の増分化は未実施（Node測定では許容範囲）。Supabase・実通信・`sync/state.json` への保存はStep7。
 
 ### Step5の追加修正（ユーザー指摘、2026-11-13）
 

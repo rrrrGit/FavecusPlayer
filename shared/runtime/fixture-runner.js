@@ -6,6 +6,11 @@ const mediaIdentity = require('../core/media-identity.cjs');
 const data = require('../core/library-data.cjs');
 const libraryIdentity = require('../core/library-identity.cjs');
 const deviceMedia = require('../core/device-media.cjs');
+const syncClock = require('../core/sync-clock.cjs');
+const syncOrder = require('../core/sync-order.cjs');
+const syncState = require('../core/sync-state.cjs');
+const syncLibrary = require('../core/sync-library.cjs');
+const syncEngine = require('../core/sync-engine.cjs');
 const share = require('../core/library-share.cjs');
 const importIdentity = require('../core/import-identity.cjs');
 const iconData = require('../core/playlist-icon-data.cjs');
@@ -47,8 +52,33 @@ const CALLS = {
   SyncKeyForms: (entry, aliases) => libraryIdentity.LibrarySyncKeyForms(aliases || [])(entry),
   AuditIds: playlists => libraryIdentity.AuditIds(playlists),
   RestoredState: state => deviceMedia.RestoredState(state),
+  SyncClock: steps => steps.map(step => step.op === 'tick' ? syncClock.Tick(step.last, step.now, step.device) : syncClock.Observe(step.last, step.remote, step.now, step.device)),
+  SyncOrder: spec => ({ between: (spec.pairs || []).map(([a, b]) => syncOrder.Between(a, b)), spread: syncOrder.Spread(spec.spread || 0) }),
+  SyncMerge: changes => { const merged = changes.reduce((state, change) => syncState.Merge(state, [change]).state, syncState.NewState()); return JSON.parse(syncState.Canonical(merged)); },
+  SyncMaterialize: (library, context) => { const state = syncState.Merge(syncState.NewState(), syncLibrary.FromLibrary(library)).state, result = syncLibrary.Materialize(state, context || {}); data.ValidateLibrary(result.library, false, Counter()); return result; },
+  SyncRun: spec => SyncRun(spec),
   DeviceMediaList: (records, aliases, available) => deviceMedia.DeviceMediaList({ records, videoAliases: aliases || [], isAvailable: record => (available || []).includes(record.token) })
 };
+
+// 端末同士の同期の筋書き（同期版のリポジトリで実行する）。JavaScriptCoreでNodeと同じ結果になることを確認するための共通テストデータ用。
+function SyncRun(spec) {
+  const repository = new syncEngine.MemorySyncRepository(), devices = {}, context = spec.context || {}, oks = [];
+  for (const name of spec.devices) devices[name] = syncEngine.NewDevice(name);
+  let now = 1800000000000;
+  if (spec.base) for (const name of spec.devices) syncEngine.Initialize(devices[name], spec.base, now, context);
+  for (const step of spec.steps) {
+    now += step.advance || 1000;
+    if (step.edit) syncEngine.Edit(devices[step.edit], step.library, now, context);
+    else if (step.sync) { repository.online = step.offline !== true; for (const name of step.sync) oks.push(syncEngine.SyncNow(devices[name], repository, now, context).ok); repository.online = true; }
+    else if (step.compact) { now += step.compact; repository.Compact(now); }
+  }
+  const out = { oks, devices: {} };
+  for (const name of spec.devices) {
+    const device = devices[name]; data.ValidateLibrary(JSON.parse(JSON.stringify(device.view)), false, Counter());
+    out.devices[name] = { library: device.view, outbox: device.outbox.length, conflicts: device.conflicts.length, held: device.lastView.held, recovered: device.lastView.recovered.map(r => r.recoveryId), cut: device.lastView.cut };
+  }
+  return out;
+}
 
 function Execute(testCase) {
   const call = CALLS[testCase.call];
@@ -104,6 +134,14 @@ function Bench(json) {
   [result.searchPageMs] = timed(() => search.Page(index, '曲5 テスト', 0));
   [result.importMs] = timed(() => importIdentity.PlanImportIdentity([], output.playlists, output.rootPlaylistIds, { keyOf: KeyOf, createId: Counter() }));
   result.validatedLists = validated.length; result.searchTotal = search.Page(index, '曲5 テスト', 0).total;
+  // 同期：999リスト・約1万登録の、初期変換・取り込み・導出・1回の編集の差分
+  let records, state, view;
+  [result.syncConvertMs, records] = timed(() => syncLibrary.FromLibrary(library));
+  [result.syncMergeMs, state] = timed(() => syncState.Merge(syncState.NewState(), records).state);
+  [result.syncMaterializeMs, view] = timed(() => syncLibrary.Materialize(state));
+  const edited = JSON.parse(JSON.stringify(view.library)); edited.playlists[3].name = '改名'; edited.playlists[5].entries.reverse();
+  let tick = 0; [result.syncDiffMs] = timed(() => syncLibrary.Diff(view.library, edited, state, () => syncClock.Format(1800000000000, ++tick, 'bench')));
+  result.syncRecords = records.length; result.syncLists = view.library.playlists.length;
   return JSON.stringify(result);
 }
 
