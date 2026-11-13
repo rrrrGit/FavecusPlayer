@@ -62,6 +62,7 @@ const Text = value => String(value).replace(/^\uFEFF/, '');
 // 取り込み候補の検証。options：{ identity（identity.jsonの文字列またはnull）, records（playlists/*.jsonの文字列）, outerNames, innerNames }
 function TransferPrepare(options) {
   try {
+    for (const name of [...options.innerNames, ...options.outerNames]) if (!Transfer.SafeName(name)) throw new Error('ZIP内のファイル名が正しくありません。');
     Transfer.CheckInnerNames(options.innerNames);
     const input = Transfer.BuildShareInput(options.identity === null || options.identity === undefined ? null : JSON.parse(Text(options.identity)), options.records.map(text => JSON.parse(Text(text))));
     const prepared = Transfer.Prepare(input);

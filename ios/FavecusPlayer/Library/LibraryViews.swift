@@ -1,10 +1,14 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// 仮の最小画面（Step8）。最終的な画面はStep15でユーザーのUI案に沿って置き換える。
 /// 表示・編集の規則はここに持たず、操作は LibraryStore.perform（共通JS）へ渡すだけ。
 struct LibraryRootView: View {
     @ObservedObject var store: LibraryStore
+    let importer: ImportCoordinator?
     @State private var showDiagnostics = false
+    @State private var showPicker = false
+    @State private var showImport = false
     @State private var path = NavigationPath()
 
     var body: some View {
@@ -23,8 +27,9 @@ struct LibraryRootView: View {
                 PlaylistPage(store: store, parentId: id)
             }
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItemGroup(placement: .navigationBarLeading) {
                     Button("診断") { showDiagnostics = true }
+                    if importer != nil, store.isReady { Button("取り込み") { showPicker = true } }
                 }
             }
         }
@@ -36,6 +41,19 @@ struct LibraryRootView: View {
             }
         }
         .sheet(isPresented: $showDiagnostics) { PlaceholderView() }
+        .fileImporter(isPresented: $showPicker, allowedContentTypes: [.zip]) { result in
+            guard let importer else { return }
+            switch result {
+            case .success(let url):
+                importer.begin(url: url)
+                showImport = true
+            case .failure(let error):
+                store.notice = "ファイルを開けません：\(error.localizedDescription)"
+            }
+        }
+        .sheet(isPresented: $showImport) {
+            if let importer { ImportSheet(coordinator: importer, isPresented: $showImport) }
+        }
         .alert("お知らせ", isPresented: Binding(get: { store.notice != nil }, set: { if !$0 { store.notice = nil } })) {
             Button("閉じる", role: .cancel) { store.notice = nil }
         } message: {

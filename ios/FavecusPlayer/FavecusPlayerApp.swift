@@ -2,24 +2,33 @@ import SwiftUI
 
 @main
 struct FavecusPlayerApp: App {
-    @StateObject private var store = FavecusPlayerApp.makeStore()
+    @StateObject private var environment = AppEnvironment()
 
     var body: some Scene {
         WindowGroup {
-            LibraryRootView(store: store)
+            LibraryRootView(store: environment.store, importer: environment.importer)
         }
     }
+}
 
-    @MainActor
-    private static func makeStore() -> LibraryStore {
+/// アプリ全体の部品（保存・取り込み）を1か所で作る。
+@MainActor
+final class AppEnvironment: ObservableObject {
+    let store: LibraryStore
+    let importer: ImportCoordinator?
+
+    init() {
         do {
             let directory = try LibraryStore.defaultDirectory()
             let core = try SharedCore(bundle: .main)
-            return LibraryStore(core: core, directory: directory)
+            let store = LibraryStore(core: core, directory: directory)
+            self.store = store
+            importer = ImportCoordinator(service: TransferService(core: core), store: store)
         } catch {
             // 起動に必要な部品がない：保存データには触らず、画面に理由を出す。
             let fallback = FileManager.default.temporaryDirectory.appendingPathComponent("FavecusPlayer-unavailable")
-            return LibraryStore(core: nil, directory: fallback, startupError: "起動に必要な部品を読み込めません：\(error)")
+            store = LibraryStore(core: nil, directory: fallback, startupError: "起動に必要な部品を読み込めません：\(error)")
+            importer = nil
         }
     }
 }

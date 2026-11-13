@@ -89,6 +89,32 @@ final class LibraryStore: ObservableObject {
         }
     }
 
+    // MARK: 取り込み・出力との連携
+
+    /// 現在のライブラリ（共通JSが整えたJSON文字列）。取り込み・出力の入力に使う。
+    var currentText: String { text }
+
+    var isReady: Bool { if case .ready = state { return true } else { return false } }
+
+    /// ローカル曲のメディアの置き場（Application Support配下）。バックアップ対象から外す（再取り込みできるため）。
+    var mediaDirectory: URL { directory.appendingPathComponent("media", isDirectory: true) }
+
+    func prepareMediaDirectory() throws {
+        var url = mediaDirectory
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try url.setResourceValues(values)
+    }
+
+    /// 取り込みの結果で、ライブラリ全体を置き換える。取り込み準備中に保存データが変わっていたら、何も書かずに失敗する。
+    func replaceLibrary(expecting base: String, with newText: String) throws {
+        guard isReady else { throw ZipError.invalid("保存データを開けないため、取り込めません。") }
+        guard text == base else { throw ZipError.invalid("取り込み中に保存データが変更されました。取り込みをやり直してください。") }
+        try persist(newText)
+        try show(newText)
+    }
+
     // MARK: 編集
 
     /// 編集操作（共通JSの操作の辞書）を1つ適用して保存する。操作は積んだ順に処理する。
@@ -151,9 +177,9 @@ final class LibraryStore: ObservableObject {
     }
 
     /// 新しいID（小文字。共通JSのID規則は小文字のみ）。操作1回に必要な数より十分多く渡す。
-    static func freshIds() -> [String] { (0..<16).map { _ in UUID().uuidString.lowercased() } }
+    nonisolated static func freshIds() -> [String] { (0..<16).map { _ in UUID().uuidString.lowercased() } }
 
-    static func now() -> String { ISO8601DateFormatter().string(from: Date()) }
+    nonisolated static func now() -> String { ISO8601DateFormatter().string(from: Date()) }
 
     static func json(_ object: [String: Any]) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: object)

@@ -8,6 +8,12 @@ on:
       - "ios/**"
       - "shared/**"
       - "scripts/build-shared-bundle.cjs"
+      - "scripts/make-test-archive.cjs"
+      - "scripts/demo-library.cjs"
+      # Windows版のZIP処理（iPhone版の取り込みを、実際のZIPで確認するため）
+      - "src/core/library-archive.cjs"
+      - "src/core/zip.cjs"
+      - "src/core/store.cjs"
       - ".github/workflows/ios.yml"
       # 共通JSの正本（変更するとiOSの検証が必要）
       - "src/core/library-data.cjs"
@@ -87,6 +93,9 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p build
+          # Windows版の出力処理で、取り込みテスト用のZIPを作る（TEST_RUNNER_ 付きの環境変数が、テストの中へ渡る）。
+          node ../scripts/make-test-archive.cjs "$RUNNER_TEMP/transfer"
+          export TEST_RUNNER_FAVECUS_TRANSFER_DIR="$RUNNER_TEMP/transfer"
           xcodebuild test \
             -project FavecusPlayer.xcodeproj \
             -scheme FavecusPlayer \
