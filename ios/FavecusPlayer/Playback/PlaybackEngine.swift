@@ -193,12 +193,14 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     }
 
     private func ended() {
+        guard current != nil else { return }
         failureStreak = 0
         Task { await advance(direction: 1, automatic: true) }
     }
 
     /// 読み込み・再生に失敗した曲は飛ばす。続けて失敗したら（再生できる曲がない）、無限に回らず止める。
     private func failed(_ reason: String) {
+        guard current != nil else { return } // 止めたあとに届いた古い失敗は無視する
         failureStreak += 1
         guard failureStreak <= max(3, playableIds().count) else {
             message = "再生できる曲がありません：\(reason)"
