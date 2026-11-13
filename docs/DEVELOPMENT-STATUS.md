@@ -93,7 +93,7 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 | Step16 AltStore実機導入手順 | 手順を整理済み（導入はStep2・今回の実機で確認済み）。Refresh後のデータ保持・PC再起動の要否は実機で未確認 | AltServerの自動起動、同一Wi-Fi、信頼済み、必要なApple関連部品、Background Refreshの確認手順。アプリデータを保ったままのRefresh確認。PCを再起動しないとRefreshできないのかを実機で確認 |
 | Step17 毎日の自動Refresh | 手順を整理済み。自動実行・失敗時の動作は実機で未確認（数日の観察が必要） | ショートカットのPersonal Automationによる毎日のRefresh Apps、失敗・残り日数・手動更新方法の確認手順と、翌日の再試行の確認。Refresh成否の確認はAltStoreの「My Apps」の残り日数（7日へ戻るか）、「View App IDs」の期限、ホーム画面ウィジェット（iOS 17以降）で行う。AltServer側の成功通知の有無は未確認 |
 | Step18 Windows版の同期・ZIP画面 | 完了済み（Step7・11・10で実装、操作プレビューで開けることを再確認）。実Electron GUIは未確認 | 同期状態・ログイン・ZIP出力の画面をWindows版へ接続し、操作プレビューで確認 |
-| Step19 全体検証 | 未着手 | 全Nodeテスト、iOSテスト、共通テストデータ、実機・実通信の確認範囲の集約 |
+| Step19 全体検証 | 実施済み（2026-11-14、下記）。実機・実通信の項目は未確認として集約 | 全Nodeテスト、iOSテスト、共通テストデータ、実機・実通信の確認範囲の集約 |
 | Step20 全体ビルド | 未着手 | Windowsの全体ビルドと版更新、iOSの署名なしIPA |
 | Step21 最終出力 | 未着手 | Windows Patchと説明・検証情報、iOS IPAと導入・Refresh手順の出力 |
 
@@ -148,6 +148,13 @@ Step6完了（下記）。次はStep7（Supabase接続、Windows版の同期配�
 - **公開後の設定（2026-11-14、GitHub APIで適用・確認済み）**：リポジトリは公開（Public）／コラボレーターはオーナーのみ／ルールセット `protect main and release branches`（`main` と `release/**`：ブランチの削除禁止・強制push禁止、有効）／Actions：ワークフロー権限は読み取りのみ、PRの承認は不可、フォークPRの実行は**すべての外部の貢献者で承認が必要**／WikiとProjectsはオフ（Issuesは有効）／GitHubアカウントは二要素認証が有効（認証アプリ、リカバリーコード確認済み）。ワークフローは `release/v0.7.0` へのpushと手動実行だけで動き、フォークのPRでは動かない。
 - 公開中の注意：実在のURL・キー・メール・Cookie・個人データ・ローカルパスをコミットしない／CIのログに出さない（CIは偽のSupabaseのみ使用）。ワークフローの成果物（署名なしIPA、スクリーンショット）は、公開リポジトリでは、GitHubにログインした誰でも取得できる（秘密は含まない）。
 - 非公開へ戻すときの確認：公開期間中に秘密を含むコミットがないか再点検し、戻した後に、Actionsの課金（macランナー）が再び消費されることを認識しておく。
+
+### Step19の全体検証（2026-11-14、release/v0.7.0）
+
+- **Node（Windows、`node scripts/check.cjs`・全テスト）**：JS 154ファイルの構文OK。テスト567件のうち成功555・失敗9・スキップ3。失敗9件は、このWindows環境で symlink を作る権限がない（EPERM）7件、実FFmpegの実行1件、ZIP64を別リーダーで検証する環境（Python等）がない1件で、変更前から同じ（Step3以降の記録と同一の9件）。Linuxでは同じテストが成功する（Step11で458件成功と記録）。
+- **iOS（GitHub Actions、macos-15・iOSシミュレーター）**：Swift 67件成功／共通フィクスチャ293件（JavaScriptCoreとNodeで一致）／Windows役のNodeとiPhone役のXCTestによる端末間同期／Windows版の取り込みでiPhoneの出力ZIPを検証／署名なしIPAのビルド。テスト失敗がログにあればCIを落とす対策を入れ、赤になることを確認済み。
+- **実機・実通信で未確認（v0.7.1の実機セッションで確認）**：実Bilibiliへのログイン・オンライン再生・保存／実機の再生・ロック画面・中断・イヤホン／実Supabaseの同期（Windowsとの双方向）／background URLSessionの動作（ホーム・ロック・Wi-Fi切断・再起動）／AltStoreのRefresh後のデータ保持（Keychain含む）／実Electron・実Windows GUI・Discordの表示（このバージョンでは変更なし）。
+- **Step20・21（全体ビルド・最終出力）**：Windowsの Setup／Patch の生成は、`docs/BUILD.md` のとおり Linux x86_64・Python 3・GCC・GNU ld（i386pep）・libarchive を使う方式で、この開発環境（Windows）では実行できない。版の更新・Setup／Patchの生成・正式Releaseの統合は、ビルド環境の用意と、ユーザーの判断（版番号・公開）のあとに行う。
 
 ### Step16・17・18の整理（2026-11-14）
 
