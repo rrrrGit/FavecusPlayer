@@ -4,10 +4,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
-const S = require('./sync-state.cjs');
-const Clock = require('./sync-clock.cjs');
 
-const STATE_VERSION = 1, MAX_STATE_BYTES = 256 * 1024 * 1024, MAX_CONFLICTS = 200;
+const { STATE_VERSION, MAX_STATE_BYTES, ParseState, SerializeState } = require('./sync-statefile.cjs');
 
 function AtomicWrite(file, content) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -18,27 +16,16 @@ function AtomicWrite(file, content) {
 const StateFile = directory => path.join(directory, 'state.json');
 const ConfigFile = directory => path.join(directory, 'config.json');
 
-// 戻り値：{ status: 'none' } | { status: 'ok', snapshot } | { status: 'blocked', reason }
+// 戻り値：{ status: 'none' } | { status: 'ok', snapshot } | { status: 'blocked', reason }（検証は共通の sync-statefile.cjs）
 function ReadState(directory) {
   const file = StateFile(directory);
   if (!fs.existsSync(file)) return { status: 'none' };
   try {
     if (fs.statSync(file).size > MAX_STATE_BYTES) return { status: 'blocked', reason: '同期データが大きすぎるため読み込めません。' };
-    const value = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (!value || typeof value !== 'object' || !Number.isInteger(value.syncVersion)) return { status: 'blocked', reason: '同期データの形式が正しくありません。' };
-    if (value.syncVersion > STATE_VERSION) return { status: 'blocked', reason: '新しい版のFavecusPlayerで作られた同期データです。このまま上書きしないため、同期を停止しました。アプリを更新してください。' };
-    if (value.syncVersion < 1 || !Clock.DEVICE.test(value.deviceId) || !Number.isInteger(value.cursor) || value.cursor < 0 || (value.clock !== '' && !Clock.IsHlc(value.clock))) return { status: 'blocked', reason: '同期データの内容が正しくありません。' };
-    if (!Array.isArray(value.outbox) || !Array.isArray(value.records) || !Array.isArray(value.conflicts)) return { status: 'blocked', reason: '同期データの内容が正しくありません。' };
-    const records = S.Merge(S.NewState(), value.records).state; // 各レコードを検証（不正なら例外）
-    const outbox = value.outbox.map(S.CleanChange);
-    const conflicts = value.conflicts.slice(0, MAX_CONFLICTS).map(item => ({ reason: String(item?.reason || 'stale').slice(0, 40), change: S.CleanChange(item.change) }));
-    return { status: 'ok', snapshot: { deviceId: value.deviceId, clock: value.clock, cursor: value.cursor, state: records, outbox, conflicts, origin: { url: String(value.origin?.url || ''), userId: String(value.origin?.userId || '') }, lastSyncAt: Number.isFinite(value.lastSyncAt) ? value.lastSyncAt : 0, lastCompactAt: Number.isFinite(value.lastCompactAt) ? value.lastCompactAt : 0 } };
+    return ParseState(fs.readFileSync(file, 'utf8'));
   } catch { return { status: 'blocked', reason: '同期データを読み込めません（壊れている可能性があります）。元のファイルは変更していません。' }; }
 }
-function WriteState(directory, device, extra = {}) {
-  const records = Object.keys(device.state.records).sort().map(id => ({ id, f: device.state.records[id].f }));
-  AtomicWrite(StateFile(directory), JSON.stringify({ syncVersion: STATE_VERSION, deviceId: device.id, clock: device.clock, cursor: device.cursor, outbox: device.outbox, conflicts: device.conflicts.slice(-MAX_CONFLICTS), records, origin: extra.origin || { url: '', userId: '' }, lastSyncAt: extra.lastSyncAt || 0, lastCompactAt: extra.lastCompactAt || 0 }));
-}
+function WriteState(directory, device, extra = {}) { AtomicWrite(StateFile(directory), SerializeState(device, extra)); }
 
 function ReadConfig(directory) {
   try {

@@ -10,6 +10,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const E = require('./sync-engine.cjs');
+const { SyncSession } = require('./sync-session.cjs');
 const X = require('./sync-supabase.cjs');
 const Storage = require('./sync-storage.cjs');
 const { DerivedId } = require('./sync-library.cjs');
@@ -63,10 +64,13 @@ class SyncService {
     this.dir = options.directory; this.adapter = options.adapter; this.vault = options.vault; this.request = options.request;
     this.now = options.now || Date.now; this.timers = options.timers || { set: setTimeout, clear: clearTimeout };
     this.onStatus = options.onStatus || (() => {}); this.onApplied = options.onApplied || (() => {});
-    this.config = Storage.ReadConfig(this.dir); this.device = null; this.base = null; this.blocked = ''; this.error = ''; this.state = 'off';
-    this.version = 0; this.lastSyncAt = 0; this.lastCompactAt = 0; this.chain = Promise.resolve(); this.debounce = null; this.interval = null; this.disposed = false;
-    this.pendingCode = null; this.loaded = false; this.origin = { url: '', userId: '' };
+    this.config = Storage.ReadConfig(this.dir); this.blocked = ''; this.error = ''; this.state = 'off';
+    this.session = new SyncSession({ adapter: this.adapter, repository: () => this.Repository(), persist: session => Storage.WriteState(this.dir, session.device, session.Extra()), now: this.now, onApplied: () => this.onApplied(), deviceId: () => `win-${randomUUID().slice(0, 8)}` });
+    this.chain = Promise.resolve(); this.debounce = null; this.interval = null; this.disposed = false;
+    this.pendingCode = null; this.loaded = false;
   }
+  get device() { return this.session.device; }
+  get lastSyncAt() { return this.session.lastSyncAt; }
   Status() {
     return { url: this.config.url, enabled: this.config.enabled, configured: !!(this.config.url && this.config.anonKey), signedIn: !!this.Session(), email: this.config.email, encryption: this.vault.Available(),
       state: this.blocked ? 'blocked' : this.state, error: this.blocked || this.error, lastSyncAt: this.lastSyncAt, pending: this.device ? this.device.outbox.length : 0, conflicts: this.device ? this.device.conflicts.length : 0 };
@@ -101,12 +105,7 @@ class SyncService {
     if (this.adapter.Recovered?.()) { this.blocked = '保存データを読み込めず復旧した状態のため、同期を停止しました（空の状態を他の端末へ反映しないためです）。内容を確認し、アプリを再起動してください。'; return; }
     const loaded = Storage.ReadState(this.dir);
     if (loaded.status === 'blocked') { this.blocked = loaded.reason; return; }
-    if (loaded.status === 'ok') {
-      const device = E.NewDevice(loaded.snapshot.deviceId);
-      Object.assign(device, { clock: loaded.snapshot.clock, cursor: loaded.snapshot.cursor, state: loaded.snapshot.state, outbox: loaded.snapshot.outbox, conflicts: loaded.snapshot.conflicts });
-      this.origin = loaded.snapshot.origin; this.device = device; this.lastSyncAt = loaded.snapshot.lastSyncAt; this.lastCompactAt = loaded.snapshot.lastCompactAt;
-      E.Refresh(device, this.adapter.Context()); this.base = { view: device.view, derivedEdges: new Set(device.derivedEdges) };
-    }
+    if (loaded.status === 'ok') this.session.Restore(loaded.snapshot);
   }
   Start() {
     this.Load();
@@ -118,14 +117,7 @@ class SyncService {
     this.Load(); // Start前でも、既存の同期データを確認してから始める
     if (this.blocked) throw new Error(this.blocked);
     if (!this.Session()) throw new Error('先にサインインしてください。');
-    if (!this.device) {
-      this.adapter.Backup();
-      const device = E.NewDevice(`win-${randomUUID().slice(0, 8)}`);
-      E.Initialize(device, this.adapter.Library(), this.now(), this.adapter.Context());
-      this.device = device; this.base = { view: device.view, derivedEdges: new Set(device.derivedEdges) };
-      this.origin = { url: this.config.url, userId: this.Session().userId };
-      Storage.WriteState(this.dir, device, this.Extra());
-    }
+    if (!this.device) this.session.Enable({ url: this.config.url, userId: this.Session().userId });
     this.config = { ...this.config, enabled: true }; Storage.WriteConfig(this.dir, this.config);
     this.Emit('idle'); this.interval = this.interval || this.timers.set(() => this.Tick(), 5 * 60 * 1000); this.interval.unref?.();
     return this.SyncNow();
@@ -136,46 +128,24 @@ class SyncService {
   }
   Clear() { if (this.debounce) this.timers.clear(this.debounce); if (this.interval) this.timers.clear(this.interval); this.debounce = null; this.interval = null; }
   Dispose() { this.disposed = true; this.Clear(); }
-  Extra() { return { origin: this.origin, lastSyncAt: this.lastSyncAt, lastCompactAt: this.lastCompactAt }; }
   // 接続先・アカウントが同期データの作成時と違うか。
-  Mismatch() { const session = this.vault.Get(); return !!this.device && !!this.origin.url && (this.origin.url !== this.config.url || (session && this.origin.userId !== session.userId)); }
+  Mismatch() { const session = this.vault.Get(); const origin = this.session.origin; return !!this.device && !!origin.url && (origin.url !== this.config.url || (session && origin.userId !== session.userId)); }
   // 別のプロジェクト・アカウントへ切り替える：同期データは別名で残し、手元のライブラリから新しく始める。
   ResetLink() {
-    this.Disable(); Storage.SetAside(this.dir); this.device = null; this.base = null; this.origin = { url: '', userId: '' }; this.blocked = ''; this.lastSyncAt = 0; this.lastCompactAt = 0; this.Emit('off');
+    this.Disable(); Storage.SetAside(this.dir); this.session.Reset(); this.blocked = ''; this.Emit('off');
   }
   // ---- ストアの変更・同期
-  Changed() { this.version++; if (this.applying || !this.config.enabled || this.blocked || !this.device) return; this.Schedule(1500); }
+  Changed() { this.session.Changed(); if (this.session.applying || !this.config.enabled || this.blocked || !this.device) return; this.Schedule(1500); }
   Schedule(ms) { if (this.disposed) return; if (this.debounce) this.timers.clear(this.debounce); this.debounce = this.timers.set(() => { this.debounce = null; this.Request().catch(() => {}); }, ms); this.debounce.unref?.(); }
   Request() { return this.SyncNow(); }
   // 直列化：同時に1つだけ実行する。
   SyncNow() { const run = this.chain.then(() => this.Cycle(), () => this.Cycle()); this.chain = run.catch(() => {}); return run; }
-  // ローカルの編集を、baseとの差分として取り込む。失敗（変換できない内容）では何も変えない。
-  Reconcile(base = this.base) {
-    const device = this.device; device.view = base.view; device.derivedEdges = new Set(base.derivedEdges);
-    E.Edit(device, this.adapter.Library(), this.now(), this.adapter.Context());
-  }
-  Apply() {
-    this.applying = true;
-    try { const changed = this.adapter.Apply(this.device.view); this.base = { view: this.device.view, derivedEdges: new Set(this.device.derivedEdges) }; if (changed) this.onApplied(); }
-    finally { this.applying = false; }
-  }
   async Cycle() {
     if (!this.config.enabled || this.blocked || !this.device || this.disposed) return { ok: false, error: this.blocked || '同期は無効です。' };
     if (this.Mismatch()) { this.Emit('error', '接続先またはアカウントが、この同期データの作成時と異なります。「接続を初期化」で切り替えてください（手元のプレイリストは変わりません）。'); return { ok: false, error: this.error }; }
     this.Emit('syncing');
-    try { this.Reconcile(); } catch (error) { this.Emit('error', `ローカルの変更を同期用に変換できません：${error.message}`); return { ok: false, error: this.error }; }
-    try { this.Apply(); Storage.WriteState(this.dir, this.device, this.Extra()); } catch (error) { this.Emit('error', `保存できません：${error.message}`); return { ok: false, error: this.error }; }
-    let repository;
-    try { repository = this.Repository(); } catch (error) { this.Emit('error', error.message); return { ok: false, error: error.message }; }
-    const base = this.base, version = this.version;
-    const result = await E.Sync(this.device, repository, this.now(), this.adapter.Context());
-    try {
-      if (this.version !== version) this.Reconcile(base); // 同期中にローカルの編集があった：同期前のbaseとの差分として取り込む
-      this.Apply(); // 先にlibrary.json、その後にsync/state.json
-      if (result.ok) this.lastSyncAt = this.now();
-      if (result.ok && this.now() - this.lastCompactAt > DAY) { try { await repository.Compact(this.now()); this.lastCompactAt = this.now(); } catch { /* 整理は次回に回す */ } }
-      Storage.WriteState(this.dir, this.device, this.Extra());
-    } catch (error) { this.Emit('error', `反映できません：${error.message}`); return { ok: false, error: this.error }; }
+    const result = await this.session.Cycle(); // データの安全に関わる規則は共通の sync-session.cjs
+    if (result.blocked) { this.blocked = result.blocked; this.Emit('blocked'); return { ok: false, error: result.blocked }; }
     this.Emit(result.ok ? 'idle' : 'error', result.ok ? '' : result.error);
     return result;
   }

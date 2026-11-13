@@ -14970,5 +14970,329 @@
     null
    ]
   }
+ },
+ {
+  "name": "sync pristine: an untouched default library",
+  "call": "SyncPristine",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [],
+    "activePlaylistId": "00000001-0000-4000-8000-000000000001",
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "お気に入り",
+      "icon": "",
+      "entries": [],
+      "childIds": [],
+      "createdAt": "",
+      "lastAddedAt": "",
+      "includeInAll": true
+     }
+    ]
+   }
+  ],
+  "expect": {
+   "pristine": true,
+   "hasContent": false
+  }
+ },
+ {
+  "name": "sync pristine: a renamed empty list is not the default",
+  "call": "SyncPristine",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [],
+    "activePlaylistId": "00000001-0000-4000-8000-000000000001",
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "旅行",
+      "icon": "",
+      "entries": [],
+      "childIds": [],
+      "createdAt": "",
+      "lastAddedAt": "",
+      "includeInAll": true
+     }
+    ]
+   }
+  ],
+  "expect": {
+   "pristine": false,
+   "hasContent": false
+  }
+ },
+ {
+  "name": "sync pristine: a default list with a track has content",
+  "call": "SyncPristine",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [],
+    "activePlaylistId": "00000001-0000-4000-8000-000000000001",
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "お気に入り",
+      "icon": "",
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "曲1",
+        "addedAt": "",
+        "url": "https://www.bilibili.com/video/BV1hhhhhhhh1/"
+       }
+      ],
+      "childIds": [],
+      "createdAt": "",
+      "lastAddedAt": "",
+      "includeInAll": true
+     }
+    ]
+   }
+  ],
+  "expect": {
+   "pristine": false,
+   "hasContent": true
+  }
+ },
+ {
+  "name": "sync pristine: two lists have content",
+  "call": "SyncPristine",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [],
+    "activePlaylistId": "00000001-0000-4000-8000-000000000001",
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001",
+     "00000001-0000-4000-8000-000000000002"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "お気に入り",
+      "icon": "",
+      "entries": [],
+      "childIds": [],
+      "createdAt": "",
+      "lastAddedAt": "",
+      "includeInAll": true
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "B",
+      "icon": "",
+      "entries": [],
+      "childIds": [],
+      "createdAt": "",
+      "lastAddedAt": "",
+      "includeInAll": true
+     }
+    ]
+   }
+  ],
+  "expect": {
+   "pristine": false,
+   "hasContent": true
+  }
+ },
+ {
+  "name": "sync pristine: a default list with a child is not pristine",
+  "call": "SyncPristine",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [],
+    "activePlaylistId": "00000001-0000-4000-8000-000000000001",
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "お気に入り",
+      "icon": "",
+      "entries": [],
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "createdAt": "",
+      "lastAddedAt": "",
+      "includeInAll": true
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "B",
+      "icon": "",
+      "entries": [],
+      "childIds": [],
+      "createdAt": "",
+      "lastAddedAt": "",
+      "includeInAll": true
+     }
+    ]
+   }
+  ],
+  "expect": {
+   "pristine": false,
+   "hasContent": true
+  }
+ },
+ {
+  "name": "sync state file: a library written and read back is identical",
+  "call": "SyncStateRoundTrip",
+  "args": [
+   {
+    "version": 3,
+    "identityVersion": 2,
+    "videoAliases": [],
+    "activePlaylistId": "00000001-0000-4000-8000-000000000001",
+    "rootPlaylistIds": [
+     "00000001-0000-4000-8000-000000000001"
+    ],
+    "playlists": [
+     {
+      "id": "00000001-0000-4000-8000-000000000001",
+      "name": "親",
+      "icon": "",
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000001",
+        "mediaId": "00000003-0000-4000-8000-000000000001",
+        "type": "bilibili",
+        "title": "曲1",
+        "addedAt": "",
+        "url": "https://www.bilibili.com/video/BV1hhhhhhhh1/"
+       }
+      ],
+      "childIds": [
+       "00000001-0000-4000-8000-000000000002"
+      ],
+      "createdAt": "",
+      "lastAddedAt": "",
+      "includeInAll": true
+     },
+     {
+      "id": "00000001-0000-4000-8000-000000000002",
+      "name": "子",
+      "icon": "",
+      "entries": [
+       {
+        "id": "00000002-0000-4000-8000-000000000002",
+        "mediaId": "00000003-0000-4000-8000-000000000002",
+        "type": "bilibili",
+        "title": "曲2",
+        "addedAt": "",
+        "url": "https://www.bilibili.com/video/BV1hhhhhhhh2/"
+       }
+      ],
+      "childIds": [],
+      "createdAt": "",
+      "lastAddedAt": "",
+      "includeInAll": true
+     }
+    ]
+   }
+  ],
+  "expect": {
+   "status": "ok",
+   "records": 6,
+   "outbox": 6,
+   "origin": {
+    "url": "https://x.supabase.co",
+    "userId": "u1"
+   },
+   "same": false
+  }
+ },
+ {
+  "name": "sync state file: an empty valid state",
+  "call": "SyncStateParse",
+  "args": [
+   "{\"syncVersion\":1,\"deviceId\":\"win-1\",\"clock\":\"\",\"cursor\":3,\"outbox\":[],\"conflicts\":[],\"records\":[],\"origin\":{\"url\":\"https://x.supabase.co\",\"userId\":\"u\"},\"lastSyncAt\":0,\"lastCompactAt\":0}"
+  ],
+  "expect": {
+   "status": "ok",
+   "snapshot": {
+    "deviceId": "win-1",
+    "clock": "",
+    "cursor": 3,
+    "state": {
+     "records": {}
+    },
+    "outbox": [],
+    "conflicts": [],
+    "origin": {
+     "url": "https://x.supabase.co",
+     "userId": "u"
+    },
+    "lastSyncAt": 0,
+    "lastCompactAt": 0
+   }
+  }
+ },
+ {
+  "name": "sync state file: an unknown newer version stops without reading further",
+  "call": "SyncStateParse",
+  "args": [
+   "{\"syncVersion\":99,\"deviceId\":\"win-1\",\"clock\":\"\",\"cursor\":3,\"outbox\":[],\"conflicts\":[],\"records\":[],\"origin\":{\"url\":\"https://x.supabase.co\",\"userId\":\"u\"},\"lastSyncAt\":0,\"lastCompactAt\":0}"
+  ],
+  "expect": {
+   "status": "blocked",
+   "reason": "新しい版のFavecusPlayerで作られた同期データです。このまま上書きしないため、同期を停止しました。アプリを更新してください。"
+  }
+ },
+ {
+  "name": "sync state file: broken text stops",
+  "call": "SyncStateParse",
+  "args": [
+   "{broken"
+  ],
+  "expect": {
+   "status": "blocked",
+   "reason": "同期データを読み込めません（壊れている可能性があります）。元のファイルは変更していません。"
+  }
+ },
+ {
+  "name": "sync state file: a record with an invalid field stops",
+  "call": "SyncStateParse",
+  "args": [
+   "{\"syncVersion\":1,\"deviceId\":\"win-1\",\"clock\":\"\",\"cursor\":3,\"outbox\":[],\"conflicts\":[],\"records\":[{\"id\":\"p:x\",\"f\":{}}],\"origin\":{\"url\":\"https://x.supabase.co\",\"userId\":\"u\"},\"lastSyncAt\":0,\"lastCompactAt\":0}"
+  ],
+  "expect": {
+   "status": "blocked",
+   "reason": "同期データを読み込めません（壊れている可能性があります）。元のファイルは変更していません。"
+  }
+ },
+ {
+  "name": "sync state file: an invalid device id stops",
+  "call": "SyncStateParse",
+  "args": [
+   "{\"syncVersion\":1,\"deviceId\":\"bad id!\",\"clock\":\"\",\"cursor\":3,\"outbox\":[],\"conflicts\":[],\"records\":[],\"origin\":{\"url\":\"https://x.supabase.co\",\"userId\":\"u\"},\"lastSyncAt\":0,\"lastCompactAt\":0}"
+  ],
+  "expect": {
+   "status": "blocked",
+   "reason": "同期データの内容が正しくありません。"
+  }
  }
 ]

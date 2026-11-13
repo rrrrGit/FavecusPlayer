@@ -19,6 +19,8 @@ const MODULES = {
   'core/sync-library.cjs': 'src/core/sync-library.cjs',
   'core/sync-engine.cjs': 'src/core/sync-engine.cjs',
   'core/sync-supabase.cjs': 'src/core/sync-supabase.cjs',
+  'core/sync-statefile.cjs': 'src/core/sync-statefile.cjs',
+  'core/sync-session.cjs': 'src/core/sync-session.cjs',
   'core/media-identity.cjs': 'src/core/media-identity.cjs',
   'core/urls.cjs': 'src/core/urls.cjs',
   'core/library-share.cjs': 'src/core/library-share.cjs',

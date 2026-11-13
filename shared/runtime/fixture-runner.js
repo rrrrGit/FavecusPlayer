@@ -11,6 +11,8 @@ const syncOrder = require('../core/sync-order.cjs');
 const syncState = require('../core/sync-state.cjs');
 const syncLibrary = require('../core/sync-library.cjs');
 const syncEngine = require('../core/sync-engine.cjs');
+const syncStateFile = require('../core/sync-statefile.cjs');
+const syncSession = require('../core/sync-session.cjs');
 const share = require('../core/library-share.cjs');
 const importIdentity = require('../core/import-identity.cjs');
 const iconData = require('../core/playlist-icon-data.cjs');
@@ -70,6 +72,10 @@ const CALLS = {
   TransferPrepare: options => libraryApp.TransferPrepare(options),
   TransferImport: options => libraryApp.TransferImport(options),
   TransferExport: options => libraryApp.TransferExport(options),
+  // 同期状態ファイルの検証（未知の版・壊れた内容は停止）と、書き出し→読み戻しの一致。
+  SyncStateParse: text => syncStateFile.ParseState(text),
+  SyncStateRoundTrip: library => { const device = syncEngine.NewDevice('devA'); syncEngine.Initialize(device, library, 1800000000000); const text = syncStateFile.SerializeState(device, { origin: { url: 'https://x.supabase.co', userId: 'u1' }, lastSyncAt: 5 }); const parsed = syncStateFile.ParseState(text); return { status: parsed.status, records: Object.keys(parsed.snapshot.state.records).length, outbox: parsed.snapshot.outbox.length, origin: parsed.snapshot.origin, same: JSON.stringify(parsed.snapshot.state) === JSON.stringify(device.state) }; },
+  SyncPristine: library => ({ pristine: syncSession.IsPristine(library), hasContent: syncSession.HasContent(library) }),
   SyncClock: steps => steps.map(step => step.op === 'tick' ? syncClock.Tick(step.last, step.now, step.device) : syncClock.Observe(step.last, step.remote, step.now, step.device)),
   SyncOrder: spec => ({ between: (spec.pairs || []).map(([a, b]) => syncOrder.Between(a, b)), spread: syncOrder.Spread(spec.spread || 0) }),
   SyncMerge: changes => { const merged = changes.reduce((state, change) => syncState.Merge(state, [change]).state, syncState.NewState()); return JSON.parse(syncState.Canonical(merged)); },

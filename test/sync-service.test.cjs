@@ -156,3 +156,27 @@ test('enabling before Start still reads existing sync data and refuses an unknow
   const s2 = new SyncService({ directory: a.syncDir, adapter: StoreAdapter(new Store(a.data, {}), { validateLibrary: input => ValidateLibrary(input), mediaKey: LibraryMediaKey }), vault: new Storage.SessionVault(a.syncDir, FakeSafe(true)), request: server.request, now: () => server.now, timers: { set: () => ({ unref() {} }), clear() {} } });
   await assert.rejects(() => s2.Enable(), /新しい版/); assert.equal(fs.readFileSync(file, 'utf8'), future);
 });
+
+test('a device that starts from the untouched default library adopts the remote lists and never duplicates the default list', async () => {
+  const server = FakeServer(), a = Device(server), b = Device(server);
+  Create(a, 'Aのリスト'); Add(a, Playlist(a, 'Aのリスト').id, 1); await Join(a);
+  assert.equal((await Join(b)).ok, true);
+  assert.equal(JSON.stringify(Names(a)), JSON.stringify(Names(b)));
+  assert.equal(b.store.data.playlists.filter(p => p.name === 'お気に入り').length, a.store.data.playlists.filter(p => p.name === 'お気に入り').length);
+  assert.equal(Playlist(b, 'Aのリスト').entries.length, 1);
+  // 空のサーバーで両方が既定のライブラリから始めても、既定リストは共通の1つになる
+  const empty = FakeServer(), c = Device(empty), d = Device(empty); await Join(c); await Join(d); await c.service.SyncNow();
+  assert.equal(c.store.data.playlists.length, 1); assert.equal(d.store.data.playlists.length, 1); assert.equal(c.store.data.playlists[0].id, d.store.data.playlists[0].id);
+});
+
+test('a library that looks empty while sync state exists blocks sync and sends no deletions', async () => {
+  const server = FakeServer(), a = Device(server), b = Device(server);
+  Create(a, '消えてはいけない'); await Join(a); await Join(b); await a.service.SyncNow(); await b.service.SyncNow();
+  assert.ok(Names(b).includes('消えてはいけない'));
+  a.service.Dispose();
+  fs.rmSync(path.join(a.data, 'library.json'), { force: true }); fs.rmSync(path.join(a.data, 'library.json.bak'), { force: true });
+  const store2 = new Store(a.data, {}), s2 = new SyncService({ directory: a.syncDir, adapter: StoreAdapter(store2, { validateLibrary: input => ValidateLibrary(input), mediaKey: LibraryMediaKey }), vault: new Storage.SessionVault(a.syncDir, FakeSafe(true)), request: server.request, now: () => server.now, timers: { set: () => ({ unref() {} }), clear() {} } });
+  s2.Start(); const r = await s2.SyncNow();
+  assert.equal(r.ok, false); assert.equal(s2.Status().state, 'blocked'); assert.match(s2.Status().error, /空の状態/);
+  await b.service.SyncNow(); assert.ok(Names(b).includes('消えてはいけない'), '他の端末から削除されない');
+});
