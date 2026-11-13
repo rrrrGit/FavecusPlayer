@@ -149,7 +149,7 @@ final class LibraryStoreTests: XCTestCase {
 
     func testAnIdentityErrorBlocksInsteadOfFallingBackToAnOlderBackup() async throws {
         let store = try await storeWithABackup()
-        let broken = "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[{\"aid\":\"x\"}],\"rootPlaylistIds\":[],\"playlists\":[]}"
+        let broken = "{\"version\":3,\"identityVersion\":2,\"videoAliases\":[{\"aid\":\"x\"}],\"rootPlaylistIds\":[\"00000001-0000-4000-8000-000000000001\"],\"playlists\":[{\"id\":\"00000001-0000-4000-8000-000000000001\",\"name\":\"L\",\"childIds\":[],\"entries\":[]}]}"
         try broken.write(to: store.fileURL, atomically: true, encoding: .utf8)
         let reloaded = try makeStore()
         await reloaded.load()
