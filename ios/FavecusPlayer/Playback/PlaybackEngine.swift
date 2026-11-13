@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 /// iPhone版のローカル再生（音声）。次に何を再生するかは共通JS（FavecusCore.QueueStart / QueueMove。Windows版と同じQueue）が決め、
@@ -31,7 +32,9 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     private var system: SystemAudioHooks?
     private var scope: String?
     private var failureStreak = 0
-    private var started = false
+    /// 曲の切り替え・停止のたびに増やす。待っている間に状態が変わった古い処理の結果を捨てるため。
+    private var generation = 0
+    private var libraryObserver: AnyCancellable?
 
     init(core: SharedCore, store: LibraryStore, backend: PlayerBackend, makeSystem: ((PlaybackControls) -> SystemAudioHooks)? = nil) {
         self.core = core
@@ -41,7 +44,13 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         backend.onEnded = { [weak self] in self?.ended() }
         backend.onFailed = { [weak self] reason in self?.failed(reason) }
         backend.onTick = { [weak self] in self?.tick() }
+        // ライブラリの編集・削除・同期の反映で、再生中の曲がなくなったら止める（Windows版と同じ規則を共通JSで判断）。
+        libraryObserver = store.$document.dropFirst().sink { [weak self] _ in
+            Task { @MainActor in await self?.resync() }
+        }
     }
+
+    var isPlayingNow: Bool { isPlaying }
 
     // MARK: 再生できる曲
 
@@ -66,13 +75,16 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             message = "この曲はこの端末で再生できません（メディアがありません）。"
             return
         }
-        self.scope = scope
         failureStreak = 0
+        generation += 1
+        let mine = generation
         guard let result = await queue("QueueStart", ["text": store.currentText, "scope": scope, "entryId": entryId, "shuffle": shuffle, "playable": playableIds()]),
               let id = result.id, let playlistId = result.playlistId else {
-            message = "この曲を再生キューに入れられません。"
+            if mine == generation { message = "この曲を再生キューに入れられません。" } // 失敗しても、再生中の曲・再生範囲は変えない
             return
         }
+        guard mine == generation else { return } // 待っている間に、別の曲を選ばれた・止められた
+        self.scope = scope
         load(id: id, playlistId: playlistId)
     }
 
@@ -110,6 +122,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     }
 
     func stop() {
+        generation += 1
         backend.stop()
         current = nil
         scope = nil
@@ -122,6 +135,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         var id: String?
         var playlistId: String?
         var error: String?
+        var stopped: Bool?
     }
 
     private func queue(_ function: String, _ request: [String: Any]) async -> QueueResult? {
@@ -137,11 +151,20 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     }
 
     /// 前後の曲へ。automatic：曲の終わりでの自動送り（1曲リピートではそのまま繰り返す）。
+    private func syncRequest() -> [String: Any]? {
+        guard let scope, let current else { return nil }
+        return ["text": store.currentText, "scope": scope, "entryId": current.entryId, "ownScope": current.playlistId, "shuffle": shuffle, "playable": playableIds()]
+    }
+
     private func advance(direction: Int, automatic: Bool) async {
-        guard let scope, let currentId = current?.entryId else { return }
-        let sync: [String: Any] = ["text": store.currentText, "scope": scope, "entryId": currentId, "shuffle": shuffle, "playable": playableIds()]
+        guard let sync = syncRequest() else { return }
+        generation += 1
+        let mine = generation
         let request: [String: Any] = ["direction": direction, "repeat": repeatMode.rawValue, "automatic": automatic, "sync": sync]
-        guard let result = await queue("QueueMove", request), let id = result.id, let playlistId = result.playlistId else {
+        let result = await queue("QueueMove", request)
+        guard mine == generation else { return } // 待っている間に、別の曲を選ばれた・止められた・次の曲へ進んだ
+        if result?.stopped == true { stop(); return } // 現在の曲がライブラリからなくなった（Windows版と同じく止める）
+        guard let result, let id = result.id, let playlistId = result.playlistId else {
             // 最後まで再生した（リピートなし）／前がない：止める。曲の表示は残す。
             backend.pause()
             refresh()
@@ -150,10 +173,19 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         load(id: id, playlistId: playlistId)
     }
 
+    /// ライブラリが変わったとき、再生中の曲が再生範囲に残っているかを確かめる（なくなったら止める）。
+    private func resync() async {
+        guard let sync = syncRequest() else { return }
+        let mine = generation
+        let result = await queue("QueueSync", sync)
+        guard mine == generation, result?.stopped == true else { return }
+        stop()
+    }
+
     private func load(id: String, playlistId: String) {
         guard let target = entry(id), let fileName = target.fileName else { return }
         system?.activate()
-        started = true
+        generation += 1
         current = NowPlaying(entryId: id, playlistId: playlistId, title: target.title.isEmpty ? "（無題）" : target.title)
         backend.load(url: store.mediaDirectory.appendingPathComponent(fileName))
         backend.play()
@@ -170,15 +202,19 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         failureStreak += 1
         guard failureStreak <= max(3, playableIds().count) else {
             message = "再生できる曲がありません：\(reason)"
-            backend.stop()
-            refresh()
+            failureStreak = 0
+            stop()
             return
         }
         message = "再生できない曲を飛ばしました：\(reason)"
-        Task { await advance(direction: 1, automatic: true) }
+        // 1曲リピートでも、壊れた曲を繰り返さず次へ進む（automaticにしない）。
+        Task { await advance(direction: 1, automatic: false) }
     }
 
-    private func tick() { refresh() }
+    private func tick() {
+        refresh()
+        if isPlaying && position > 0.5 { failureStreak = 0 } // 実際に再生できたら、失敗の連続を数え直す
+    }
 
     private func refresh() {
         isPlaying = backend.isPlaying

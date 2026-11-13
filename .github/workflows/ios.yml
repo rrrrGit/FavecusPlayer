@@ -116,8 +116,7 @@ jobs:
           grep -q CFBundleDocumentTypes build/plist.txt
           grep -q public.zip-archive build/plist.txt
           grep -q CFBundleDisplayName build/plist.txt
-          grep -q UIBackgroundModes build/plist.txt
-          grep -q audio build/plist.txt
+          plutil -extract UIBackgroundModes xml1 -o - "$APP/Info.plist" | grep -q "<string>audio</string>"
 
       - name: Verify the iPhone export with the Windows importer
         run: node ../scripts/verify-ios-export.cjs "$RUNNER_TEMP/transfer-ios"

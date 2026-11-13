@@ -20,6 +20,7 @@ protocol PlaybackControls: AnyObject {
     func next()
     func previous()
     func seek(to seconds: Double)
+    var isPlayingNow: Bool { get }
 }
 
 @MainActor
@@ -35,13 +36,17 @@ final class SystemAudio: SystemAudioHooks {
         observers.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] notification in
             let type = (notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt).flatMap(AVAudioSession.InterruptionType.init(rawValue:))
             let options = (notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt).map(AVAudioSession.InterruptionOptions.init(rawValue:))
-            Task { @MainActor in self?.interruption(type: type, options: options) }
+            let suspended = (notification.userInfo?[AVAudioSessionInterruptionWasSuspendedKey] as? Bool) ?? false
+            Task { @MainActor in self?.interruption(type: type, options: options, wasSuspended: suspended) }
         })
         observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] notification in
             let reason = (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
+            let previous = notification.userInfo?[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription
+            // イヤホン・Bluetoothなどが外れたときだけ、そのまま鳴らさず一時停止する（スピーカーへ切り替わる場合の標準的な動作）。
+            let external: Set<AVAudioSession.Port> = [.headphones, .bluetoothA2DP, .bluetoothHFP, .bluetoothLE, .usbAudio, .airPlay, .carAudio]
+            let wasExternal = previous?.outputs.contains { external.contains($0.portType) } ?? false
             Task { @MainActor in
-                // イヤホンを抜いたとき、そのまま鳴らさず一時停止する（標準的な動作）。
-                if reason == .oldDeviceUnavailable { self?.controls?.pause() }
+                if reason == .oldDeviceUnavailable, wasExternal { self?.controls?.pause() }
             }
         })
     }
@@ -61,10 +66,11 @@ final class SystemAudio: SystemAudioHooks {
         configureCommands()
     }
 
-    private func interruption(type: AVAudioSession.InterruptionType?, options: AVAudioSession.InterruptionOptions?) {
+    private func interruption(type: AVAudioSession.InterruptionType?, options: AVAudioSession.InterruptionOptions?, wasSuspended: Bool) {
         switch type {
         case .began:
-            resumeAfterInterruption = true
+            // 再生中だったときだけ、終わったあとに再開する（利用者が止めていた曲を勝手に鳴らさない）。
+            resumeAfterInterruption = !wasSuspended && controls?.isPlayingNow == true
             controls?.pause()
         case .ended:
             if resumeAfterInterruption, options?.contains(.shouldResume) == true { controls?.resume() }

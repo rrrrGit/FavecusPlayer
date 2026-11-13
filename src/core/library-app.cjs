@@ -101,9 +101,30 @@ function QueueApply(target, options) {
   const id = target.Start(options.scope, entries, options.entryId, options.shuffle);
   return id === null ? { id: null, playlistId: null } : Found(entries, id);
 }
+// ライブラリの変更を再生順へ反映する（Windows版の SyncPlayingQueue と同じ規則）。
+//   現在の曲が再生範囲に残っている → 通常の同期。範囲からは外れたが自分のリスト（ownScope）にはある → 自分のリストで組み直す（全体再生を除く）。
+//   曲そのもの（またはメディア）がなくなった → 再生を止める（stopped）。
+function QueueSyncState(target, sync) {
+  let entries = PlayableEntries(sync);
+  if (entries.some(e => e.id === sync.entryId)) { target.Sync(sync.scope, entries, sync.entryId, sync.shuffle); return { entries, stopped: false }; }
+  if (sync.scope !== '*' && sync.ownScope) {
+    const own = PlayableEntries({ ...sync, scope: sync.ownScope });
+    if (own.some(e => e.id === sync.entryId)) { target.Start(sync.ownScope, own, sync.entryId, sync.shuffle); return { entries: own, stopped: false }; }
+  }
+  target.Clear();
+  return { entries: [], stopped: true };
+}
 // 再生を始める。entryIdが再生できる曲の中にないとき（メディアがない等）は { id: null }。
 function QueueStart(options) {
-  try { queue = new Queue(options.seed === undefined ? null : Rng(options.seed)); return QueueApply(queue, options); }
+  try {
+    const next = new Queue(options.seed === undefined ? null : Rng(options.seed)), result = QueueApply(next, options);
+    if (result.id !== null) queue = next; // 失敗したときは、再生中の順番を変えない
+    return result;
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+// ライブラリの変更の反映だけを行う。stopped:true なら、現在の曲はもう再生できない（止める）。
+function QueueSync(options) {
+  try { return { stopped: QueueSyncState(queue, options).stopped }; }
   catch (error) { return { error: String(error && error.message || error) }; }
 }
 // 前後へ。options.sync（Start と同じ形）があれば、移動の前にライブラリの変更を反映する。
@@ -111,15 +132,21 @@ function QueueMove(options) { return QueueStep(queue, options); }
 function QueueStep(target, options) {
   try {
     let entries = null;
-    if (options.sync) { entries = PlayableEntries(options.sync); target.Sync(options.sync.scope, entries, options.sync.entryId, options.sync.shuffle); }
+    if (options.sync) {
+      const synced = QueueSyncState(target, options.sync);
+      if (synced.stopped) return { id: null, playlistId: null, stopped: true };
+      entries = synced.entries;
+    }
     const id = target.Move(options.direction, options.repeat, options.automatic === true);
     if (id === null) return { id: null, playlistId: null };
     return { id, playlistId: entries ? Found(entries, id).playlistId : (target.catalog.get(id) || {}).playlistId || null };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
 function QueuePeek(options) {
-  const id = queue.Peek(options.repeat, options.automatic !== false);
-  return { id, upcoming: queue.Timeline(options.repeat).upcoming.slice(0, 20) };
+  try {
+    const id = queue.Peek(options.repeat, options.automatic !== false);
+    return { id, upcoming: queue.Timeline(options.repeat).upcoming.slice(0, 20) };
+  } catch (error) { return { error: String(error && error.message || error) }; }
 }
 // 共通テストデータ用：順番の決まった一連の操作を、専用のQueueで実行して、再生された曲のIDの並びを返す。
 function QueueRun(spec) {
@@ -127,11 +154,11 @@ function QueueRun(spec) {
   const first = QueueApply(own, { ...spec });
   played.push(first.id);
   for (const step of spec.steps || []) {
-    if (step.sync) { const next = QueueStep(own, { direction: 0, repeat: 'off', sync: step.sync }); if (next.error) return next; continue; }
+    if (step.sync) { const synced = QueueSyncState(own, step.sync); played.push(synced.stopped ? 'stopped' : 'synced'); continue; }
     const result = QueueStep(own, step);
     if (result.error) return result;
     played.push(result.id);
   }
   return { played };
 }
-module.exports = { Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueuePeek, QueueRun };
+module.exports = { Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueRun };

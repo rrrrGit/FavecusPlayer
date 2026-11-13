@@ -79,6 +79,7 @@ ${parts.join(',\n')}
     LibraryApply: function (json) { return runner().LibraryApply(json); },
     QueueStart: function (json) { return runner().QueueStart(json); },
     QueueMove: function (json) { return runner().QueueMove(json); },
+    QueueSync: function (json) { return runner().QueueSync(json); },
     QueuePeek: function (json) { return runner().QueuePeek(json); },
     TransferPrepare: function (json) { return runner().TransferPrepare(json); },
     TransferImport: function (json) { return runner().TransferImport(json); },

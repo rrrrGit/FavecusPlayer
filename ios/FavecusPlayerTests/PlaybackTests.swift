@@ -135,6 +135,29 @@ final class PlaybackTests: XCTestCase {
         XCTAssertTrue(engine.message?.contains("再生できる曲がありません") ?? false, engine.message ?? "")
     }
 
+    func testDeletingTheCurrentEntryStopsPlayback() async throws {
+        let (store, engine, backend) = try await prepare()
+        let scope = try parentId(store)
+        let a = try entry(store, "ローカルA")
+        await engine.play(entryId: a.id, scope: scope)
+        store.perform(["type": "remove", "playlistId": scope, "entryId": a.id])
+        await store.waitUntilIdle()
+        try await waitFor { engine.current == nil }
+        XCTAssertTrue(backend.stopped)
+    }
+
+    func testAFailedStartKeepsTheCurrentPlayback() async throws {
+        let (store, engine, backend) = try await prepare()
+        let scope = try parentId(store)
+        await engine.play(entryId: try entry(store, "ローカルA").id, scope: scope)
+        await engine.play(entryId: try entry(store, "曲1").id, scope: scope) // Bilibiliの曲：再生できない
+        XCTAssertNotNil(engine.message)
+        XCTAssertEqual(engine.current?.title, "ローカルA")
+        await engine.goNext()
+        XCTAssertEqual(engine.current?.title, "ローカルB", "再生範囲・再生順は変わらない")
+        XCTAssertEqual(backend.loaded.count, 2)
+    }
+
     func testPreviousGoesBackToTheStartOfTheCurrentEntryAfterAFewSeconds() async throws {
         let (store, engine, backend) = try await prepare()
         let scope = try parentId(store)

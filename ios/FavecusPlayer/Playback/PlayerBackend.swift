@@ -29,6 +29,7 @@ final class AVPlayerBackend: PlayerBackend {
     private var endObserver: NSObjectProtocol?
     private var failObserver: NSObjectProtocol?
     private var statusObservation: NSKeyValueObservation?
+    private var failureReported = false
 
     init() {
         // バックグラウンド・ロック中も再生が止まらないよう、画面が消えても動かし続ける設定。
@@ -40,6 +41,8 @@ final class AVPlayerBackend: PlayerBackend {
 
     deinit {
         if let timeObserver { player.removeTimeObserver(timeObserver) }
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        if let failObserver { NotificationCenter.default.removeObserver(failObserver) }
     }
 
     var position: Double {
@@ -57,18 +60,27 @@ final class AVPlayerBackend: PlayerBackend {
     func load(url: URL) {
         removeItemObservers()
         let item = AVPlayerItem(url: url)
+        failureReported = false
+        // 通知は、いま読み込んでいる曲（item）のものだけを扱う。差し替え前の古い通知で、新しい曲を送らない。
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             Task { @MainActor in
-                if item.status == .failed { self?.onFailed?(item.error?.localizedDescription ?? "再生できません。") }
-                self?.onTick?()
+                guard let self, self.player.currentItem === item else { return }
+                if item.status == .failed { self.reportFailure(item.error?.localizedDescription ?? "再生できません。") }
+                self.onTick?()
             }
         }
         endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.onEnded?() }
+            Task { @MainActor in
+                guard let self, self.player.currentItem === item else { return }
+                self.onEnded?()
+            }
         }
         failObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main) { [weak self] notification in
             let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
-            Task { @MainActor in self?.onFailed?(error?.localizedDescription ?? "再生が途中で止まりました。") }
+            Task { @MainActor in
+                guard let self, self.player.currentItem === item else { return }
+                self.reportFailure(error?.localizedDescription ?? "再生が途中で止まりました。")
+            }
         }
         player.replaceCurrentItem(with: item)
     }
@@ -85,6 +97,13 @@ final class AVPlayerBackend: PlayerBackend {
         player.pause()
         removeItemObservers()
         player.replaceCurrentItem(with: nil)
+    }
+
+    /// 同じ曲の失敗は1回だけ伝える（statusの失敗と再生途中の失敗の両方が届いても、二重に送らない）。
+    private func reportFailure(_ reason: String) {
+        guard !failureReported else { return }
+        failureReported = true
+        onFailed?(reason)
     }
 
     private func removeItemObservers() {
