@@ -90,7 +90,7 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 | Step13 iOSダウンロード | 未着手 | IOSMediaDownloadService、URLSession、状態管理、Passthrough結合と安全なフォールバック、検証、サムネイル |
 | Step14 バックグラウンドダウンロード | 未着手 | background構成、中断・再開・キャンセル・通信切断・容量不足・アプリ再起動 |
 | Step15 iOS画面の仕上げ | 未着手 | ユーザーのUI案に沿った再生画面・ダウンロード・設定・同期状態の画面 |
-| Step16 AltStore実機導入手順 | 未着手 | AltServerの自動起動、同一Wi-Fi、信頼済み、必要なApple関連部品、Background Refreshの確認手順。アプリデータを保ったままのRefresh確認。複数PC（Aデスクトップ・Bノート）の確認：Aで導入→Bでも同じApple AccountでAltServerへサインインし、BからRefreshできるか／その後Aからも更新できるか（証明書の失効でアプリが一時停止しないか）、両PCの同時起動時の挙動、各PC初回の確認コード。7日を超えてPCなしになる場合の備え（SideStore比較を含む）。PCを再起動しないとRefreshできないのかを実機で確認 |
+| Step16 AltStore実機導入手順 | 未着手 | AltServerの自動起動、同一Wi-Fi、信頼済み、必要なApple関連部品、Background Refreshの確認手順。アプリデータを保ったままのRefresh確認。PCを再起動しないとRefreshできないのかを実機で確認 |
 | Step17 毎日の自動Refresh | 未着手 | ショートカットのPersonal Automationによる毎日のRefresh Apps、失敗・残り日数・手動更新方法の確認手順と、翌日の再試行の確認。Refresh成否の確認はAltStoreの「My Apps」の残り日数（7日へ戻るか）、「View App IDs」の期限、ホーム画面ウィジェット（iOS 17以降）で行う。AltServer側の成功通知の有無は未確認 |
 | Step18 Windows版の同期・ZIP画面 | 未着手 | 同期状態・ログイン・ZIP出力の画面をWindows版へ接続し、操作プレビューで確認 |
 | Step19 全体検証 | 未着手 | 全Nodeテスト、iOSテスト、共通テストデータ、実機・実通信の確認範囲の集約 |
@@ -104,6 +104,12 @@ GitHub ActionsのmacOS標準ランナーは公式ページで$0.062/分（Linux 
 確定した設計は `docs/DESIGN.md` 冒頭「v0.7.0：iOS版・同期の方針と共通データ仕様」に集約しました（本書へ重複して書きません）。判断1〜3（Supabase採用、自端末間のvideoAliases同期、Tombstone 90日）は2026-11-13にユーザーが確定しました。iPhone画面はStep15でユーザーのUI案を受けて決定します。
 
 公式ページ未確認の事項（Supabaseの自動停止後の復旧手順・「非活動」の定義、AltStoreの無料アカウント明記・Background RefreshとAltServerの関係、ショートカットの手順）は、該当工程の前に確認します。GitHub ActionsのmacOSは$0.062/分、Freeの含有は金額$12/月と確認しました（分数換算は概算）。
+
+## 今後の懸念点（未確認・現工程の完了条件には含めない）
+
+運用はAltStore（AltServer）を前提とする。以下は不明のまま残し、いずれ確認が必要な事項として記録する。
+- 2台のPC（Aデスクトップ・Bノート）のどちらからでも、1台のiPhoneのAltStoreの期限更新ができるかは不明。Bで別途サインインすると、無料Apple Accountの開発用証明書の上限により、Aで作成した証明書が失効し、アプリが次のRefreshまで動かなくなる可能性がある（第三者資料のみ・公式未確認。証明書の上限数も未確認）。確認時は、Aで導入→Bでサインイン・更新→Aで再更新、アプリデータの保持、両PC同時起動時の挙動を見る。
+- PCを7日以上起動できない場合は、AltStoreでは期限が切れる。SideStore（iPhone単体で更新できるとされる）は公式資料を取得できておらず未評価。
 
 ## 現在の工程
 
