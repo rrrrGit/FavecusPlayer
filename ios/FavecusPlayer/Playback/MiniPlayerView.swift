@@ -188,7 +188,7 @@ struct FullPlayerView: View {
                 Image(systemName: "music.note").font(.system(size: 54)).foregroundStyle(Color(hex: 0x50586F))
             }
         }
-        .frame(width: width, height: min(width * 0.8, 340))
+        .frame(width: width, height: min(width * 0.72, 320))
         .clipped()
     }
 

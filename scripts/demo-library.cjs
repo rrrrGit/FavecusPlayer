@@ -19,6 +19,21 @@ const library = {
 };
 fs.writeFileSync(process.argv[2] || 'demo-library.json', JSON.stringify(library, null, 2));
 // 保存済みの表示の確認用（第3引数：downloads.json の出力先。実際のファイルは作らないので、CIのスクリーンショット用のファイルを別に用意する）
+// 第4引数：サムネイルの出力先フォルダー（模擬の単色グラデーションのPNG。実在の画像は使わない）
+if (process.argv[4]) {
+  const zlib = require('node:zlib'), path = require('node:path');
+  const crc = buffer => zlib.crc32(buffer) >>> 0;
+  const chunk = (type, data) => { const body = Buffer.concat([Buffer.from(type), data]), out = Buffer.alloc(body.length + 8); out.writeUInt32BE(data.length, 0); body.copy(out, 4); out.writeUInt32BE(crc(body), body.length + 4); return out; };
+  const png = (w, h, color) => {
+    const raw = Buffer.alloc((w * 3 + 1) * h);
+    for (let y = 0; y < h; y++) { raw[y * (w * 3 + 1)] = 0; for (let x = 0; x < w; x++) { const t = (x / w + y / h) / 2, o = y * (w * 3 + 1) + 1 + x * 3; for (let c = 0; c < 3; c++) raw[o + c] = Math.round(color[c] * (1 - 0.55 * t)); } }
+    const header = Buffer.alloc(13); header.writeUInt32BE(w, 0); header.writeUInt32BE(h, 4); header[8] = 8; header[9] = 2;
+    return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', header), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+  };
+  fs.mkdirSync(process.argv[4], { recursive: true });
+  const palette = [[200, 110, 90], [90, 150, 210], [110, 190, 140], [210, 170, 80], [170, 110, 200], [90, 190, 200], [220, 120, 160], [130, 130, 220], [180, 200, 90]];
+  for (let n = 1; n <= 9; n++) fs.writeFileSync(path.join(process.argv[4], `bili_BV1${String(n).padStart(9, 'd')}_p1.jpg`), png(320, 180, palette[n - 1]));
+}
 if (process.argv[3]) {
   const record = (n, kind) => ({ key: `bili:BV1${String(n).padStart(9, 'd')}:p1`, kind, quality: 720, state: 'Completed', fileName: `demo-${kind}-${n}.${kind === 'video' ? 'mp4' : 'm4a'}`, bytes: 1048576, duration: 200, updatedAt: 1760000000 });
   fs.writeFileSync(process.argv[3], JSON.stringify({ version: 1, records: [record(1, 'audio'), record(2, 'video')] }, null, 2));
