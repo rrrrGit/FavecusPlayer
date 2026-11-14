@@ -2,7 +2,7 @@
 
 更新日：2026-11-14（日本時間）
 対象：v0.7.1 / `release/v0.7.1`（iOS版の修正版。`main` の v0.7.0 マージ 932aa74 から作成）
-現在地：v0.7.1 Step1〜2は実装・iOS CI確認済み。Step3・4・5は実装済みで、iOS CIの確認待ち（Step3の最初のCIは、追加したテスト1件の誤り＝存在しない曲名の指定で失敗し、修正済み）。Windows版の変更（Step4）があるため、Step6でWindowsの全体ビルド・Patchが必要。
+現在地：v0.7.1 Step0〜6が完了（版は0.7.1。Windows全体ビルド・iOS CIとも成功）。実機・実通信・実Supabaseでの同期の確認は未実施。Windows版の変更があるため、正式Releaseの前に、ユーザーのWindows実機での確認が必要。
 v0.7.0（配布済み・main）の工程・検証記録は、本ファイルの「v0.7.0の記録」以降と `docs/VALIDATION-067.md`（v0.6.7分）にあります。
 
 ## v0.7.1の計画（iOS版の修正）
@@ -93,6 +93,15 @@ v0.7.0（配布済み・main）の工程・検証記録は、本ファイルの�
 - プレイリストのページで、クリップボードにWebのリンクらしいものがあるときだけ、「コピーしたリンクを、このリストへ追加…」を出す。内容を読まずに判定する（`UIPasteboard.detectPatterns`。「他のAppからペースト」の許可を求められない）。押すと追加画面が開き、**「貼り付け」ボタン（OSの部品）を押したときだけ**クリップボードを読み、動画ページのリンクなら、そのまま追加する。
 - Bilibiliアプリの「リンクをコピー」は、題名つきの短縮リンク（`b23.tv`）のことがあるため、貼り付けたテキストからリンクを取り出し、短縮リンクなら**転送先を1回だけ**確かめて動画ページへ置き換える（Cookieなし。転送先が動画ページでなければ使わない。`b23.tv`・`bili2233.cn` 以外へは通信しない）。**実際のBilibiliのコピー文面・短縮リンクの形・転送先は未確認**（偽の通信のテストのみ）。
 - Swiftテスト5件（リンクの取り出し・宛先の判定・転送の解決・信頼しない転送先・通信なし）。CI確認前。
+
+### Step6の結果（2026-11-14、全体検証・ビルド）
+
+- **版**：0.7.1（`package.json`・`package-lock.json`・画面の版表示・iOS・README・GUIDE・CHANGELOG）。GUIDEへ、再生回数の同期（schema.sqlの再実行が必要）を追記。
+- **Windows全体ビルド**（GitHub Actions、ubuntu-24.04、コミット a115239、run 43601924148）：構文検査（JS 165ファイル）OK、**Nodeテスト 606/606成功**（Linuxでは、Windowsで失敗する既存の9件も成功）、UIリソース監査、4EXEの構造・ハッシュ・起動入口の検証、Patch・Setup・まとめZIPの生成まで成功。Artifact `windows-release`（保持14日）。ローカル（Windows）のNode全テストは606件中594件成功で、失敗の9件は`main`でも同じ（シンボリックリンク権限・FFmpegがない環境）。
+- **iOS CI**（同コミット、run 43601921399、workflow_dispatch・スクリーンショット付き）：シミュレーターでのビルド・全Swiftテスト、Info.plist確認、Windows版の取り込みで確認、スクリーンショット、署名なしIPA（`FavecusPlayer-unsigned.ipa`）の生成まで成功。
+- **Supabase**：ユーザーが `supabase/schema.sql` を再実行し、`sync_counts`・`sync_counts_meta`・`sync_prefs` が作成されたことを、ユーザーが提示した画面で確認した（既存の `sync_changes`・`sync_meta` はそのまま）。トリガー・RLSの設定そのものと、実際の同期は**未確認**。
+- **未確認（実機・実通信）**：iPhone実機での導入・再生・計測・画面の操作（再生画面の最大化・回転・スワイプ、ホームのカードを1枚だけ持ち上げられるか、保存タブの更新ボタン、受信が止まった取得の取り直し）、実Bilibili（保存の画質、1080p、短縮リンクの転送）、実Supabaseでの再生回数の同期（2台）、AltStoreのRefresh後のデータ保持、Windows実機でのインストール／Patch更新／再生／設定画面、実Electron GUI、Discordの表示。ユーザーの実機確認は、正式Releaseの前に必要。
+- **次**：iPhone実機（AltStore）とWindows実機での確認 → 結果をここへ記録 → 正式Release（統合・タグ・公開）は正式Release担当。
 
 ### 検証の区分（v0.7.1）
 
