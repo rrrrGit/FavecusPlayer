@@ -17,6 +17,9 @@ struct LibraryRootView: View {
     @State private var tab = 0
     @State private var path = NavigationPath()
     @State private var showPlayer = false
+    /// 再生画面から「ライブラリで表示」が押された：再生画面を閉じたあとで、タブ・階層・曲の位置を切り替える（閉じている最中に切り替えると、無視されることがある）。
+    @State private var pendingReveal: RevealTarget?
+    @State private var reveal: RevealTarget?
     @State private var showPicker = false
     @State private var showImport = false
     @State private var showExport = false
@@ -35,7 +38,7 @@ struct LibraryRootView: View {
                 BlockedView(message: message)
             case .ready:
                 TabView(selection: $tab) {
-                    LibraryTab(store: store, services: services, path: $path, showPlayer: $showPlayer)
+                    LibraryTab(store: store, services: services, path: $path, showPlayer: $showPlayer, reveal: $reveal)
                         .tabItem { Label("ライブラリ", systemImage: "books.vertical.fill") }
                         .tag(0)
                     DownloadsTab(store: store, services: services, showPlayer: $showPlayer)
@@ -69,7 +72,8 @@ struct LibraryRootView: View {
             if defaults.bool(forKey: "FavecusDemoSync") { showSync = true }
             if defaults.bool(forKey: "FavecusDemoMini") { player?.showDemo(title: "朝のピアノ", position: 62, duration: 257) }
             if defaults.bool(forKey: "FavecusDemoPlayer") {
-                player?.showDemo(title: "朝のピアノ", position: 62, duration: 257)
+                // 所在の表示を確かめるため、模擬ライブラリの深い階層のリスト（作業用BGM ＞ 集中 ＞ 試験前）を持つ曲として表示する
+                player?.showDemo(title: "朝のピアノ", position: 62, duration: 257, playlistId: "00000001-0000-4000-8000-000000000004")
                 showPlayer = true
             }
         }
@@ -108,8 +112,15 @@ struct LibraryRootView: View {
         .sheet(isPresented: $showImport) {
             if let importer { ImportSheet(coordinator: importer, isPresented: $showImport) }
         }
-        .fullScreenCover(isPresented: $showPlayer) {
-            if let player { FullPlayerView(player: player, services: services, isPresented: $showPlayer).tint(Theme.accent).preferredColorScheme(.dark) }
+        .fullScreenCover(isPresented: $showPlayer, onDismiss: applyReveal) {
+            if let player {
+                FullPlayerView(player: player, services: services, isPresented: $showPlayer) { chain, entryId in
+                    guard let last = chain.last else { return }
+                    pendingReveal = RevealTarget(chain: chain, listId: last, entryId: entryId)
+                    showPlayer = false
+                }
+                .tint(Theme.accent).preferredColorScheme(.dark)
+            }
         }
         .alert("お知らせ", isPresented: Binding(get: { store.notice != nil }, set: { if !$0 { store.notice = nil } })) {
             Button("コピー") { Clipboard.copy(store.notice ?? ""); store.notice = nil }
@@ -117,6 +128,23 @@ struct LibraryRootView: View {
         } message: {
             Text(store.notice ?? "")
         }
+    }
+}
+
+/// 再生画面からライブラリへ移動する先（ホームからのプレイリストの階層、最後のリスト、曲の位置まで動かすときの曲のID）。
+struct RevealTarget: Equatable {
+    let chain: [String]
+    let listId: String
+    let entryId: String?
+}
+
+extension LibraryRootView {
+    fileprivate func applyReveal() {
+        guard let target = pendingReveal else { return }
+        pendingReveal = nil
+        tab = 0
+        path = NavigationPath(target.chain)
+        reveal = target
     }
 }
 
@@ -172,6 +200,7 @@ private struct LibraryTab: View {
     let services: Services
     @Binding var path: NavigationPath
     @Binding var showPlayer: Bool
+    @Binding var reveal: RevealTarget?
     @State private var editing = false
     @State private var creating = false
     @State private var newName = ""
@@ -270,7 +299,7 @@ private struct LibraryTab: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .navigationBarTrailing) { EditToggle(editing: $editing) } }
             .navigationDestination(for: String.self) { id in
-                PlaylistDetail(store: store, services: services, parentId: id)
+                PlaylistDetail(store: store, services: services, parentId: id, reveal: $reveal)
             }
             .alert("新しいプレイリスト", isPresented: $creating) {
                 TextField("名前", text: $newName)
@@ -413,6 +442,7 @@ private struct PlaylistDetail: View {
     @ObservedObject var store: LibraryStore
     let services: Services
     let parentId: String
+    @Binding var reveal: RevealTarget?
     @State private var editMode: EditMode = .inactive
     @State private var showAdd = false
     @State private var showSave = false
@@ -430,6 +460,7 @@ private struct PlaylistDetail: View {
     private var cover: UIImage? { parent.flatMap { firstCover(of: $0, document: store.document, services: services) } }
 
     var body: some View {
+        ScrollViewReader { proxy in
         List {
             hero
                 .listRowInsets(EdgeInsets())
@@ -462,6 +493,8 @@ private struct PlaylistDetail: View {
         .scrollContentBackground(.hidden)
         .background(Theme.background)
         .ignoresSafeArea(edges: .top)
+        .onAppear { scrollToRevealed(proxy) }
+        .onChange(of: reveal) { _ in scrollToRevealed(proxy) }
         .onDrop(of: [.text], delegate: ClearDrag(dragging: $dragging))
         .environment(\.editMode, $editMode)
         .toolbar(.hidden, for: .navigationBar)
@@ -501,6 +534,17 @@ private struct PlaylistDetail: View {
             if defaults.bool(forKey: "FavecusDemoEdit") { editMode = .active }
             if defaults.bool(forKey: "FavecusDemoAdd") { showAdd = true }
             if defaults.bool(forKey: "FavecusDemoSave") { showSave = true }
+        }
+        } // ScrollViewReader
+    }
+
+    /// 再生画面から曲の位置を指定されたとき、このリストの曲まで動かす（画面が出そろってから）。ほかのリストの指定は、何もしない。
+    private func scrollToRevealed(_ proxy: ScrollViewProxy) {
+        guard let target = reveal, target.listId == parentId else { return }
+        guard let entryId = target.entryId, entries.contains(where: { $0.id == entryId }) else { reveal = nil; return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            withAnimation { proxy.scrollTo(entryId, anchor: .center) }
+            reveal = nil
         }
     }
 

@@ -258,6 +258,19 @@ final class PlaybackTests: XCTestCase {
         XCTAssertFalse(engine.videoMode, "サムネイルを選んだあとは、動画へ切り替えない")
     }
 
+    /// 曲の所在は、ホームの最上位のリストから、再生中の曲があるリストまで（共通JSの規則）。
+    func testTheLocationRunsFromATopLevelListToTheListOfTheCurrentSong() async throws {
+        let provider = FakeProvider()
+        let (store, engine, _) = try await prepareWithProvider(provider)
+        let online = try entry(store, "曲1")
+        await engine.play(entryId: online.id, scope: try parentId(store))
+        let path = await engine.location()
+        let first = try XCTUnwrap(path.first), last = try XCTUnwrap(path.last)
+        XCTAssertTrue(store.document?.rootPlaylistIds.contains(first.id) == true, "最初は最上位のリスト")
+        XCTAssertEqual(last.id, engine.current?.playlistId, "最後は、再生中の曲があるリスト")
+        XCTAssertTrue(path.allSatisfy { !$0.name.isEmpty })
+    }
+
     /// 背面では動画へ切り替えず、前面へ戻ったときに切り替える。
     func testTheVideoChoiceIsAppliedOnlyWhileTheAppIsActive() async throws {
         let provider = FakeProvider()

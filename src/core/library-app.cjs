@@ -164,6 +164,14 @@ function QueueRun(spec) {
   }
   return { played };
 }
+// 曲の所在（ホームから、そのリストまでの階層）。Windows版の「再生中」「次に再生」の経路と同じ規則（共通のTree.Path：再生範囲を通る経路を優先し、
+// なければ表示順で最初の経路）。options：{ text（ライブラリのJSON）, playlistId, scope（再生範囲のリストID。"*" はすべて） }。戻り値：{ path: [{ id, name }] }（見つからなければ空）。
+function PlaylistPath(options) {
+  try {
+    const library = JSON.parse(options.text);
+    return { path: Tree.Path(library, options.playlistId, options.scope || '*').map(list => ({ id: list.id, name: list.name })) };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
 // 端末間で曲を同じと見なすキー（SyncMediaKey：bili:<BV>:p<パート>）。保存した動画の記録は、このキーで引く（ファイル名・パスは使わない）。
 function MediaKeys(options) {
   try {
@@ -171,4 +179,4 @@ function MediaKeys(options) {
     return { keys: (options.entries || []).map(entry => { try { return keyOf({ type: 'bilibili', url: entry.url }); } catch { return null; } }) };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
-module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueRun };
+module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueRun, PlaylistPath };

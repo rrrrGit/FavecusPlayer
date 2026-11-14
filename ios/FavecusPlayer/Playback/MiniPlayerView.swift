@@ -102,10 +102,14 @@ struct FullPlayerView: View {
     @Binding var isPresented: Bool
     @State private var scrubbing: Double?
     @State private var hint: String?
+    @State private var location: [PlaybackEngine.LocationItem] = []
+    /// 所在の名前・曲名を押したとき：プレイリストの階層（ホームから）と、曲のID（曲の位置まで移動するとき）。再生画面を閉じて、ライブラリで表示する。
+    let reveal: (_ chain: [String], _ entryId: String?) -> Void
 
-    init(player: PlaybackEngine, services: Services, isPresented: Binding<Bool>) {
+    init(player: PlaybackEngine, services: Services, isPresented: Binding<Bool>, reveal: @escaping (_ chain: [String], _ entryId: String?) -> Void = { _, _ in }) {
         self.player = player
         self.services = services
+        self.reveal = reveal
         _isPresented = isPresented
         _artwork = ObservedObject(wrappedValue: services.artwork)
     }
@@ -122,13 +126,12 @@ struct FullPlayerView: View {
             topBar
             Spacer(minLength: 10)
             media(width: width)
-            Spacer(minLength: 14)
+            // 曲名・所在は、映像のすぐ下へ。操作（再生位置・ボタン）は、下へ寄せる
+            titleBlock
+                .padding(.horizontal, 24)
+                .padding(.top, 16)
+            Spacer(minLength: 20)
             VStack(spacing: 18) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(title.isEmpty ? "（再生していません）" : title).font(.system(size: 20, weight: .bold)).foregroundStyle(Theme.text).lineLimit(2)
-                    if let hint { Text(hint).font(.system(size: 12)).foregroundStyle(Theme.warning) }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
                 VStack(spacing: 4) {
                     Slider(value: Binding(get: { scrubbing ?? min(player.position, max(player.duration, 1)) }, set: { scrubbing = $0 }), in: 0...max(player.duration, 1)) { editing in
                         if !editing, let value = scrubbing { player.seek(to: value); scrubbing = nil }
@@ -144,7 +147,7 @@ struct FullPlayerView: View {
                 controls
             }
             .padding(.horizontal, 24)
-            Spacer(minLength: 28)
+            Spacer().frame(height: 18)
         }
         .background(
             LinearGradient(colors: [Color(hex: 0x241F3D), Theme.background], startPoint: .top, endPoint: .center).ignoresSafeArea()
@@ -154,6 +157,37 @@ struct FullPlayerView: View {
             Button("閉じる", role: .cancel) { player.message = nil }
         } message: {
             Text(player.message ?? "")
+        }
+    }
+
+    /// 曲名（少し大きく）と、その下に所在（ホーム ＞ 親 ＞ 子…）を小さく。名前を押すと、そのプレイリストを、曲名を押すと、曲の位置を、ライブラリで表示する。
+    private var titleBlock: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button { if !location.isEmpty { reveal(location.map(\.id), player.current?.entryId) } } label: {
+                Text(title.isEmpty ? "（再生していません）" : title).font(.system(size: 22, weight: .bold)).foregroundStyle(Theme.text).lineLimit(2).multilineTextAlignment(.leading)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("ライブラリで、この曲の位置を表示します")
+            if !location.isEmpty { locationLine }
+            if let hint { Text(hint).font(.system(size: 12)).foregroundStyle(Theme.warning) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: (player.current?.entryId ?? "") + "/" + (player.current?.playlistId ?? "")) { location = await player.location() }
+    }
+
+    private var locationLine: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                Text("ホーム").font(.system(size: 12)).foregroundStyle(Theme.faint)
+                ForEach(Array(location.enumerated()), id: \.element.id) { index, item in
+                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.faint)
+                    Button { reveal(Array(location.prefix(index + 1)).map(\.id), nil) } label: {
+                        Text(item.name).font(.system(size: 12)).foregroundStyle(Theme.muted).lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("ライブラリで、このプレイリストを表示します")
+                }
+            }
         }
     }
 

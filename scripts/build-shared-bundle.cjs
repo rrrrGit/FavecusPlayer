@@ -88,6 +88,7 @@ ${parts.join(',\n')}
     QueueMove: function (json) { return runner().QueueMove(json); },
     QueueSync: function (json) { return runner().QueueSync(json); },
     QueuePeek: function (json) { return runner().QueuePeek(json); },
+    PlaylistPath: function (json) { return runner().PlaylistPath(json); },
     BiliResolve: function (json) { return runner().BiliResolveAsync(json); },
     BiliProfile: function (json) { return runner().BiliProfile(json); },
     BiliInfo: function (json) { return runner().BiliInfoAsync(json); },

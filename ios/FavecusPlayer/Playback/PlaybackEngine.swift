@@ -367,9 +367,26 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         if isPlaying && position > 0.5 { failureStreak = 0 } // 実際に再生できたら、失敗の連続を数え直す
     }
 
+    /// 曲の所在（ホームから、再生中の曲があるリストまでの階層）。規則は共通JS（Windows版の「再生中」の経路と同じ。再生範囲を通る経路を優先）。見つからなければ空。
+    struct LocationItem: Equatable, Identifiable {
+        let id: String
+        let name: String
+    }
+
+    func location() async -> [LocationItem] {
+        guard let current else { return [] }
+        struct Reply: Decodable { struct Item: Decodable { let id: String; let name: String }; var path: [Item]? }
+        do {
+            let request = ["text": store.currentText, "playlistId": current.playlistId, "scope": scope ?? "*"]
+            let text = String(decoding: try JSONSerialization.data(withJSONObject: request), as: UTF8.self)
+            let reply = try JSONDecoder().decode(Reply.self, from: Data(try await core.callAsync("PlaylistPath", text).utf8))
+            return (reply.path ?? []).map { LocationItem(id: $0.id, name: $0.name) }
+        } catch { return [] }
+    }
+
     /// 画面確認用（シミュレーターのスクリーンショット）：再生中の表示だけを作る。音は鳴らさず、通常の起動では使わない。
-    func showDemo(title: String, position: Double, duration: Double) {
-        current = NowPlaying(entryId: "demo", playlistId: "demo", title: title)
+    func showDemo(title: String, position: Double, duration: Double, playlistId: String = "demo") {
+        current = NowPlaying(entryId: "demo", playlistId: playlistId, title: title)
         isPlaying = true
         self.position = position
         self.duration = duration
