@@ -44,6 +44,8 @@ on:
       - "src/core/bilibili-download.cjs"
       - "src/core/thumbnail.cjs"
       - "src/core/library-share.cjs"
+      - "src/core/play-ledger.cjs"
+      - "src/core/sync-counts.cjs"
       - "src/core/import-identity.cjs"
       - "src/core/playlist-icon-data.cjs"
       - "src/core/queue.cjs"
