@@ -32,6 +32,10 @@ struct EntryItem: Decodable, Identifiable, Equatable {
     var fileName: String?
     /// Bilibiliの曲の動画URL。ローカル曲にはない。
     var url: String?
+    /// 一覧の2行目（長さ・動画ID・パート）に出す、登録済みの情報。
+    var videoId: String?
+    var part: Int?
+    var duration: Double?
 }
 
 /// SwiftUIのonMove（移動元・挿入位置）を、共通JSの並べ替え操作（対象の前/後ろ）へ変換する。

@@ -162,15 +162,17 @@ struct SongRow: View {
     let entry: EntryItem
     let scope: String
     let services: Services
+    /// 一覧での番号（PC版と同じ「01」）。
+    var number: Int?
     /// このリストから曲を外す（nil なら出さない）。
     var onRemove: (() -> Void)?
 
     var body: some View {
         if let player = services.player {
             if entry.type == "bilibili", let downloads = services.downloads {
-                BiliSongRow(entry: entry, scope: scope, player: player, downloads: downloads, artwork: services.artwork, onRemove: onRemove)
+                BiliSongRow(entry: entry, scope: scope, number: number, player: player, downloads: downloads, artwork: services.artwork, onRemove: onRemove)
             } else {
-                LocalSongRow(entry: entry, scope: scope, player: player, onRemove: onRemove)
+                LocalSongRow(entry: entry, scope: scope, number: number, player: player, onRemove: onRemove)
             }
         } else {
             Text(entry.title.isEmpty ? "（無題）" : entry.title)
@@ -179,13 +181,17 @@ struct SongRow: View {
 }
 
 private struct RowLayout: View {
+    let number: Int?
     let title: String
-    let subtitle: String
+    /// 2行目（PC版と同じ：長さ・動画ID・パート）。
+    let meta: String
+    /// 保存の状態の補足（保存中・失敗など。なければnil）。
+    let status: String?
     let image: UIImage?
     let current: Bool
     let playing: Bool
     let dimmed: Bool
-    /// 保存済み（曲名の下に、白いチェックマークを出す）。
+    /// 保存済み（PC版と同じ「DL済み」の印）。
     let saved: Bool
     let progress: Double?
     let actions: [RowAction]
@@ -193,33 +199,41 @@ private struct RowLayout: View {
     @State private var showActions = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 12) {
+        HStack(spacing: 10) {
+            if let number {
+                Text(String(format: "%02d", number)).font(.system(size: 11)).foregroundStyle(current ? Theme.accent : Theme.faint).frame(width: 22)
+            }
+            HStack(spacing: 10) {
                 ZStack {
-                    ArtworkTile(image: image, title: title, side: 80)
+                    ArtworkTile(image: image, title: title, side: 68)
                     if current {
                         Color.black.opacity(0.5).clipShape(RoundedRectangle(cornerRadius: 5))
                         Image(systemName: playing ? "speaker.wave.2.fill" : "speaker.fill").foregroundStyle(Theme.accent)
                     }
                 }
-                .frame(width: 80, height: 45)
+                .frame(width: 68, height: 38)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title.isEmpty ? "（無題）" : title)
-                        .font(.system(size: 15, weight: .medium))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(current ? Theme.accent : (dimmed ? Theme.muted : Theme.text))
                         .lineLimit(2)
-                    HStack(spacing: 5) {
-                        if saved { Image(systemName: "checkmark.circle.fill").font(.system(size: 11)).foregroundStyle(.white) }
-                        Text(subtitle).font(.system(size: 11)).foregroundStyle(Theme.faint).lineLimit(1)
-                        if let progress { ProgressView(value: progress).tint(Theme.accent).frame(width: 48) }
+                    HStack(spacing: 6) {
+                        Text(meta).font(.system(size: 10)).foregroundStyle(Theme.faint).lineLimit(1)
+                        if let status { Text(status).font(.system(size: 10)).foregroundStyle(Theme.warning).lineLimit(1) }
+                        if let progress { ProgressView(value: progress).tint(Theme.accent).frame(width: 40) }
                     }
                 }
                 Spacer(minLength: 0)
+                if saved {
+                    Text("DL済み").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.mint)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.mint.opacity(0.7), lineWidth: 1))
+                }
             }
             .contentShape(Rectangle())
             .onTapGesture(perform: tap)
             Button { showActions = true } label: {
-                Image(systemName: "ellipsis").foregroundStyle(Theme.muted).frame(width: 36, height: 44).contentShape(Rectangle())
+                Image(systemName: "ellipsis").foregroundStyle(Theme.muted).frame(width: 32, height: 44).contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
         }
@@ -227,15 +241,28 @@ private struct RowLayout: View {
         .listRowBackground(current ? Theme.currentRow : Theme.background)
         .listRowSeparatorTint(Theme.rowLine)
         .sheet(isPresented: $showActions) {
-            SongActionSheet(title: title, subtitle: subtitle, image: image, actions: actions)
+            SongActionSheet(title: title, subtitle: meta, image: image, actions: actions)
         }
         .onAppear { if DemoMenu.take() { showActions = true } }
     }
 }
 
+/// 長さ・動画ID・パートの2行目（PC版と同じ）。
+private func metaText(for entry: EntryItem) -> String {
+    var parts: [String] = []
+    if let duration = entry.duration, duration > 0 {
+        let total = Int(duration)
+        parts.append(total >= 3600 ? String(format: "%d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60) : String(format: "%02d:%02d", total / 60, total % 60))
+    }
+    if let id = entry.videoId { parts.append(id) }
+    if let part = entry.part { parts.append("P\(part)") }
+    return parts.isEmpty ? (entry.type == "bilibili" ? "Bilibili" : "ローカル") : parts.joined(separator: " · ")
+}
+
 private struct LocalSongRow: View {
     let entry: EntryItem
     let scope: String
+    let number: Int?
     @ObservedObject var player: PlaybackEngine
     var onRemove: (() -> Void)?
 
@@ -244,7 +271,7 @@ private struct LocalSongRow: View {
         var actions: [RowAction] = []
         if playable { actions.append(RowAction(icon: "play.fill", title: "再生") { Task { await player.play(entryId: entry.id, scope: scope) } }) }
         if let onRemove { actions.append(RowAction(icon: "minus.circle", title: "このリストから外す", destructive: true, run: onRemove)) }
-        return RowLayout(title: entry.title, subtitle: playable ? "この端末のファイル" : "この端末にファイルがありません", image: nil,
+        return RowLayout(number: number, title: entry.title, meta: metaText(for: entry), status: playable ? nil : "この端末にファイルがありません", image: nil,
                          current: player.current?.entryId == entry.id, playing: player.isPlaying, dimmed: !playable, saved: false, progress: nil, actions: actions,
                          tap: { Task { await player.play(entryId: entry.id, scope: scope) } })
     }
@@ -253,6 +280,7 @@ private struct LocalSongRow: View {
 private struct BiliSongRow: View {
     let entry: EntryItem
     let scope: String
+    let number: Int?
     @ObservedObject var player: PlaybackEngine
     @ObservedObject var downloads: DownloadService
     @ObservedObject var artwork: ArtworkStore
@@ -261,13 +289,11 @@ private struct BiliSongRow: View {
     private var key: String? { downloads.entryKeys[entry.id] }
     private func record(_ kind: String) -> DeviceMediaRecord? { key.flatMap { downloads.record(key: $0, kind: kind) } }
 
-    private var subtitle: String {
+    private var status: String? {
         let audio = record("audio"), video = record("video")
-        if video?.state == .completed { return "Bilibili・動画を保存済み" }
-        if audio?.state == .completed { return "Bilibili・保存済み" }
-        if audio?.state.inProgress == true || video?.state.inProgress == true { return "Bilibili・保存中" }
-        if audio?.state == .failed || video?.state == .failed { return "Bilibili・保存に失敗" }
-        return "Bilibili・オンライン"
+        if audio?.state.inProgress == true || video?.state.inProgress == true { return "保存中" }
+        if audio?.state == .failed || video?.state == .failed { return "保存に失敗" }
+        return nil
     }
 
     private var actions: [RowAction] {
@@ -291,7 +317,7 @@ private struct BiliSongRow: View {
     var body: some View {
         _ = artwork.revision // 画像が増えたら描き直す
         let saved = record("audio")?.state == .completed || record("video")?.state == .completed
-        return RowLayout(title: entry.title, subtitle: subtitle, image: artwork.image(for: key),
+        return RowLayout(number: number, title: entry.title, meta: metaText(for: entry), status: status, image: artwork.image(for: key),
                          current: player.current?.entryId == entry.id, playing: player.isPlaying, dimmed: false, saved: saved,
                          progress: record("audio")?.state.inProgress == true ? key.flatMap { downloads.progress["\($0)|audio"] } : nil,
                          actions: actions,

@@ -60,3 +60,17 @@ struct SecondaryButtonStyle: ButtonStyle {
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.controlLine, lineWidth: 1))
     }
 }
+
+/// PC版の色つきの小さなボタン（「シャッフル再生」「再生」）。
+struct TintedButtonStyle: ButtonStyle {
+    let color: Color
+    let fill: Color
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(color)
+            .padding(.horizontal, 8).padding(.vertical, 10)
+            .background(RoundedRectangle(cornerRadius: 8).fill(fill.opacity(configuration.isPressed ? 0.7 : 1)))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(color.opacity(0.45), lineWidth: 1))
+    }
+}

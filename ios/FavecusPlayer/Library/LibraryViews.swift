@@ -152,6 +152,7 @@ private struct LibraryTab: View {
     @State private var renaming: PlaylistItem?
     @State private var renameText = ""
     @State private var pendingDelete: PlaylistItem?
+    @State private var dragging: String?
 
     private var document: LibraryDocument? { store.document }
     private var roots: [PlaylistItem] { document?.children(of: nil) ?? [] }
@@ -171,7 +172,7 @@ private struct LibraryTab: View {
                         Text("\(songCount)曲").font(.system(size: 12)).foregroundStyle(Theme.mint)
                     }
                     if editing {
-                        EditNotice(text: "編集中です。各カードの ✎ で名前を変更、ごみ箱で削除、◀ ▶ で並べ替えます。終わったら、右上のチェックを押します。")
+                        EditNotice(text: "編集中です。各カードの ✎ で名前を変更、ごみ箱で削除します。並べ替えは、編集中でなくても、カードを長押ししてつかみ、動かしたい場所のカードの上で離します。終わったら、右上のチェックを押します。")
                     }
                     if roots.isEmpty {
                         Text("プレイリストはありません。右下の「新規作成」から作れます。").font(.system(size: 13)).foregroundStyle(Theme.muted).padding(.top, 20)
@@ -240,11 +241,21 @@ private struct LibraryTab: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.coverLine, lineWidth: 1))
-        if editing {
-            face.overlay(alignment: .top) { editControls(list, index: index) }
-        } else {
-            NavigationLink(value: list.id) { face }.buttonStyle(.plain)
+        Group {
+            if editing {
+                face.overlay(alignment: .top) { editControls(list, index: index) }
+            } else {
+                NavigationLink(value: list.id) { face }.buttonStyle(.plain)
+            }
         }
+        .opacity(dragging == list.id ? 0.4 : 1)
+        .onDrag {
+            dragging = list.id
+            return NSItemProvider(object: list.id as NSString)
+        }
+        .onDrop(of: [.text], delegate: PlaylistReorderDrop(target: list.id, siblings: roots.map(\.id), dragging: $dragging) { id, target, after in
+            store.perform(["type": "playlist-reorder", "playlistId": id, "targetId": target, "after": after])
+        })
     }
 
     private func editControls(_ list: PlaylistItem, index: Int) -> some View {
@@ -252,8 +263,6 @@ private struct LibraryTab: View {
             round("pencil", label: "名前を変更") { renaming = list; renameText = list.name }
             round("trash", label: "削除") { pendingDelete = list }
             Spacer(minLength: 0)
-            round("chevron.left", label: "前へ移動", enabled: index > 0) { move(list, before: roots[index - 1].id) }
-            round("chevron.right", label: "後ろへ移動", enabled: index < roots.count - 1) { move(list, after: roots[index + 1].id) }
         }
         .padding(6)
     }
@@ -269,13 +278,6 @@ private struct LibraryTab: View {
         .disabled(!enabled)
     }
 
-    private func move(_ list: PlaylistItem, before target: String) {
-        store.perform(["type": "playlist-reorder", "playlistId": list.id, "targetId": target, "after": false])
-    }
-
-    private func move(_ list: PlaylistItem, after target: String) {
-        store.perform(["type": "playlist-reorder", "playlistId": list.id, "targetId": target, "after": true])
-    }
 }
 
 /// 編集の説明（「編集中です。…」）。
@@ -306,19 +308,49 @@ private struct EditToggle: View {
     }
 }
 
+// MARK: 並べ替え（長押しでつかんで動かす）
+
+/// プレイリストのカードを長押しでつかみ、別のカードの上で離すと、その位置へ移す（左右の矢印は使わない）。
+/// つかんだカードが、離した先より前にあったなら、その後ろへ。後ろにあったなら、その前へ入れる。
+struct PlaylistReorderDrop: DropDelegate {
+    let target: String
+    let siblings: [String]
+    @Binding var dragging: String?
+    let move: (_ id: String, _ target: String, _ after: Bool) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool { dragging != nil }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+    func performDrop(info: DropInfo) -> Bool {
+        defer { dragging = nil }
+        guard let id = dragging, id != target, let from = siblings.firstIndex(of: id), let to = siblings.firstIndex(of: target) else { return false }
+        move(id, target, from < to)
+        return true
+    }
+}
+
 // MARK: プレイリストのページ
 
-/// 1つのリストのページ：先頭の曲のサムネイルを大きく出した見出し、再生・シャッフル、子のリスト、曲（PC版と同じ並び：リストが上、その下に曲）。
+/// 1つのリストのページ（PC版と同じ構成）：先頭の曲のサムネイルを出した見出し → 「再生リスト」の行（上へ・曲数・検索・並べ替え・シャッフル再生・再生）
+/// → 子のプレイリスト（幅いっぱいのカード。長押しで並べ替え）→ 曲（番号・画像・曲名・長さ/ID/パート・DL済み・…）。
 private struct PlaylistDetail: View {
     @EnvironmentObject private var observer: ServicesObserver
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject var store: LibraryStore
     let services: Services
     let parentId: String
     @State private var editMode: EditMode = .inactive
     @State private var showAdd = false
+    @State private var query = ""
+    @State private var dragging: String?
 
     private var parent: PlaylistItem? { store.document?.playlist(parentId) }
-    private var entries: [EntryItem] { parent?.entries ?? [] }
+    private var allEntries: [EntryItem] { parent?.entries ?? [] }
+    private var entries: [EntryItem] {
+        let text = query.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return allEntries }
+        return allEntries.filter { $0.title.localizedCaseInsensitiveContains(text) || ($0.videoId ?? "").localizedCaseInsensitiveContains(text) }
+    }
+    private var children: [PlaylistItem] { store.document?.children(of: parentId) ?? [] }
     private var editing: Bool { editMode == .active }
     private var cover: UIImage? { parent.flatMap { firstCover(of: $0, document: store.document, services: services) } }
 
@@ -328,49 +360,45 @@ private struct PlaylistDetail: View {
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
                 .listRowBackground(Theme.background)
-            controls
-                .listRowInsets(EdgeInsets())
+            header
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Theme.background)
             if editing {
-                EditNotice(text: "編集中です。曲と子のプレイリストは、右端のつまみ（≡）をドラッグして並べ替えます。曲を外すときは、曲の「…」から「このリストから外す」を選びます。終わったら、右上のチェックを押します。")
+                EditNotice(text: "編集中です。曲は、右端のつまみ（≡）をドラッグして並べ替えます。曲を外すときは、曲の「…」から「このリストから外す」を選びます。プレイリストは、編集中でなくても、カードを長押ししてつかみ、動かして並べ替えられます。終わったら、右上のチェックを押します。")
                     .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Theme.background)
             }
-            if let parent, !parent.childIds.isEmpty {
-                Section {
-                    PlaylistChildren(store: store, services: services, parentId: parentId)
-                } header: { SectionLabel(text: "プレイリスト") }
+            ForEach(children) { list in childCard(list) }
+            Button { showAdd = true } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "plus").font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text)
+                        .frame(width: 68, height: 38).background(RoundedRectangle(cornerRadius: 5).fill(Theme.control))
+                    Text("曲を追加").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text)
+                    Spacer()
+                }
             }
-            Section {
-                Button { showAdd = true } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "plus").font(.system(size: 18, weight: .semibold)).foregroundStyle(Theme.text)
-                            .frame(width: 80, height: 45).background(RoundedRectangle(cornerRadius: 5).fill(Theme.control))
-                        Text("曲を追加").font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.text)
-                        Spacer()
-                    }
+            .buttonStyle(.plain)
+            .listRowBackground(Theme.background)
+            .listRowSeparatorTint(Theme.rowLine)
+            if allEntries.isEmpty { Text("曲はありません").foregroundStyle(Theme.muted).listRowBackground(Theme.background) }
+            ForEach(entries) { entry in
+                SongRow(entry: entry, scope: parentId, services: services, number: (allEntries.firstIndex { $0.id == entry.id } ?? 0) + 1) {
+                    store.perform(["type": "remove", "playlistId": parentId, "entryId": entry.id])
                 }
-                .buttonStyle(.plain)
-                .listRowBackground(Theme.background)
-                .listRowSeparatorTint(Theme.rowLine)
-                if entries.isEmpty { Text("曲はありません").foregroundStyle(Theme.muted).listRowBackground(Theme.background) }
-                ForEach(entries) { entry in
-                    SongRow(entry: entry, scope: parentId, services: services) {
-                        store.perform(["type": "remove", "playlistId": parentId, "entryId": entry.id])
-                    }
-                }
-                .onMove { source, destination in
-                    guard let move = MoveMapper.map(ids: entries.map(\.id), from: source, to: destination) else { return }
-                    store.perform(["type": "reorder", "playlistId": parentId, "entryId": move.id, "targetId": move.targetId, "after": move.after])
-                }
-            } header: { SectionLabel(text: "曲") }
+            }
+            .onMove { source, destination in
+                guard query.trimmingCharacters(in: .whitespaces).isEmpty, let move = MoveMapper.map(ids: allEntries.map(\.id), from: source, to: destination) else { return }
+                store.perform(["type": "reorder", "playlistId": parentId, "entryId": move.id, "targetId": move.targetId, "after": move.after])
+            }
+            .moveDisabled(!query.trimmingCharacters(in: .whitespaces).isEmpty)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Theme.background)
         .environment(\.editMode, $editMode)
+        .navigationTitle(parent?.name ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -391,7 +419,7 @@ private struct PlaylistDetail: View {
     private var hero: some View {
         Theme.panel
             .frame(maxWidth: .infinity)
-            .frame(height: 240)
+            .frame(height: 220)
             .overlay {
                 if let cover {
                     Image(uiImage: cover).resizable().scaledToFill()
@@ -410,17 +438,69 @@ private struct PlaylistDetail: View {
             }
     }
 
-    private var controls: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("\(entries.count)曲" + ((parent?.childIds.isEmpty ?? true) ? "" : " ・ 子のプレイリスト \(parent?.childIds.count ?? 0)")).font(.system(size: 12)).foregroundStyle(Theme.muted)
+    /// 「↑ 再生リスト 24」・検索・ボタン（PC版のリスト見出しと同じ並び）。
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Button { play(shuffled: false) } label: { Label("再生", systemImage: "play.fill") }.buttonStyle(PrimaryButtonStyle())
-                Button { play(shuffled: true) } label: { Label("シャッフル", systemImage: "shuffle") }.buttonStyle(SecondaryButtonStyle())
+                Button { dismiss() } label: { Image(systemName: "arrow.up").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.accent).frame(width: 30, height: 30) }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("ひとつ上のプレイリストへ戻る")
+                Text("再生リスト").font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.text)
+                Text("\(allEntries.count)").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    .padding(.horizontal, 8).padding(.vertical, 3).background(Capsule().fill(Theme.control))
+                Spacer()
             }
-            .disabled(services.player == nil || entries.isEmpty)
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").foregroundStyle(Theme.faint)
+                TextField("リスト内を検索", text: $query).textInputAutocapitalization(.never).autocorrectionDisabled().foregroundStyle(Theme.text)
+                if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.faint) }.buttonStyle(.plain) }
+            }
+            .font(.system(size: 14))
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.background))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.controlLine, lineWidth: 1))
+            HStack(spacing: 8) {
+                Button { withAnimation { editMode = editing ? .inactive : .active } } label: { Text(editing ? "並べ替えを終わる" : "並べ替え").frame(maxWidth: .infinity) }
+                    .buttonStyle(SecondaryButtonStyle())
+                Button { play(shuffled: true) } label: { Label("シャッフル再生", systemImage: "shuffle").frame(maxWidth: .infinity) }
+                    .buttonStyle(TintedButtonStyle(color: Theme.accent, fill: Color(hex: 0x2A2440)))
+                Button { play(shuffled: false) } label: { Label("再生", systemImage: "play.fill").frame(maxWidth: .infinity) }
+                    .buttonStyle(TintedButtonStyle(color: Theme.mint, fill: Color(hex: 0x1F2C2C)))
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .disabled(services.player == nil)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16).padding(.vertical, 8)
+    }
+
+    /// 子のプレイリスト：幅いっぱいのカード（≡・先頭の曲のサムネイル・名前・曲数・›）。長押しでつかんで並べ替える。
+    @ViewBuilder
+    private func childCard(_ list: PlaylistItem) -> some View {
+        let card = HStack(spacing: 12) {
+            Image(systemName: "line.3.horizontal").font(.system(size: 14)).foregroundStyle(Theme.accent.opacity(0.85))
+            ArtworkTile(image: firstCover(of: list, document: store.document, services: services), title: list.name, side: 56, corner: 4)
+            Text(list.name).font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.text).lineLimit(1)
+            Spacer(minLength: 4)
+            Text("\(list.entries.count)曲").font(.system(size: 13)).foregroundStyle(Theme.muted)
+            Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.muted)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 12)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(hex: 0x1C1F2B)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line, lineWidth: 1))
+        .opacity(dragging == list.id ? 0.4 : 1)
+        ZStack {
+            card
+            NavigationLink(value: list.id) { EmptyView() }.opacity(0) // 標準の矢印は出さず、カード全体を押せるようにする
+        }
+        .onDrag {
+            dragging = list.id
+            return NSItemProvider(object: list.id as NSString)
+        }
+        .onDrop(of: [.text], delegate: PlaylistReorderDrop(target: list.id, siblings: children.map(\.id), dragging: $dragging) { id, target, after in
+            store.perform(["type": "playlist-reorder", "playlistId": id, "targetId": target, "after": after, "parentId": parentId])
+        })
+        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Theme.background)
     }
 
     /// パンくず（マイライブラリ / 親 / このリスト）。
@@ -437,37 +517,8 @@ private struct PlaylistDetail: View {
     }
 
     private func play(shuffled: Bool) {
-        guard let player = services.player, let first = entries.first(where: { player.canPlay($0) }) ?? entries.first else { return }
+        guard let player = services.player, let first = allEntries.first(where: { player.canPlay($0) }) ?? allEntries.first else { return }
         player.shuffle = shuffled
         Task { await player.play(entryId: first.id, scope: parentId) }
-    }
-}
-
-/// 子のリスト（詳細ページの中）。先頭の曲のサムネイルを出す。
-private struct PlaylistChildren: View {
-    @ObservedObject var store: LibraryStore
-    let services: Services
-    let parentId: String
-
-    private var children: [PlaylistItem] { store.document?.children(of: parentId) ?? [] }
-
-    var body: some View {
-        ForEach(children) { list in
-            NavigationLink(value: list.id) {
-                HStack(spacing: 12) {
-                    ArtworkTile(image: firstCover(of: list, document: store.document, services: services), title: list.name, side: 80)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(list.name).font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
-                        Text("\(list.entries.count)曲" + (list.childIds.isEmpty ? "" : " ・ 子 \(list.childIds.count)")).font(.system(size: 11)).foregroundStyle(Theme.faint)
-                    }
-                }
-            }
-            .listRowBackground(Theme.background)
-            .listRowSeparatorTint(Theme.rowLine)
-        }
-        .onMove { source, destination in
-            guard let move = MoveMapper.map(ids: children.map(\.id), from: source, to: destination) else { return }
-            store.perform(["type": "playlist-reorder", "playlistId": move.id, "targetId": move.targetId, "after": move.after, "parentId": parentId])
-        }
     }
 }
