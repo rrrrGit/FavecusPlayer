@@ -85,11 +85,14 @@ private struct DownloadsList: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(item.entry.title.isEmpty ? "（無題）" : item.entry.title).lineLimit(2)
             HStack(spacing: 8) {
-                Text(detail(record)).font(.caption).foregroundStyle(record.state == .failed ? Theme.warning : Theme.muted).lineLimit(2)
+                Text(detail(record)).font(.caption).textSelection(.enabled).foregroundStyle(record.state == .failed ? Theme.warning : Theme.muted).lineLimit(2)
                 if record.state.inProgress {
                     if let value = downloads.progress[record.id] { ProgressView(value: value).frame(maxWidth: 80) } else { ProgressView().controlSize(.mini) }
                 }
             }
+        }
+        .contextMenu {
+            if let text = record.message { Button { Clipboard.copy(text) } label: { Label("エラーの内容をコピー", systemImage: "doc.on.doc") } }
         }
         .swipeActions(edge: .trailing) {
             if record.state.inProgress {

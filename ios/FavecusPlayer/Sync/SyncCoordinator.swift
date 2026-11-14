@@ -191,7 +191,7 @@ final class SyncCoordinator: ObservableObject {
             publish(state: .idle, summary: result)
             return true
         } catch {
-            publish(state: .error, message: "\(error)")
+            publish(state: .error, message: ErrorText.safe(error))
             return false
         }
     }
@@ -293,7 +293,7 @@ final class SyncCoordinator: ObservableObject {
             publish(state: .error, message: (result["error"] as? String) ?? "同期に失敗しました。", summary: result)
             return false
         } catch {
-            publish(state: .error, message: "\(error)")
+            publish(state: .error, message: ErrorText.safe(error))
             return false
         }
     }

@@ -81,7 +81,8 @@ final class MediaDownloader: @unchecked Sendable {
         let session = URLSession(configuration: configuration, delegate: job, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         var request = URLRequest(url: url)
-        request.setValue("https://www.bilibili.com/", forHTTPHeaderField: "Referer")
+        request.setValue(MediaHeaders.referer, forHTTPHeaderField: "Referer")
+        request.setValue(MediaHeaders.userAgent, forHTTPHeaderField: "User-Agent")
         request.httpShouldHandleCookies = false
         request.timeoutInterval = 30
         let task = session.downloadTask(with: request)

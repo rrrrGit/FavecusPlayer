@@ -60,6 +60,7 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
     private let lock = NSLock()
     private var written: [String: [Int: Int64]] = [:]
     private var totals: [String: Int64] = [:]
+    private var resumes: [String: Int] = [:] // 通信の途中切れからの再開の回数（取得の単位ごと）
     private var cancelling: Set<String> = [] // アプリ自身が取り消したジョブ（それ以外の取り消し＝システムによる中断は、失敗として残す）
     /// 取得の状態が変わった（ジョブID）。
     var onChange: (@Sendable (String) -> Void)?
@@ -125,7 +126,8 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
         let stream = job.streams[index]
         guard stream.urlIndex < stream.urls.count, let url = URL(string: stream.urls[stream.urlIndex]), MediaHostPolicy.isAllowed(url) else { throw DownloadError.message("保存可能な配信先がありません。") }
         var request = URLRequest(url: url)
-        request.setValue("https://www.bilibili.com/", forHTTPHeaderField: "Referer")
+        request.setValue(MediaHeaders.referer, forHTTPHeaderField: "Referer")
+        request.setValue(MediaHeaders.userAgent, forHTTPHeaderField: "User-Agent")
         request.httpShouldHandleCookies = false
         request.allowsCellularAccess = !wifiOnly()
         let task = session.downloadTask(with: request)
@@ -159,7 +161,7 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
     func remove(_ id: String) {
         try? FileManager.default.removeItem(at: jobFile(id))
         try? FileManager.default.removeItem(at: staging(id))
-        lock.lock(); written[id] = nil; totals[id] = nil; cancelling.remove(id); lock.unlock()
+        lock.lock(); written[id] = nil; totals[id] = nil; cancelling.remove(id); resumes = resumes.filter { !$0.key.hasPrefix(id + "#") }; lock.unlock()
     }
 
     private static func parse(_ description: String?) -> (id: String, index: Int)? {
@@ -175,6 +177,15 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
 
     // MARK: URLSession
 
+    /// 取得できなかった：拒否（401・403・412・429）以外は、次の候補のURLがあれば、そちらで試す。なければ失敗として残す。
+    private func reject(_ id: String, _ index: Int, _ text: String, refused: Bool) {
+        if !refused, var job = job(id), index < job.streams.count, job.streams[index].urlIndex + 1 < job.streams[index].urls.count {
+            job.streams[index].urlIndex += 1
+            if (try? write(job)) != nil, (try? enqueue(job, index)) != nil { return }
+        }
+        fail(id, index, text, refused: refused)
+    }
+
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
         guard let (id, index) = Self.parse(downloadTask.taskDescription) else { return }
         lock.lock()
@@ -188,15 +199,15 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         // このメソッドを抜けると一時ファイルが消えるため、確認と移動をここで終える。
         guard let (id, index) = Self.parse(downloadTask.taskDescription), let job = job(id), index < job.streams.count else { return }
-        guard let response = downloadTask.response as? HTTPURLResponse else { fail(id, index, "配信先の応答を確認できません。", refused: false); return }
+        guard let response = downloadTask.response as? HTTPURLResponse else { reject(id, index, "配信先の応答を確認できません。", refused: false); return }
         guard response.statusCode == 200 || response.statusCode == 206 else {
             let text = "配信先から取得できません（HTTP \(response.statusCode)）。時間を置いて再実行してください。"
-            fail(id, index, text, refused: [401, 403, 412, 429].contains(response.statusCode))
+            reject(id, index, text, refused: [401, 403, 412, 429].contains(response.statusCode))
             return
         }
         let size = (try? FileManager.default.attributesOfItem(atPath: location.path)[.size] as? NSNumber)?.int64Value ?? -1
-        if size <= 0 { fail(id, index, "取得したデータが空です。", refused: false); return }
-        if job.streams[index].size > 0, size != Int64(job.streams[index].size) { fail(id, index, "取得したサイズが想定と一致しません。", refused: false); return }
+        if size <= 0 { reject(id, index, "取得したデータが空です。", refused: false); return }
+        if job.streams[index].size > 0, size != Int64(job.streams[index].size) { reject(id, index, "取得したサイズが想定と一致しません。", refused: false); return }
         let destination = streamFile(job, index)
         do {
             try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -216,13 +227,23 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
             if !own { fail(id, index, "中断されました。もう一度保存してください。", refused: false) } // システムによる取り消し（終了など）
             return
         }
+        // 通信の途中切れ：OSが持つ再開用のデータがあれば、続きから取得し直す（同じURL。2回まで）。
+        if let description = task.taskDescription, let data = (error as NSError).userInfo[NSURLSessionDownloadTaskResumeData] as? Data {
+            lock.lock(); let attempts = resumes[description, default: 0]; if attempts < 2 { resumes[description] = attempts + 1 }; lock.unlock()
+            if attempts < 2 {
+                let retry = session.downloadTask(withResumeData: data)
+                retry.taskDescription = description
+                retry.resume()
+                return
+            }
+        }
         // 通信の失敗（拒否ではない）：次の候補があれば、そちらで試す。なければ失敗として残す。
         if var job = job(id), index < job.streams.count, job.streams[index].urlIndex + 1 < job.streams[index].urls.count {
             job.streams[index].urlIndex += 1
             if (try? write(job)) != nil, (try? enqueue(job, index)) != nil { return }
         }
         let code = (error as? URLError)?.code.rawValue ?? (error as NSError).code
-        fail(id, index, "通信に失敗しました（\(code)）。", refused: false)
+        fail(id, index, "通信に失敗しました（コード \(code)）。", refused: false)
     }
 
     /// リダイレクト先も、許可したホストだけ。

@@ -47,6 +47,7 @@ struct MiniPlayerBar: View {
             }
         }
         .alert("お知らせ", isPresented: Binding(get: { player.message != nil }, set: { if !$0 { player.message = nil } })) {
+            Button("コピー") { Clipboard.copy(player.message ?? ""); player.message = nil }
             Button("閉じる", role: .cancel) { player.message = nil }
         } message: {
             Text(player.message ?? "")

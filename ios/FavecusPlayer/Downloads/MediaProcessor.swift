@@ -39,7 +39,7 @@ enum MediaProcessor {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in session.exportAsynchronously { continuation.resume() } }
         guard session.status == .completed else {
             try? manager.removeItem(at: output)
-            throw DownloadError.message("結合に失敗しました：\(session.error?.localizedDescription ?? "不明なエラー")")
+            throw DownloadError.message("結合に失敗しました：\(session.error.map { ErrorText.safe($0) } ?? "不明なエラー")")
         }
         do {
             return try await validate(file: output, needsVideo: true, expectedDuration: expectedDuration)

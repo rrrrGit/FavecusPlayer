@@ -175,7 +175,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             if let error = result.error { message = error; return nil }
             return result
         } catch {
-            message = "再生順を決められません：\(error)"
+            message = "再生順を決められません：\(ErrorText.safe(error))"
             return nil
         }
     }
@@ -292,11 +292,11 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         }
         // 配信先の拒否・通信できない状態も、続けて他の曲を要求せずに止める（曲数ぶんの要求を連続して送らない）。
         if (error as? DownloadError)?.isRefusal == true || error is URLError {
-            message = (error as? CustomStringConvertible)?.description ?? error.localizedDescription
+            message = ErrorText.safe(error)
             stop()
             return
         }
-        failed((error as? CustomStringConvertible)?.description ?? error.localizedDescription)
+        failed(ErrorText.safe(error))
     }
 
     private func ended() {

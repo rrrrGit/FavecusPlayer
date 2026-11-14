@@ -72,7 +72,7 @@ final class AVPlayerBackend: PlayerBackend {
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             Task { @MainActor in
                 guard let self, self.player.currentItem === item else { return }
-                if item.status == .failed { self.reportFailure(item.error?.localizedDescription ?? "再生できません。") }
+                if item.status == .failed { self.reportFailure(item.error.map { ErrorText.safe($0) } ?? "再生できません。") }
                 self.onTick?()
             }
         }
@@ -86,7 +86,7 @@ final class AVPlayerBackend: PlayerBackend {
             let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
             Task { @MainActor in
                 guard let self, self.player.currentItem === item else { return }
-                self.reportFailure(error?.localizedDescription ?? "再生が途中で止まりました。")
+                self.reportFailure(error.map { ErrorText.safe($0) } ?? "再生が途中で止まりました。")
             }
         }
         player.replaceCurrentItem(with: item)

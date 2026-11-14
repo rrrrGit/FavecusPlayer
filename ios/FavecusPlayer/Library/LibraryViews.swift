@@ -82,7 +82,7 @@ struct LibraryRootView: View {
                 importer.begin(url: url)
                 showImport = true
             case .failure(let error):
-                store.notice = "ファイルを開けません：\(error.localizedDescription)"
+                store.notice = "ファイルを開けません：\(ErrorText.safe(error))"
             }
         }
         .onOpenURL { url in
@@ -107,6 +107,7 @@ struct LibraryRootView: View {
             if let player { FullPlayerView(player: player, services: services, isPresented: $showPlayer).tint(Theme.accent).preferredColorScheme(.dark) }
         }
         .alert("お知らせ", isPresented: Binding(get: { store.notice != nil }, set: { if !$0 { store.notice = nil } })) {
+            Button("コピー") { Clipboard.copy(store.notice ?? ""); store.notice = nil }
             Button("閉じる", role: .cancel) { store.notice = nil }
         } message: {
             Text(store.notice ?? "")

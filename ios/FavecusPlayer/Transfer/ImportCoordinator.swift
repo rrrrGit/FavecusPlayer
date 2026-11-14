@@ -20,6 +20,7 @@ final class ImportCoordinator: ObservableObject {
     private let service: TransferService
     private let store: LibraryStore
     private var scopedURL: URL?
+    private var localCopy: URL?
     private var generation = 0
 
     /// 読み取り中・取り込み中は、新しい操作や中断を受け付けない。
@@ -49,12 +50,16 @@ final class ImportCoordinator: ObservableObject {
         phase = .preparing
         Task {
             do {
-                let plan = try await service.prepare(url: url)
+                // ファイルアプリの外部の場所（Google Driveなど）のファイルは、まだ端末にないことがある。調整つきで読み（ここで取得される）、端末内へコピーしてから読む。
+                let local = try await Self.makeLocalCopy(of: url)
+                guard mine == generation else { try? FileManager.default.removeItem(at: local.deletingLastPathComponent()); return }
+                localCopy = local
+                let plan = try await service.prepare(url: local)
                 guard mine == generation else { return } // 閉じられた・取って代わられた
                 phase = .choosing(plan)
             } catch {
                 guard mine == generation else { return }
-                phase = .failed(String(describing: error))
+                phase = .failed(ErrorText.safe(error))
                 endAccess()
             }
         }
@@ -81,7 +86,7 @@ final class ImportCoordinator: ObservableObject {
             catch { service.rollback(built.published); throw error }
             phase = .done(built.outcome)
         } catch {
-            phase = .failed(String(describing: error))
+            phase = .failed(ErrorText.safe(error))
         }
         endAccess()
     }
@@ -96,5 +101,26 @@ final class ImportCoordinator: ObservableObject {
     private func endAccess() {
         scopedURL?.stopAccessingSecurityScopedResource()
         scopedURL = nil
+        if let localCopy { try? FileManager.default.removeItem(at: localCopy.deletingLastPathComponent()) }
+        localCopy = nil
+    }
+
+    /// 選んだZIPを、端末内の一時フォルダーへコピーする（NSFileCoordinatorで、プロバイダーに取得させてから読む）。取り込みの終了・取り消しで消す。
+    nonisolated private static func makeLocalCopy(of url: URL) async throws -> URL {
+        try await Task.detached {
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("favecus-import-" + UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let destination = folder.appendingPathComponent("import.zip")
+            var coordinationError: NSError?
+            var copyError: Error?
+            NSFileCoordinator().coordinate(readingItemAt: url, options: [.withoutChanges], error: &coordinationError) { readable in
+                do { try FileManager.default.copyItem(at: readable, to: destination) } catch { copyError = error }
+            }
+            if let failure = coordinationError ?? copyError {
+                try? FileManager.default.removeItem(at: folder)
+                throw failure
+            }
+            return destination
+        }.value
     }
 }

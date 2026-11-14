@@ -127,7 +127,7 @@ final class ExportCoordinator: ObservableObject {
         do {
             phase = .ready(try await service.export(libraryText: store.currentText, mediaDirectory: store.mediaDirectory, mode: mode, destinationDirectory: directory))
         } catch {
-            phase = .failed(String(describing: error))
+            phase = .failed(ErrorText.safe(error))
         }
     }
 

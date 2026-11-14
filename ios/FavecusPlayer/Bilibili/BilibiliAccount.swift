@@ -42,7 +42,7 @@ final class BilibiliAccount: ObservableObject {
                 message = "ログインの有効期限が切れました。もう一度ログインしてください。"
             }
         } catch {
-            message = "ログイン状態を確認できません：\(error)"
+            message = "ログイン状態を確認できません：\(ErrorText.safe(error))"
         }
     }
 
@@ -58,7 +58,7 @@ final class BilibiliAccount: ObservableObject {
             message = ""
             return true
         } catch {
-            message = "\(error)"
+            message = ErrorText.safe(error)
             return false
         }
     }
@@ -144,6 +144,11 @@ struct BilibiliSheet: View {
                         Button("Bilibiliにログイン") { showLogin = true }
                     }
                     if !account.message.isEmpty { Text(account.message).font(.footnote).foregroundStyle(.secondary) }
+                }
+                Section {
+                    Text("ログイン画面で貼り付け（パスワードなど）ができないときは、iPhoneの「設定」→「FavecusPlayer」→「他のAppからペースト」を「許可」にします（最初の確認で「許可しない」を選んだ場合）。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("iPhoneの設定を開く") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
                 }
                 Section {
                     Text("ログインは公式のページで行い、このアプリはパスワードを見ません。保存するのは、Bilibiliの利用に必要なログイン情報だけで、端末のKeychainに入ります（同期・ZIP・ログには含めません）。通常のWebで見られる動画だけを扱い、保護された動画・制限された配信は取得しません。")

@@ -22,7 +22,11 @@ struct SyncSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     statusCard
                     if let message {
-                        Text(message).font(.system(size: 13)).foregroundStyle(failed ? Theme.warning : Theme.mint)
+                        HStack(alignment: .top) {
+                            Text(message).font(.system(size: 13)).foregroundStyle(failed ? Theme.warning : Theme.mint).textSelection(.enabled)
+                            Spacer(minLength: 0)
+                            if failed { Button { Clipboard.copy(message) } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.borderless).accessibilityLabel("エラーの内容をコピー") }
+                        }
                             .padding(12).frame(maxWidth: .infinity, alignment: .leading)
                             .background(RoundedRectangle(cornerRadius: 8).fill(Theme.panel))
                     }
@@ -171,7 +175,7 @@ struct SyncSheet: View {
         working = true
         message = nil
         Task {
-            do { try await run() } catch { message = String(describing: error); failed = true }
+            do { try await run() } catch { message = ErrorText.safe(error); failed = true }
             working = false
         }
     }

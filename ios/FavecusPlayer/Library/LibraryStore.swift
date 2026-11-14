@@ -104,7 +104,7 @@ final class LibraryStore: ObservableObject {
             state = .ready
             cleanStaging()
         } catch {
-            state = .blocked("保存データを読み込めません：\(error)")
+            state = .blocked("保存データを読み込めません：\(ErrorText.safe(error))")
         }
     }
 
@@ -188,7 +188,7 @@ final class LibraryStore: ObservableObject {
             try persist(updated) // 保存できなければ、画面も更新しない
             try show(updated)
         } catch {
-            notice = "保存できません：\(error)"
+            notice = "保存できません：\(ErrorText.safe(error))"
         }
     }
 

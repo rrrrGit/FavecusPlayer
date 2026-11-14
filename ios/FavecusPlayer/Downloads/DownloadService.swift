@@ -78,7 +78,7 @@ final class DownloadService: ObservableObject, MediaProvider {
             started = true
             for job in jobs { await evaluate(job.id, live: live) }
         } catch {
-            message = "保存の記録を読み込めません：\(error)"
+            message = "保存の記録を読み込めません：\(ErrorText.safe(error))"
         }
     }
 
@@ -229,7 +229,7 @@ final class DownloadService: ObservableObject, MediaProvider {
 
     private func save(_ record: DeviceMediaRecord) async -> Bool {
         var saved = true
-        do { try await catalog.upsert(record) } catch { saved = false; message = "保存の記録を書き込めません：\(error)" }
+        do { try await catalog.upsert(record) } catch { saved = false; message = "保存の記録を書き込めません：\(ErrorText.safe(error))" }
         await publish()
         return saved
     }
@@ -395,8 +395,7 @@ final class DownloadService: ObservableObject, MediaProvider {
 
     /// 記録（downloads.json）には、署名つきの配信URLを含みうる通信エラーの詳細を残さない。
     private static func describe(_ error: Error) -> String {
-        if let urlError = error as? URLError { return "通信に失敗しました（\(urlError.code.rawValue)）。" }
-        return (error as? CustomStringConvertible)?.description ?? "保存に失敗しました。"
+        ErrorText.safe(error)
     }
 
     static func ensureSpace(for bytes: Int64, at url: URL) throws {
