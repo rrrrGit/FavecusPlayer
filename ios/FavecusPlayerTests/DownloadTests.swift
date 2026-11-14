@@ -424,4 +424,147 @@ final class DownloadTests: XCTestCase {
         XCTAssertNil(service2.savedFile(key: key, kind: "video"))
         XCTAssertNotNil(service2.savedFile(key: key, kind: "audio"), "音声の保存は残る")
     }
+
+    // MARK: 保存タブの表示と更新（v0.7.1）
+
+    func testClearingProblemsRemovesOnlyFailedAndCancelledRecords() async throws {
+        let media = directory.appendingPathComponent("downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: media, withIntermediateDirectories: true)
+        try Data([1]).write(to: media.appendingPathComponent("done.m4a"))
+        let catalog = DownloadCatalog(url: directory.appendingPathComponent("downloads.json"), mediaDirectory: media)
+        try await catalog.upsert(DeviceMediaRecord(key: "k1", kind: "audio", state: .failed))
+        try await catalog.upsert(DeviceMediaRecord(key: "k2", kind: "video", state: .cancelled))
+        try await catalog.upsert(DeviceMediaRecord(key: "k3", kind: "audio", state: .downloading))
+        var done = DeviceMediaRecord(key: "k4", kind: "audio", state: .completed)
+        done.fileName = "done.m4a"
+        try await catalog.upsert(done)
+        let removed = try await catalog.removeProblems()
+        XCTAssertEqual(removed, 2)
+        let failed = await catalog.record(key: "k1", kind: "audio"), cancelled = await catalog.record(key: "k2", kind: "video")
+        let running = await catalog.record(key: "k3", kind: "audio"), saved = await catalog.record(key: "k4", kind: "audio")
+        XCTAssertNil(failed)
+        XCTAssertNil(cancelled)
+        XCTAssertEqual(running?.state, .downloading)
+        XCTAssertEqual(saved?.state, .completed)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: media.appendingPathComponent("done.m4a").path), "保存したファイルは消さない")
+    }
+
+    func testAFailureIsNotShownForASongWhoseOtherFormatIsSavedAndExpiresAfterAWhile() async throws {
+        let audio = try makeAudio(seconds: 2)
+        let (service, catalog) = try environment(Fixture(audio: audio))
+        try FileManager.default.createDirectory(at: service.directory, withIntermediateDirectories: true)
+        try Data([1]).write(to: service.directory.appendingPathComponent("a.m4a"))
+        var failedVideo = DeviceMediaRecord(key: "only-failed", kind: "video", state: .failed)
+        failedVideo.message = "結合に失敗しました"
+        try await catalog.upsert(failedVideo)
+        failedVideo.key = "audio-saved"
+        try await catalog.upsert(failedVideo)
+        var saved = DeviceMediaRecord(key: "audio-saved", kind: "audio", state: .completed)
+        saved.fileName = "a.m4a"
+        saved.bytes = 1
+        try await catalog.upsert(saved)
+        await service.start()
+        XCTAssertEqual(service.problemStatus(key: "only-failed"), "保存に失敗")
+        XCTAssertNil(service.problemStatus(key: "audio-saved"), "もう一方の形式が保存済みなら、失敗を出さない")
+        let record = try XCTUnwrap(service.record(key: "only-failed", kind: "video"))
+        XCTAssertTrue(service.isRecentProblem(record))
+        XCTAssertFalse(service.isRecentProblem(record, now: Date().addingTimeInterval(DownloadService.problemLifetime + 60)), "一定時間を過ぎた失敗は出さない")
+        XCTAssertEqual(service.savedBytes, 1)
+    }
+
+    func testReloadClearsFailuresButKeepsSavedMedia() async throws {
+        let audio = try makeAudio(seconds: 2)
+        let (service, catalog) = try environment(Fixture(audio: audio))
+        try FileManager.default.createDirectory(at: service.directory, withIntermediateDirectories: true)
+        try Data([1]).write(to: service.directory.appendingPathComponent("a.m4a"))
+        try await catalog.upsert(DeviceMediaRecord(key: "k-failed", kind: "audio", state: .failed))
+        var saved = DeviceMediaRecord(key: "k-saved", kind: "audio", state: .completed)
+        saved.fileName = "a.m4a"
+        try await catalog.upsert(saved)
+        await service.start()
+        XCTAssertNotNil(service.record(key: "k-failed", kind: "audio"))
+        await service.reload()
+        XCTAssertNil(service.record(key: "k-failed", kind: "audio"), "更新で、失敗の記録は消える")
+        XCTAssertNotNil(service.savedFile(key: "k-saved"), "保存済みは消えない")
+    }
+
+    // MARK: 受信が止まった取得の検知（v0.7.1）
+
+    private func stalledJob(urls: [String]) throws -> (BackgroundTransfers, DownloadJob) {
+        let jobs = directory.appendingPathComponent("stall-jobs", isDirectory: true), staging = directory.appendingPathComponent("stall-staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: jobs, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let job = DownloadJob(id: "job-stalled", key: "bili:BV1sssssssss:p1", kind: "audio", title: "曲", quality: 0, duration: 2, layout: "dash", streams: [JobStream(urls: urls, size: 0, ext: "m4a")], createdAt: Date().timeIntervalSince1970)
+        try JSONEncoder().encode(job).write(to: jobs.appendingPathComponent("job-stalled.json"))
+        StubProtocol.install { _ in (404, Data()) }
+        let transfers = BackgroundTransfers(configuration: StubProtocol.session().configuration, jobsDirectory: jobs, stagingRoot: staging)
+        return (transfers, job)
+    }
+
+    func testAStalledTransferMovesToTheNextCandidateUrl() async throws {
+        let (transfers, job) = try stalledJob(urls: ["https://upos.bilivideo.com/a/first", "https://upos.bilivideo.com/a/second"])
+        let handled = await transfers.restartStalled(job.id, idleFor: 0)
+        XCTAssertEqual(handled, 1)
+        XCTAssertEqual(transfers.job(job.id)?.streams.first?.urlIndex, 1, "次の候補のURLで取り直す")
+    }
+
+    func testAStalledTransferWithNoCandidateLeftFailsWithADiagnosticAndNoUrl() async throws {
+        let (transfers, job) = try stalledJob(urls: ["https://upos.bilivideo.com/a/only"])
+        let handled = await transfers.restartStalled(job.id, idleFor: 0)
+        XCTAssertEqual(handled, 1)
+        guard case .failed(let text, let refused) = try XCTUnwrap(transfers.status(of: job).first) else { return XCTFail("失敗として残るはず") }
+        XCTAssertFalse(refused)
+        XCTAssertTrue(text.contains("取得が進みません") && text.contains("候補 1/1"), text)
+        XCTAssertFalse(text.contains("http") || text.contains("bilivideo"), "診断の文にURLを含めない: \(text)")
+    }
+
+    func testATransferThatIsStillMovingIsNotRestarted() async throws {
+        let (transfers, job) = try stalledJob(urls: ["https://upos.bilivideo.com/a/first", "https://upos.bilivideo.com/a/second"])
+        let handled = await transfers.restartStalled(job.id, idleFor: 3600)
+        XCTAssertEqual(handled, 0)
+        XCTAssertEqual(transfers.job(job.id)?.streams.first?.urlIndex, 0)
+    }
+
+    // MARK: 画質の選択とオフライン用データの一括削除（v0.7.1）
+
+    func testTheChosenHeightIsSentToThePlayUrlRequest() async throws {
+        let audio = try makeAudio(seconds: 2)
+        let (service, _) = try environment(Fixture(audio: audio))
+        await service.start()
+        let key = try await requireKey(service)
+        service.save(entry: entry, kind: "video", height: 360) // 映像の配信がない合成データなので失敗するが、要求は送られる
+        _ = try await wait(service, key: key, kind: "video", [.completed, .failed])
+        let play = StubProtocol.requests.first { $0.url?.path.hasSuffix("/playurl") == true }
+        let query = URLComponents(url: try XCTUnwrap(play?.url), resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertEqual(query.first { $0.name == "qn" }?.value, "16", "360p は qn=16")
+        XCTAssertTrue(DownloadService.heightChoices.contains(DownloadService.preferredHeight))
+    }
+
+    func testRemovingAllOfflineDataDeletesOnlyTheRecordedFilesAndKeepsTheRest() async throws {
+        let audio = try makeAudio(seconds: 2)
+        let (service, catalog) = try environment(Fixture(audio: audio))
+        try FileManager.default.createDirectory(at: service.directory, withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: service.directory.appendingPathComponent("a.m4a"))
+        try Data([4, 5]).write(to: service.directory.appendingPathComponent("b.mp4"))
+        try Data([9]).write(to: service.directory.appendingPathComponent("not-managed.txt"))
+        var first = DeviceMediaRecord(key: "k1", kind: "audio", state: .completed)
+        first.fileName = "a.m4a"; first.bytes = 3
+        var second = DeviceMediaRecord(key: "k1", kind: "video", state: .completed)
+        second.fileName = "b.mp4"; second.bytes = 2
+        try await catalog.upsert(first)
+        try await catalog.upsert(second)
+        try await catalog.upsert(DeviceMediaRecord(key: "k2", kind: "audio", state: .failed))
+        await service.start()
+        let result = await service.removeAllOffline()
+        XCTAssertEqual(result?.count, 2)
+        XCTAssertEqual(result?.bytes, 5)
+        XCTAssertNil(service.savedFile(key: "k1", kind: "audio"))
+        XCTAssertNil(service.savedFile(key: "k1", kind: "video"))
+        XCTAssertNil(service.record(key: "k1", kind: "audio"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: service.directory.appendingPathComponent("a.m4a").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: service.directory.appendingPathComponent("b.mp4").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: service.directory.appendingPathComponent("not-managed.txt").path), "記録にないファイルは消さない")
+        XCTAssertNotNil(service.record(key: "k2", kind: "audio"), "失敗の記録など、保存済み以外は触れない")
+        XCTAssertEqual(service.savedBytes, 0)
+    }
 }

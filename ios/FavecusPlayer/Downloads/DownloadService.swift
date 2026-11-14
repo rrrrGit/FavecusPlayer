@@ -27,6 +27,8 @@ final class DownloadService: ObservableObject, MediaProvider {
     private var running: [String: Task<Void, Never>] = [:]
     private var finishing: Set<String> = []       // 仕上げ中のジョブID（重ねて仕上げない）
     private var cancelRequested: Set<String> = [] // 仕上げ中に取り消された記録ID
+    private var reconciling = false
+    private var removingAll = false
     private var started = false                  // 記録を読み込み終えるまで、取得の結果を処理しない（読み込み前に仕上げて、記録を失わないため）
     private var jobRecords: [String: String] = [:] // ジョブID → 記録ID（進み具合の表示用）
     private var fetching: [String: Task<URL, Error>] = [:]
@@ -91,7 +93,100 @@ final class DownloadService: ObservableObject, MediaProvider {
     /// 前面へ戻ったとき：取得が終わっているジョブ、仕上げが途中で止まったジョブを続ける。
     func resume() async {
         guard started else { return }
+        transfers.markForeground()
         for job in transfers.jobs() { await evaluate(job.id) }
+        for job in transfers.jobs() { await transfers.restartStalled(job.id, idleFor: 180) }
+    }
+
+    // MARK: 画質・オフライン用データの削除
+
+    /// 動画の画質（高さ）の選択肢と、既定の選択（設定・保存の画面で選ぶ。選んだ画質がない動画は、共通処理が近い画質を選ぶ）。
+    nonisolated static let heightChoices = [360, 720, 1080]
+    nonisolated static var preferredHeight: Int {
+        let value = UserDefaults.standard.integer(forKey: "downloadVideoHeight")
+        return heightChoices.contains(value) ? value : 720
+    }
+
+    /// 保存したオフライン用データ（音声・動画のファイル）をすべて削除する。曲・プレイリスト・同一性は消さない。
+    /// 保存中のものがあるときは何もしない（nil）。削除するのは、保存の記録が指すファイルだけ（アプリが管理していないファイルには触れない）。
+    /// ファイルを先に消し、消せなかったものの記録は残す。戻り値：削除した件数と容量。
+    func removeAllOffline() async -> (count: Int, bytes: Int64)? {
+        guard started, !removingAll, !records.values.contains(where: { $0.state.inProgress }) else { return nil }
+        removingAll = true // 削除の間に、同じ曲の保存を始めない
+        defer { removingAll = false }
+        var removedIds: [String] = []
+        var bytes: Int64 = 0
+        for record in records.values where record.state == .completed {
+            guard let name = record.fileName, !name.isEmpty, name == (name as NSString).lastPathComponent, !name.hasPrefix(".") else { continue }
+            let url = directory.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: url.path) {
+                guard (try? FileManager.default.removeItem(at: url)) != nil else { continue }
+                bytes += record.bytes
+            }
+            removedIds.append(record.id)
+        }
+        do { try await catalog.removeRecords(ids: removedIds) } catch { message = "保存の記録を整理できません：\(ErrorText.safe(error))" }
+        await publish()
+        return (removedIds.count, bytes)
+    }
+
+    // MARK: 更新・一覧の表示
+
+    /// 失敗・取り消しの記録を一覧に出しておく時間（秒）。過ぎたものは表示しない（記録は残る）。
+    static let problemLifetime: TimeInterval = 3600
+
+    /// 保存済み（完了）の合計容量。曲の一覧に関係なく、すべての記録から求める。
+    var savedBytes: Int64 { records.values.filter { $0.state == .completed }.reduce(0) { $0 + $1.bytes } }
+
+    /// 端末の空き容量（取得できないときはnil）。
+    func freeBytes() -> Int64? {
+        try? directory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage
+    }
+
+    /// 表示してよい失敗・取り消し（一定時間を過ぎたものは出さない）。
+    func isRecentProblem(_ record: DeviceMediaRecord, now: Date = Date()) -> Bool {
+        (record.state == .failed || record.state == .cancelled) && now.timeIntervalSince1970 - record.updatedAt < Self.problemLifetime
+    }
+
+    /// 曲の行に出す失敗の文言。どちらかの形式が保存済みなら出さない（音声だけ保存できた動画の失敗が残り続けないように）。
+    func problemStatus(key: String) -> String? {
+        let audio = record(key: key, kind: "audio"), video = record(key: key, kind: "video")
+        if audio?.state == .completed || video?.state == .completed { return nil }
+        return [audio, video].contains { $0.map { $0.state == .failed && isRecentProblem($0) } ?? false } ? "保存に失敗" : nil
+    }
+
+    /// 更新：古い失敗の表示を消してから、保存中の処理を実際の状態と照らし合わせ直す。
+    func reload() async {
+        guard started else { return }
+        do { try await catalog.removeProblems() } catch { message = "保存の記録を整理できません：\(ErrorText.safe(error))" }
+        await publish()
+        await reconcile(idleFor: 45)
+    }
+
+    /// 保存中の処理の再確認：取得が終わっていれば仕上げ、失敗していれば止め、通信もジョブもないのに途中のまま残った記録は失敗にする。
+    /// idleFor：受信がこの秒数まったく進んでいない取得は、次の候補で取り直す（なければ失敗にする）。
+    func reconcile(idleFor: TimeInterval = 180) async {
+        guard started, !reconciling else { return } // 重ねて実行しない（同じ取得を二重に取り直さない）
+        reconciling = true
+        defer { reconciling = false }
+        let jobs = transfers.jobs()
+        let live = await transfers.liveJobIds()
+        let now = Date().timeIntervalSince1970
+        for job in jobs {
+            // 始めたばかりのジョブは、通信の引き継ぎの途中の可能性があるため、通信の有無では判断しない
+            await evaluate(job.id, live: now - job.createdAt > 20 ? live : nil)
+        }
+        for job in transfers.jobs() { await transfers.restartStalled(job.id, idleFor: idleFor) }
+        let remaining = Set(transfers.jobs().map(\.recordId))
+        // 失敗・取り消しの処理の最中（記録の更新前）は、途中の記録を触らない
+        for record in records.values where finishing.isEmpty && record.state.inProgress && !remaining.contains(record.id) && running[record.id] == nil {
+            var next = record
+            next.state = .failed
+            next.message = "中断されました。もう一度保存してください。"
+            next.fileName = nil
+            progress[record.id] = nil
+            await update(next)
+        }
     }
 
     private func publish() async {
@@ -184,6 +279,12 @@ final class DownloadService: ObservableObject, MediaProvider {
         return savedFile(key: key, kind: "video")
     }
 
+    /// 曲の同期用メディアキー（再生回数の台帳のキー）。MediaProvider。
+    func syncKeys(for entries: [EntryItem]) async -> [String?] {
+        let keys = await mediaKeys(forURLs: entries.map { $0.url ?? "" })
+        return zip(entries, keys).map { entry, key in entry.type == "bilibili" && entry.url != nil ? key : nil }
+    }
+
     /// 動画のURLの一覧に対する同期用メディアキー（共通JS）。求められないURLはnil。
     func mediaKeys(forURLs urls: [String]) async -> [String?] {
         guard !urls.isEmpty else { return [] }
@@ -265,14 +366,15 @@ final class DownloadService: ObservableObject, MediaProvider {
     // MARK: 保存
 
     /// kind：audio（既定）または video。同じキー・形式が進行中なら、重ねて始めない。
-    func save(entry: EntryItem, kind: String = "audio") {
-        guard entry.type == "bilibili", let url = entry.url else { return }
+    func save(entry: EntryItem, kind: String = "audio", height: Int = DownloadService.preferredHeight) {
+        guard entry.type == "bilibili", let url = entry.url, !removingAll else { return }
+        let height = kind == "video" ? height : 720 // 音声には画質を使わない
         let previous = chain
         let task = Task { [weak self] in
             await previous?.value
             guard let self, let key = await self.key(for: entry) else { return }
             if let existing = self.record(key: key, kind: kind), existing.state.inProgress || (existing.state == .completed && self.savedFile(key: key, kind: kind) != nil) { return }
-            let task = Task { await self.begin(key: key, kind: kind, url: url, title: entry.title) }
+            let task = Task { await self.begin(key: key, kind: kind, url: url, title: entry.title, height: height) }
             self.running["\(key)|\(kind)"] = task
             await task.value
             self.running["\(key)|\(kind)"] = nil
@@ -282,7 +384,7 @@ final class DownloadService: ObservableObject, MediaProvider {
 
     /// プレイリスト単位の保存：曲を1つずつ、間隔をあけて始める（続けて大量の要求を送らない）。すでに保存済み・保存中の曲は飛ばす。
     /// 拒否・制限（ログイン要・混雑・配信先の拒否）が出たら、そこで止めて知らせる（回避しない）。
-    func saveAll(entries: [EntryItem], kind: String) {
+    func saveAll(entries: [EntryItem], kind: String, height: Int = DownloadService.preferredHeight) {
         batchTask?.cancel()
         let targets = entries.filter { $0.type == "bilibili" && $0.url != nil }
         guard !targets.isEmpty else { return }
@@ -299,7 +401,7 @@ final class DownloadService: ObservableObject, MediaProvider {
                 self.batch = (index, targets.count)
                 guard let key = await self.key(for: entry) else { continue }
                 if let existing = self.record(key: key, kind: kind), existing.state.inProgress || (existing.state == .completed && self.savedFile(key: key, kind: kind) != nil) { continue }
-                self.save(entry: entry, kind: kind)
+                self.save(entry: entry, kind: kind, height: height)
                 await self.chain?.value
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
@@ -356,7 +458,7 @@ final class DownloadService: ObservableObject, MediaProvider {
     }
 
     /// 準備：配信先を決め、空き容量を確認し、取得（背面でも続く）を始める。ここで失敗したものは、失敗として記録する。
-    private func begin(key: String, kind: String, url: String, title: String) async {
+    private func begin(key: String, kind: String, url: String, title: String, height: Int = 720) async {
         let id = "\(key)|\(kind)"
         var record = DeviceMediaRecord(key: key, kind: kind, state: .preparing)
         await update(record)
@@ -367,7 +469,7 @@ final class DownloadService: ObservableObject, MediaProvider {
         #endif
         var job: DownloadJob?
         do {
-            let media = try await bilibili.resolve(url: url, kind: kind)
+            let media = try await bilibili.resolve(url: url, kind: kind, height: height)
             try Task.checkCancellation()
             Task { if await self.ensureFrame(key: key, url: url, coverURL: media.thumbnailURL) { self.batchStopped = true } }
             guard media.layout == "dash" || media.layout == "muxed" else { throw DownloadError.message("この形式（分割された配信）は、保存に対応していません。") }

@@ -36,6 +36,9 @@ if (process.argv[4]) {
 }
 if (process.argv[3]) {
   const record = (n, kind) => ({ key: `bili:BV1${String(n).padStart(9, 'd')}:p1`, kind, quality: 720, state: 'Completed', fileName: `demo-${kind}-${n}.${kind === 'video' ? 'mp4' : 'm4a'}`, bytes: 1048576, duration: 200, updatedAt: 1760000000 });
-  fs.writeFileSync(process.argv[3], JSON.stringify({ version: 1, records: [record(1, 'audio'), record(2, 'video')] }, null, 2));
+  // 保存タブの確認用（v0.7.1）：失敗・取り消し（新しい記録は一覧に出る）／音声が保存済みの動画の失敗（行に「保存に失敗」を出さない）
+  const now = Math.floor(Date.now() / 1000);
+  const problem = (n, kind, state, message) => ({ key: `bili:BV1${String(n).padStart(9, 'd')}:p1`, kind, quality: 720, state, bytes: 0, duration: 0, message, updatedAt: now - 60 });
+  fs.writeFileSync(process.argv[3], JSON.stringify({ version: 1, records: [record(1, 'audio'), record(2, 'video'), record(5, 'audio'), problem(3, 'video', 'Failed', '保存したファイルの長さが、動画の長さと一致しません（期待 257秒・実際 241秒）。'), problem(4, 'audio', 'Cancelled', '取り消しました。'), problem(5, 'video', 'Failed', '結合に失敗しました。')] }, null, 2));
 }
 console.log('wrote', process.argv[2] || 'demo-library.json');

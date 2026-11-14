@@ -30,6 +30,8 @@ final class FakeProvider: MediaProvider {
     var error: Error?
     private(set) var requested: [String] = []
     var delayed: Set<String> = []
+    /// 保存済みの動画（曲名 → ファイル）。ない曲は nil。
+    var videos: [String: URL] = [:]
 
     func playableFile(for entry: EntryItem) async throws -> URL {
         requested.append(entry.title)
@@ -37,6 +39,8 @@ final class FakeProvider: MediaProvider {
         if let error { throw error }
         return try XCTUnwrap(file)
     }
+
+    func savedVideoFile(for entry: EntryItem) async -> URL? { videos[entry.title] }
 }
 
 /// 再生順は共通JS（Windows版と同じQueue）、再生の道具は偽物で確認する。実機のロック画面・割り込み・イヤホンの動作は、実機での確認項目。
@@ -220,6 +224,72 @@ final class PlaybackTests: XCTestCase {
         XCTAssertFalse(engine.isPreparing)
         XCTAssertEqual(backend.loaded.last, provider.file)
         XCTAssertTrue(backend.isPlaying)
+    }
+
+    /// 動画で見ていると、次の曲も（動画があれば）動画で映す。動画のない曲では、サムネイルのままで、選択は覚えておく。
+    func testTheVideoChoiceCarriesOverToTheNextSongsThatHaveAVideo() async throws {
+        let provider = FakeProvider()
+        let (store, engine, backend) = try await prepareWithProvider(provider)
+        engine.isActive = { true }
+        let withVideo = try entry(store, "曲1"), withoutVideo = try entry(store, "曲4")
+        provider.videos["曲1"] = try XCTUnwrap(provider.file)
+        let scope = try parentId(store)
+        await engine.play(entryId: withVideo.id, scope: scope)
+        try await waitFor { engine.videoAvailable }
+        engine.setVideoMode(true)
+        XCTAssertTrue(engine.videoMode)
+        XCTAssertTrue(engine.prefersVideo)
+        // 動画のない曲：サムネイルのまま。選択は残る
+        await engine.play(entryId: withoutVideo.id, scope: scope)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertFalse(engine.videoMode)
+        XCTAssertFalse(engine.videoAvailable)
+        XCTAssertTrue(engine.prefersVideo)
+        // 動画のある曲へ戻ると、続けて動画で映す
+        await engine.play(entryId: withVideo.id, scope: scope)
+        try await waitFor { engine.videoMode }
+        XCTAssertTrue(backend.isPlaying)
+        // サムネイルを選ぶと、選択は解除される
+        engine.setVideoMode(false)
+        XCTAssertFalse(engine.prefersVideo)
+        await engine.play(entryId: withoutVideo.id, scope: scope)
+        await engine.play(entryId: withVideo.id, scope: scope)
+        try await waitFor { engine.videoAvailable }
+        XCTAssertFalse(engine.videoMode, "サムネイルを選んだあとは、動画へ切り替えない")
+    }
+
+    /// 曲の所在は、ホームの最上位のリストから、再生中の曲があるリストまで（共通JSの規則）。
+    func testTheLocationRunsFromATopLevelListToTheListOfTheCurrentSong() async throws {
+        let provider = FakeProvider()
+        let (store, engine, _) = try await prepareWithProvider(provider)
+        let online = try entry(store, "曲1")
+        await engine.play(entryId: online.id, scope: try parentId(store))
+        let path = await engine.location()
+        let first = try XCTUnwrap(path.first), last = try XCTUnwrap(path.last)
+        XCTAssertTrue(store.document?.rootPlaylistIds.contains(first.id) == true, "最初は最上位のリスト")
+        XCTAssertEqual(last.id, engine.current?.playlistId, "最後は、再生中の曲があるリスト")
+        XCTAssertTrue(path.allSatisfy { !$0.name.isEmpty })
+    }
+
+    /// 背面では動画へ切り替えず、前面へ戻ったときに切り替える。
+    func testTheVideoChoiceIsAppliedOnlyWhileTheAppIsActive() async throws {
+        let provider = FakeProvider()
+        let (store, engine, _) = try await prepareWithProvider(provider)
+        var active = true
+        engine.isActive = { active }
+        let withVideo = try entry(store, "曲1")
+        provider.videos["曲1"] = try XCTUnwrap(provider.file)
+        let scope = try parentId(store)
+        await engine.play(entryId: withVideo.id, scope: scope)
+        try await waitFor { engine.videoAvailable }
+        engine.setVideoMode(true)
+        active = false
+        await engine.play(entryId: withVideo.id, scope: scope)
+        try await waitFor { engine.videoAvailable }
+        XCTAssertFalse(engine.videoMode, "背面では動画へ切り替えない")
+        active = true
+        engine.applyPreferredVideo()
+        XCTAssertTrue(engine.videoMode, "前面へ戻ったら切り替える")
     }
 
     func testAnOnlineFailureSkipsToTheNextEntryButARateLimitStopsEverything() async throws {

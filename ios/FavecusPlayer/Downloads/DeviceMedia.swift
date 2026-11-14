@@ -76,7 +76,7 @@ actor DownloadCatalog {
                 let exists = record.fileName.map { FileManager.default.fileExists(atPath: mediaDirectory.appendingPathComponent($0).path) } ?? false
                 if !exists { next.state = .failed; next.message = "保存したファイルが見つかりません。"; next.fileName = nil }
             }
-            if next != record { records[id] = next; changed = true }
+            if next != record { next.updatedAt = Date().timeIntervalSince1970; records[id] = next; changed = true } // 見つからなくなった保存も、新しい失敗として一覧に出す
         }
         if changed { try save() }
     }
@@ -96,6 +96,25 @@ actor DownloadCatalog {
     func remove(key: String, kind: String) throws {
         guard ready else { throw TransferError.message("保存記録を読み込めていません。") }
         records["\(key)|\(kind)"] = nil
+        try save()
+    }
+
+    /// 失敗・取り消しの記録だけを消す（保存中・保存済みの記録とファイルは消さない）。戻り値：消した件数。
+    @discardableResult
+    func removeProblems() throws -> Int {
+        guard ready else { throw TransferError.message("保存記録を読み込めていません。") }
+        let ids = records.values.filter { $0.state == .failed || $0.state == .cancelled }.map(\.id)
+        guard !ids.isEmpty else { return 0 }
+        for id in ids { records[id] = nil }
+        try save()
+        return ids.count
+    }
+
+    /// 指定した記録を消す（ファイルは消さない。呼び出し側が、先にファイルを消してから呼ぶ）。
+    func removeRecords(ids: [String]) throws {
+        guard ready else { throw TransferError.message("保存記録を読み込めていません。") }
+        guard !ids.isEmpty else { return }
+        for id in ids { records[id] = nil }
         try save()
     }
 

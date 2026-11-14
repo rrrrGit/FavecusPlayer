@@ -48,7 +48,8 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
         let configuration = URLSessionConfiguration.background(withIdentifier: identifier)
         configuration.sessionSendsLaunchEvents = true
         configuration.isDiscretionary = false
-        configuration.waitsForConnectivity = true
+        configuration.waitsForConnectivity = true // 背面のセッションでは無視され、常に接続を待つ（Appleの仕様）。待ち続けたままにならないよう、受信の途絶は restartStalled で検知する
+        configuration.timeoutIntervalForResource = 6 * 3600 // 既定は7日。進まない取得を、いつまでも残さない
         return configuration
     }
 
@@ -62,6 +63,8 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
     private var totals: [String: Int64] = [:]
     private var resumes: [String: Int] = [:] // 通信の途中切れからの再開の回数（取得の単位ごと）
     private var cancelling: Set<String> = [] // アプリ自身が取り消したジョブ（それ以外の取り消し＝システムによる中断は、失敗として残す）
+    private var activity: [String: Date] = [:] // 取得の単位（ジョブID#番号）ごとの、最後にデータを受け取った（または始めた）時刻
+    private var restarting: Set<String> = [] // 受信が途絶えたため、アプリ自身が取り直している取得の単位（その取り消しは、失敗にしない）
     /// 取得の状態が変わった（ジョブID）。
     var onChange: (@Sendable (String) -> Void)?
     /// 進み具合（ジョブID、0〜1）。
@@ -132,6 +135,7 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
         request.allowsCellularAccess = !wifiOnly()
         let task = session.downloadTask(with: request)
         task.taskDescription = "\(job.id)#\(index)"
+        lock.lock(); activity["\(job.id)#\(index)"] = Date(); lock.unlock()
         task.resume()
     }
 
@@ -152,6 +156,53 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
         Set(await session.allTasks.compactMap { Self.parse($0.taskDescription)?.id })
     }
 
+    /// 前面へ戻ったとき：背面の間は進み具合の通知が届かず、時刻が古いままなので、いまから数え直す（順調な取得を、止まったと誤判定しない）。
+    func markForeground() {
+        lock.lock()
+        for key in activity.keys { activity[key] = Date() }
+        lock.unlock()
+    }
+
+    /// 受信が一定時間まったく進まないジョブの、未完了の取得を取り直す：次の候補のURLがあればそちらで、なければ失敗として残す
+    /// （背面のセッションは接続を待ち続けるため、止まったままの取得を検知する）。URLは記録しない。戻り値：取り直した・失敗にした取得の数。
+    @discardableResult
+    func restartStalled(_ id: String, idleFor: TimeInterval) async -> Int {
+        guard var job = job(id) else { return 0 }
+        let pending = job.streams.indices.filter { index in
+            !FileManager.default.fileExists(atPath: streamFile(job, index).path) && !FileManager.default.fileExists(atPath: errorFile(id, index).path)
+        }
+        guard !pending.isEmpty else { return 0 }
+        // ジョブのどの取得にも動きがなければ、止まっているとみなす（再起動直後など、時刻が分からないときは、いまから数える）
+        lock.lock()
+        let times = job.streams.indices.compactMap { activity["\(id)#\($0)"] }
+        if times.isEmpty { for index in job.streams.indices { activity["\(id)#\(index)"] = Date() } }
+        let last = times.max() ?? Date()
+        let idle = Date().timeIntervalSince(last)
+        lock.unlock()
+        guard idle >= idleFor else { return 0 }
+        let tasks = await session.allTasks.filter { Self.parse($0.taskDescription)?.id == id }
+        var handled = 0
+        for index in pending {
+            let description = "\(id)#\(index)"
+            lock.lock()
+            let bytes = written[id]?[index] ?? 0
+            if tasks.contains(where: { $0.taskDescription == description }) { restarting.insert(description) }
+            written[id]?[index] = 0
+            lock.unlock()
+            for task in tasks where task.taskDescription == description { task.cancel() }
+            let stream = job.streams[index]
+            if stream.urlIndex + 1 < stream.urls.count {
+                job.streams[index].urlIndex += 1
+                if (try? write(job)) != nil, (try? enqueue(job, index)) != nil { handled += 1; continue }
+            }
+            let wifi = wifiOnly() ? "・Wi-Fi接続時のみ保存がオン" : ""
+            let detail = "受信 \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))・候補 \(stream.urlIndex + 1)/\(max(stream.urls.count, 1))・\(Int(idle / 60))分 受信なし\(wifi)"
+            fail(id, index, "取得が進みません（\(detail)）。時間を置いて、もう一度保存してください。", refused: false)
+            handled += 1
+        }
+        return handled
+    }
+
     func cancel(_ id: String) async {
         lock.lock(); cancelling.insert(id); lock.unlock()
         for task in await session.allTasks where Self.parse(task.taskDescription)?.id == id { task.cancel() }
@@ -161,7 +212,7 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
     func remove(_ id: String) {
         try? FileManager.default.removeItem(at: jobFile(id))
         try? FileManager.default.removeItem(at: staging(id))
-        lock.lock(); written[id] = nil; totals[id] = nil; cancelling.remove(id); resumes = resumes.filter { !$0.key.hasPrefix(id + "#") }; lock.unlock()
+        lock.lock(); written[id] = nil; totals[id] = nil; cancelling.remove(id); resumes = resumes.filter { !$0.key.hasPrefix(id + "#") }; activity = activity.filter { !$0.key.hasPrefix(id + "#") }; restarting = restarting.filter { !$0.hasPrefix(id + "#") }; lock.unlock()
     }
 
     private static func parse(_ description: String?) -> (id: String, index: Int)? {
@@ -190,6 +241,7 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
         guard let (id, index) = Self.parse(downloadTask.taskDescription) else { return }
         lock.lock()
         written[id, default: [:]][index] = totalBytesWritten
+        activity["\(id)#\(index)"] = Date()
         let total = totals[id] ?? 0
         let sum = written[id]?.values.reduce(0, +) ?? 0
         lock.unlock()
@@ -223,7 +275,7 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let error, let (id, index) = Self.parse(task.taskDescription) else { return }
         if (error as? URLError)?.code == .cancelled {
-            lock.lock(); let own = cancelling.contains(id); lock.unlock()
+            lock.lock(); let own = cancelling.contains(id) || restarting.remove(task.taskDescription ?? "") != nil; lock.unlock()
             if !own { fail(id, index, "中断されました。もう一度保存してください。", refused: false) } // システムによる取り消し（終了など）
             return
         }
@@ -233,6 +285,7 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
             if attempts < 2 {
                 let retry = session.downloadTask(withResumeData: data)
                 retry.taskDescription = description
+                lock.lock(); activity[description] = Date(); lock.unlock()
                 retry.resume()
                 return
             }

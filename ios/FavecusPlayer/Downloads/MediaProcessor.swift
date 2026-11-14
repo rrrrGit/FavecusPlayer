@@ -42,7 +42,8 @@ enum MediaProcessor {
             throw DownloadError.message("結合に失敗しました：\(session.error.map { ErrorText.safe($0) } ?? "不明なエラー")")
         }
         do {
-            return try await validate(file: output, needsVideo: true, expectedDuration: expectedDuration)
+            // 長さが合わないときの原因を切り分けられるよう、結合前の映像・音声それぞれの長さも、エラーの文へ添える
+            return try await validate(file: output, needsVideo: true, expectedDuration: expectedDuration, detail: String(format: "・結合前の映像 %.1f秒・音声 %.1f秒", videoDuration.seconds, audioDuration.seconds))
         } catch {
             try? manager.removeItem(at: output)
             throw error
@@ -50,7 +51,7 @@ enum MediaProcessor {
     }
 
     /// 読み込める・再生できる・必要なトラックがある・長さがAPIの値に近い（短すぎるものは、途中で切れた可能性がある）。
-    static func validate(file: URL, needsVideo: Bool, expectedDuration: Double) async throws -> Double {
+    static func validate(file: URL, needsVideo: Bool, expectedDuration: Double, detail: String = "") async throws -> Double {
         let asset = AVURLAsset(url: file)
         let playable = try await asset.load(.isPlayable)
         let duration = try await asset.load(.duration).seconds
@@ -60,7 +61,7 @@ enum MediaProcessor {
             throw DownloadError.message("保存したファイルを再生できません（形式が対応していない可能性があります）。")
         }
         if expectedDuration > 0, abs(duration - expectedDuration) > max(3, expectedDuration * 0.05) {
-            throw DownloadError.message("保存したファイルの長さが、動画の長さと一致しません（途中で切れた可能性があります）。")
+            throw DownloadError.message(String(format: "保存したファイルの長さが、動画の長さと一致しません（途中で切れた可能性があります）。動画 %.1f秒・保存 %.1f秒", expectedDuration, duration) + detail + "。")
         }
         return duration
     }

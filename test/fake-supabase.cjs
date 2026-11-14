@@ -9,7 +9,9 @@ const CONFIG = X.SupabaseConfig({ url: 'https://abcdefgh.supabase.co', anonKey: 
 
 // 偽のSupabase。連番はコミット順（schema.sqlのトリガーと同じ）。再送（同じbatch/idx）は無視するが連番は消費する。
 function FakeServer(options = {}) {
-  const s = { rows: [], lastSeq: 0, watermark: 0, requests: [], online: true, down: 0, ttl: 3600, now: options.now ?? T0, tokens: new Map(), codes: new Map(), refreshCount: 0, failNext401: 0 };
+  const s = { rows: [], lastSeq: 0, watermark: 0, requests: [], online: true, down: 0, ttl: 3600, now: options.now ?? T0, tokens: new Map(), codes: new Map(), refreshCount: 0, failNext401: 0,
+    // v0.7.1：再生回数・設定（schema.sql の sync_counts / sync_prefs と同じ規則：回数は減らない、世代は大きい方、設定は新しい時刻）。countsTable=false は、まだSQLを実行していない状態
+    countsTable: true, counts: new Map(), countsSeq: 0, prefs: null };
   const issue = user => {
     const n = s.tokens.size + 1, access = `acc-${n}`, refresh = `ref-${n}`;
     s.tokens.set(access, { user, exp: Math.floor(s.now / 1000) + s.ttl }); s.tokens.set(refresh, { user, refresh: true });
@@ -44,6 +46,25 @@ function FakeServer(options = {}) {
       const before = s.rows.length; s.rows = s.rows.filter(r => !body.p_ids.includes(r.record_id) || s.rows.some(n => n.record_id === r.record_id && n.seq > body.p_upto));
       if (s.rows.length < before) s.watermark = s.lastSeq;
       return { status: 200, json: before - s.rows.length };
+    }
+    if (path === '/rest/v1/sync_counts_meta' || path === '/rest/v1/sync_counts' || path === '/rest/v1/sync_prefs') {
+      if (!s.countsTable) return { status: 404, json: { code: 'PGRST205' } };
+      if (path === '/rest/v1/sync_counts_meta') return { status: 200, json: [{ last_seq: s.countsSeq }] };
+      if (path === '/rest/v1/sync_counts' && method === 'POST') {
+        for (const row of body) {
+          const id = [row.device_id, row.epoch, row.month, row.media_key].join('|'), old = s.counts.get(id);
+          s.counts.set(id, { seq: ++s.countsSeq, ...row, n: Math.max(old ? old.n : 0, row.n) });
+        }
+        return { status: 201, json: null };
+      }
+      if (path === '/rest/v1/sync_counts') {
+        const after = Number(u.searchParams.get('seq').replace('gt.', '')), limit = Number(u.searchParams.get('limit'));
+        return { status: 200, json: [...s.counts.values()].filter(r => r.seq > after).sort((a, b) => a.seq - b.seq).slice(0, limit) };
+      }
+      if (method === 'GET') return { status: 200, json: s.prefs ? [{ ...s.prefs }] : [] };
+      const row = body[0], old = s.prefs;
+      s.prefs = !old ? { ...row } : { epoch: Math.max(old.epoch, row.epoch), ...(row.weighted_at > old.weighted_at ? { weighted_shuffle: row.weighted_shuffle, weighted_at: row.weighted_at } : { weighted_shuffle: old.weighted_shuffle, weighted_at: old.weighted_at }) };
+      return { status: 201, json: null };
     }
     return { status: 404, json: {} };
   };

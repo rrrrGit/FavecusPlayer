@@ -17,6 +17,9 @@ struct LibraryRootView: View {
     @State private var tab = 0
     @State private var path = NavigationPath()
     @State private var showPlayer = false
+    /// 再生画面から「ライブラリで表示」が押された：再生画面を閉じたあとで、タブ・階層・曲の位置を切り替える（閉じている最中に切り替えると、無視されることがある）。
+    @State private var pendingReveal: RevealTarget?
+    @State private var reveal: RevealTarget?
     @State private var showPicker = false
     @State private var showImport = false
     @State private var showExport = false
@@ -35,7 +38,7 @@ struct LibraryRootView: View {
                 BlockedView(message: message)
             case .ready:
                 TabView(selection: $tab) {
-                    LibraryTab(store: store, services: services, path: $path, showPlayer: $showPlayer)
+                    LibraryTab(store: store, services: services, path: $path, showPlayer: $showPlayer, reveal: $reveal)
                         .tabItem { Label("ライブラリ", systemImage: "books.vertical.fill") }
                         .tag(0)
                     DownloadsTab(store: store, services: services, showPlayer: $showPlayer)
@@ -69,7 +72,8 @@ struct LibraryRootView: View {
             if defaults.bool(forKey: "FavecusDemoSync") { showSync = true }
             if defaults.bool(forKey: "FavecusDemoMini") { player?.showDemo(title: "朝のピアノ", position: 62, duration: 257) }
             if defaults.bool(forKey: "FavecusDemoPlayer") {
-                player?.showDemo(title: "朝のピアノ", position: 62, duration: 257)
+                // 所在の表示を確かめるため、模擬ライブラリの深い階層のリスト（作業用BGM ＞ 集中 ＞ 試験前）を持つ曲として表示する
+                player?.showDemo(title: "朝のピアノ", position: 62, duration: 257, playlistId: "00000001-0000-4000-8000-000000000004")
                 showPlayer = true
             }
         }
@@ -108,8 +112,15 @@ struct LibraryRootView: View {
         .sheet(isPresented: $showImport) {
             if let importer { ImportSheet(coordinator: importer, isPresented: $showImport) }
         }
-        .fullScreenCover(isPresented: $showPlayer) {
-            if let player { FullPlayerView(player: player, services: services, isPresented: $showPlayer).tint(Theme.accent).preferredColorScheme(.dark) }
+        .fullScreenCover(isPresented: $showPlayer, onDismiss: applyReveal) {
+            if let player {
+                FullPlayerView(player: player, services: services, isPresented: $showPlayer) { chain, entryId in
+                    guard let last = chain.last else { return }
+                    pendingReveal = RevealTarget(chain: chain, listId: last, entryId: entryId)
+                    showPlayer = false
+                }
+                .tint(Theme.accent).preferredColorScheme(.dark)
+            }
         }
         .alert("お知らせ", isPresented: Binding(get: { store.notice != nil }, set: { if !$0 { store.notice = nil } })) {
             Button("コピー") { Clipboard.copy(store.notice ?? ""); store.notice = nil }
@@ -117,6 +128,23 @@ struct LibraryRootView: View {
         } message: {
             Text(store.notice ?? "")
         }
+    }
+}
+
+/// 再生画面からライブラリへ移動する先（ホームからのプレイリストの階層、最後のリスト、曲の位置まで動かすときの曲のID）。
+struct RevealTarget: Equatable {
+    let chain: [String]
+    let listId: String
+    let entryId: String?
+}
+
+extension LibraryRootView {
+    fileprivate func applyReveal() {
+        guard let target = pendingReveal else { return }
+        pendingReveal = nil
+        tab = 0
+        path = NavigationPath(target.chain)
+        reveal = target
     }
 }
 
@@ -172,6 +200,7 @@ private struct LibraryTab: View {
     let services: Services
     @Binding var path: NavigationPath
     @Binding var showPlayer: Bool
+    @Binding var reveal: RevealTarget?
     @State private var editing = false
     @State private var creating = false
     @State private var newName = ""
@@ -206,71 +235,77 @@ private struct LibraryTab: View {
         return found
     }
 
+    /// HOME：プレイリストのカード（3列）。1枚ずつ長押しでつかめる。
+    private var homeContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 8) {
+                    SectionLabel(text: "HOME")
+                    Text("\(songCount)曲").font(.system(size: 12)).foregroundStyle(Theme.mint)
+                }
+                .padding(.horizontal, 16).padding(.top, 4)
+                if editing {
+                    EditNotice(text: "編集中です。各カードの ✎ で名前を変更、ごみ箱で削除します。並べ替えは、編集中でなくても、カードを長押ししてつかみ、動かしたい場所のカードの上で離します。終わったら、右上のチェックを押します。")
+                        .padding(.horizontal, 16).padding(.vertical, 4)
+                }
+                if roots.isEmpty {
+                    Text("プレイリストはありません。上の「新規プレイリスト」から作れます。").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 16).padding(.vertical, 8)
+                }
+                LazyVGrid(columns: columns, spacing: 10) {
+                    ForEach(Array(roots.enumerated()), id: \.element.id) { index, list in
+                        card(list, index: index)
+                    }
+                }
+                .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 90)
+            }
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .background(Theme.background)
+        .onDrop(of: [.text], delegate: ClearDrag(dragging: $dragging))
+    }
+
+    private var searchResults: some View {
+        List {
+            HStack(spacing: 8) {
+                SectionLabel(text: "検索結果")
+                Text(results.count >= 100 ? "100件まで表示" : "\(results.count)件").font(.system(size: 12)).foregroundStyle(Theme.mint)
+            }
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 0, trailing: 16))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Theme.background)
+            if results.isEmpty { Text("見つかりませんでした").font(.system(size: 13)).foregroundStyle(Theme.muted).listRowBackground(Theme.background) }
+            ForEach(results, id: \.key) { item in
+                SongRow(entry: item.entry, scope: item.list.id, services: services, context: item.list.name)
+            }
+            Color.clear.frame(height: 80).listRowBackground(Theme.background).listRowSeparator(.hidden)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .scrollDismissesKeyboard(.interactively)
+        .background(Theme.background)
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
-            List {
+            // 検索欄と「新規プレイリスト」は固定（入力中に、下の表示が切り替わっても、入力が途切れないように）。
+            // HOMEのカードは、Listの1行にまとめず、ScrollViewへ置く（Listだと、横並びの3枚が1つの行として、まとめて持ち上がってしまう）。検索結果は、行ごとの操作があるためListのまま。
+            VStack(spacing: 0) {
                 SearchField(text: $query)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Theme.background)
+                    .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 4)
                 Button { newName = ""; creating = true } label: {
                     Label("新規プレイリスト", systemImage: "plus").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(SecondaryButtonStyle())
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
-                .listRowSeparator(.hidden)
-                .listRowBackground(Theme.background)
-                if trimmedQuery.isEmpty {
-                    HStack(spacing: 8) {
-                        SectionLabel(text: "HOME")
-                        Text("\(songCount)曲").font(.system(size: 12)).foregroundStyle(Theme.mint)
-                    }
-                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 0, trailing: 16))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Theme.background)
-                    if editing {
-                        EditNotice(text: "編集中です。各カードの ✎ で名前を変更、ごみ箱で削除します。並べ替えは、編集中でなくても、カードを長押ししてつかみ、動かしたい場所のカードの上で離します。終わったら、右上のチェックを押します。")
-                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Theme.background)
-                    }
-                    if roots.isEmpty {
-                        Text("プレイリストはありません。上の「新規プレイリスト」から作れます。").font(.system(size: 13)).foregroundStyle(Theme.muted)
-                            .listRowSeparator(.hidden).listRowBackground(Theme.background)
-                    }
-                    LazyVGrid(columns: columns, spacing: 10) {
-                        ForEach(Array(roots.enumerated()), id: \.element.id) { index, list in
-                            card(list, index: index)
-                        }
-                    }
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 90, trailing: 16))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Theme.background)
-                } else {
-                    HStack(spacing: 8) {
-                        SectionLabel(text: "検索結果")
-                        Text(results.count >= 100 ? "100件まで表示" : "\(results.count)件").font(.system(size: 12)).foregroundStyle(Theme.mint)
-                    }
-                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 0, trailing: 16))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Theme.background)
-                    if results.isEmpty { Text("見つかりませんでした").font(.system(size: 13)).foregroundStyle(Theme.muted).listRowBackground(Theme.background) }
-                    ForEach(results, id: \.key) { item in
-                        SongRow(entry: item.entry, scope: item.list.id, services: services, context: item.list.name)
-                    }
-                    Color.clear.frame(height: 80).listRowBackground(Theme.background).listRowSeparator(.hidden)
-                }
+                .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 8)
+                if trimmedQuery.isEmpty { homeContent } else { searchResults }
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .scrollDismissesKeyboard(.interactively)
             .background(Theme.background)
-            .onDrop(of: [.text], delegate: ClearDrag(dragging: $dragging))
             .navigationTitle("マイライブラリ")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .navigationBarTrailing) { EditToggle(editing: $editing) } }
             .navigationDestination(for: String.self) { id in
-                PlaylistDetail(store: store, services: services, parentId: id)
+                PlaylistDetail(store: store, services: services, parentId: id, reveal: $reveal)
             }
             .alert("新しいプレイリスト", isPresented: $creating) {
                 TextField("名前", text: $newName)
@@ -319,6 +354,7 @@ private struct LibraryTab: View {
             }
         }
         .opacity(dragging == list.id ? 0.4 : 1)
+        .contentShape(.dragPreview, RoundedRectangle(cornerRadius: 10)) // つかんだときに浮かぶ像は、このカード1枚だけ
         .onDrag {
             dragging = list.id
             return NSItemProvider(object: list.id as NSString)
@@ -413,8 +449,12 @@ private struct PlaylistDetail: View {
     @ObservedObject var store: LibraryStore
     let services: Services
     let parentId: String
+    @Binding var reveal: RevealTarget?
     @State private var editMode: EditMode = .inactive
     @State private var showAdd = false
+    /// 「コピーしたリンクを追加」から開いた（貼り付けたら、そのまま追加する）。クリップボードにリンクらしいものがあるときだけ、ボタンを出す。
+    @State private var addFromClipboard = false
+    @State private var clipboardLink = false
     @State private var showSave = false
     @State private var creatingChild = false
     @State private var childName = ""
@@ -430,6 +470,7 @@ private struct PlaylistDetail: View {
     private var cover: UIImage? { parent.flatMap { firstCover(of: $0, document: store.document, services: services) } }
 
     var body: some View {
+        ScrollViewReader { proxy in
         List {
             hero
                 .listRowInsets(EdgeInsets())
@@ -439,6 +480,15 @@ private struct PlaylistDetail: View {
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Theme.background)
+            if clipboardLink && !editing {
+                Button { addFromClipboard = true; showAdd = true } label: {
+                    Label("コピーしたリンクを、このリストへ追加…", systemImage: "doc.on.clipboard").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Theme.background)
+            }
             if editing {
                 EditNotice(text: "編集中です。曲は、右端のつまみ（≡）をドラッグして並べ替えます。曲を外すときは、曲の「…」から「このリストから外す」を選びます。プレイリストは、編集中でなくても、カードを長押ししてつかみ、動かして並べ替えられます。終わったら、右上のチェックを押します。")
                     .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
@@ -462,6 +512,8 @@ private struct PlaylistDetail: View {
         .scrollContentBackground(.hidden)
         .background(Theme.background)
         .ignoresSafeArea(edges: .top)
+        .onAppear { scrollToRevealed(proxy) }
+        .onChange(of: reveal) { _ in scrollToRevealed(proxy) }
         .onDrop(of: [.text], delegate: ClearDrag(dragging: $dragging))
         .environment(\.editMode, $editMode)
         .toolbar(.hidden, for: .navigationBar)
@@ -469,8 +521,15 @@ private struct PlaylistDetail: View {
         .overlay(alignment: .bottomTrailing) {
             AddSongButton(player: services.player) { showAdd = true }
         }
-        .sheet(isPresented: $showAdd) {
-            AddSongSheet(store: store, downloads: services.downloads, playlistId: parentId, playlistName: parent?.name ?? "", isPresented: $showAdd)
+        .sheet(isPresented: $showAdd, onDismiss: {
+            addFromClipboard = false
+            Task { clipboardLink = await ClipboardLink.pasteboardHasLink() }
+        }) {
+            AddSongSheet(store: store, downloads: services.downloads, playlistId: parentId, playlistName: parent?.name ?? "", isPresented: $showAdd, startWithPaste: addFromClipboard)
+        }
+        .task { clipboardLink = await ClipboardLink.pasteboardHasLink() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            Task { clipboardLink = await ClipboardLink.pasteboardHasLink() }
         }
         .sheet(isPresented: $showSave) {
             if let downloads = services.downloads {
@@ -501,6 +560,17 @@ private struct PlaylistDetail: View {
             if defaults.bool(forKey: "FavecusDemoEdit") { editMode = .active }
             if defaults.bool(forKey: "FavecusDemoAdd") { showAdd = true }
             if defaults.bool(forKey: "FavecusDemoSave") { showSave = true }
+        }
+        } // ScrollViewReader
+    }
+
+    /// 再生画面から曲の位置を指定されたとき、このリストの曲まで動かす（画面が出そろってから）。ほかのリストの指定は、何もしない。
+    private func scrollToRevealed(_ proxy: ScrollViewProxy) {
+        guard let target = reveal, target.listId == parentId else { return }
+        guard let entryId = target.entryId, entries.contains(where: { $0.id == entryId }) else { reveal = nil; return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            withAnimation { proxy.scrollTo(entryId, anchor: .center) }
+            reveal = nil
         }
     }
 

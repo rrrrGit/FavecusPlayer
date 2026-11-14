@@ -11,6 +11,7 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const E = require('./sync-engine.cjs');
 const { SyncSession } = require('./sync-session.cjs');
+const { SyncExtras } = require('./sync-counts.cjs');
 const X = require('./sync-supabase.cjs');
 const Storage = require('./sync-storage.cjs');
 const { ContextOf, MergeView, Compose } = require('./sync-merge.cjs');
@@ -48,6 +49,7 @@ class SyncService {
     this.dir = options.directory; this.adapter = options.adapter; this.vault = options.vault; this.request = options.request;
     this.now = options.now || Date.now; this.timers = options.timers || { set: setTimeout, clear: clearTimeout };
     this.onStatus = options.onStatus || (() => {}); this.onApplied = options.onApplied || (() => {});
+    this.extras = options.extras || null; this.extrasNotice = ''; // extras(): sync-counts.cjs のアダプター
     this.config = Storage.ReadConfig(this.dir); this.blocked = ''; this.error = ''; this.state = 'off';
     this.session = new SyncSession({ adapter: this.adapter, repository: () => this.Repository(), persist: session => Storage.WriteState(this.dir, session.device, session.Extra()), now: this.now, onApplied: () => this.onApplied(), deviceId: () => `win-${randomUUID().slice(0, 8)}` });
     this.chain = Promise.resolve(); this.debounce = null; this.interval = null; this.disposed = false;
@@ -57,7 +59,7 @@ class SyncService {
   get lastSyncAt() { return this.session.lastSyncAt; }
   Status() {
     return { url: this.config.url, enabled: this.config.enabled, canUnblock: !!(this.device && this.session.blocked), configured: !!(this.config.url && this.config.anonKey), signedIn: !!this.Session(), email: this.config.email, encryption: this.vault.Available(),
-      state: this.blocked ? 'blocked' : this.state, error: this.blocked || this.error, lastSyncAt: this.lastSyncAt, pending: this.device ? this.device.outbox.length : 0, conflicts: this.device ? this.device.conflicts.length : 0 };
+      extrasNotice: this.extrasNotice, state: this.blocked ? 'blocked' : this.state, error: this.blocked || this.error, lastSyncAt: this.lastSyncAt, pending: this.device ? this.device.outbox.length : 0, conflicts: this.device ? this.device.conflicts.length : 0 };
   }
   Emit(state, error = '') { this.state = state; this.error = error; try { this.onStatus(this.Status()); } catch { /* 通知の失敗は同期に影響させない */ } }
   Session() { return this.vault.Get(); }
@@ -137,6 +139,10 @@ class SyncService {
     this.Emit('syncing');
     const result = await this.session.Cycle(); // データの安全に関わる規則は共通の sync-session.cjs
     if (result.blocked) { this.blocked = result.blocked; this.Emit('blocked'); return { ok: false, error: result.blocked }; }
+    if (result.ok && this.extras) {
+      const extra = await SyncExtras(this.extras(), this.Repository());
+      this.extrasNotice = extra.ok ? '' : extra.error; // テーブル未作成（SQL未実行）などは、お知らせとして表示するだけ
+    }
     this.Emit(result.ok ? 'idle' : 'error', result.ok ? '' : result.error);
     return result;
   }

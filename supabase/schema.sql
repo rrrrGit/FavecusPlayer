@@ -74,3 +74,78 @@ grant select on public.sync_meta to authenticated; -- 連番と境界はサー�
 grant execute on function public.sync_compact(text[], bigint) to authenticated;
 revoke execute on function public.sync_compact(text[], bigint) from public, anon;
 revoke execute on function public.sync_assign_seq() from public, anon, authenticated;
+
+-- ===== v0.7.1：再生回数と「再生回数が少ない曲を優先する」設定の同期 =====
+-- 既存の sync_changes（追記型の変更ログ）とは別のテーブル：再生のたびに行が増え続けないよう、1つの行（端末×世代×月×曲）を上書き更新する。
+-- v0.7.0 の端末は、このテーブルを読まない（影響を受けない）。Supabaseの「SQL Editor」で、このファイル全体をもう一度実行する（再実行しても安全）。
+-- 回数の行を書くのは、その端末だけ（device_id は端末が自分の行にだけ使う）。サーバーは、回数が減る更新を拒む（greatest）。
+create table if not exists public.sync_counts (
+  user_id   uuid   not null default auth.uid() references auth.users(id) on delete cascade,
+  device_id text   not null check (device_id ~ '^[A-Za-z0-9_-]{1,64}$'),
+  epoch     int    not null check (epoch >= 0),
+  month     text   not null check (month ~ '^(\d{4}-(0[1-9]|1[0-2])|legacy)$'),
+  media_key text   not null check (media_key ~ '^(bili:BV[A-Za-z0-9]{10}:p[1-9][0-9]{0,5}|bili-av:[1-9][0-9]{0,17}:p[1-9][0-9]{0,5})$'),
+  n         bigint not null check (n >= 1),
+  seq       bigint not null default 0,
+  primary key (user_id, device_id, epoch, month, media_key)
+);
+create index if not exists sync_counts_seq on public.sync_counts (user_id, seq);
+create table if not exists public.sync_counts_meta (
+  user_id  uuid primary key default auth.uid() references auth.users(id) on delete cascade,
+  last_seq bigint not null default 0
+);
+create or replace function public.sync_counts_before() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  perform pg_advisory_xact_lock(hashtextextended(new.user_id::text, 11));
+  if tg_op = 'UPDATE' then new.n := greatest(old.n, new.n); end if; -- 回数は減らない（古い値で上書きされない）
+  insert into public.sync_counts_meta (user_id, last_seq) values (new.user_id, 1)
+    on conflict (user_id) do update set last_seq = public.sync_counts_meta.last_seq + 1
+    returning last_seq into new.seq;
+  return new;
+end $$;
+drop trigger if exists sync_counts_seq_trigger on public.sync_counts;
+create trigger sync_counts_seq_trigger before insert or update on public.sync_counts for each row execute function public.sync_counts_before();
+
+-- 設定と世代（リセット）：利用者ごとに1行。世代は大きい方が勝ち、設定は新しい時刻（weighted_at、ミリ秒）が勝つ。
+create table if not exists public.sync_prefs (
+  user_id         uuid primary key default auth.uid() references auth.users(id) on delete cascade,
+  epoch           int     not null default 0 check (epoch >= 0),
+  weighted_shuffle boolean not null default true,
+  weighted_at     bigint  not null default 0 check (weighted_at >= 0)
+);
+create or replace function public.sync_prefs_before() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if tg_op = 'UPDATE' then
+    new.epoch := greatest(old.epoch, new.epoch);
+    if new.weighted_at <= old.weighted_at then new.weighted_shuffle := old.weighted_shuffle; new.weighted_at := old.weighted_at; end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists sync_prefs_trigger on public.sync_prefs;
+create trigger sync_prefs_trigger before insert or update on public.sync_prefs for each row execute function public.sync_prefs_before();
+
+alter table public.sync_counts enable row level security;
+alter table public.sync_counts_meta enable row level security;
+alter table public.sync_prefs enable row level security;
+drop policy if exists sync_counts_select on public.sync_counts;
+drop policy if exists sync_counts_insert on public.sync_counts;
+drop policy if exists sync_counts_update on public.sync_counts;
+create policy sync_counts_select on public.sync_counts for select to authenticated using (user_id = auth.uid());
+create policy sync_counts_insert on public.sync_counts for insert to authenticated with check (user_id = auth.uid());
+create policy sync_counts_update on public.sync_counts for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists sync_counts_meta_select on public.sync_counts_meta;
+create policy sync_counts_meta_select on public.sync_counts_meta for select to authenticated using (user_id = auth.uid());
+drop policy if exists sync_prefs_select on public.sync_prefs;
+drop policy if exists sync_prefs_insert on public.sync_prefs;
+drop policy if exists sync_prefs_update on public.sync_prefs;
+create policy sync_prefs_select on public.sync_prefs for select to authenticated using (user_id = auth.uid());
+create policy sync_prefs_insert on public.sync_prefs for insert to authenticated with check (user_id = auth.uid());
+create policy sync_prefs_update on public.sync_prefs for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+revoke all on public.sync_counts, public.sync_counts_meta, public.sync_prefs from anon, authenticated;
+grant select, insert, update on public.sync_counts to authenticated;
+grant select on public.sync_counts_meta to authenticated;
+grant select, insert, update on public.sync_prefs to authenticated;
+revoke execute on function public.sync_counts_before() from public, anon, authenticated;
+revoke execute on function public.sync_prefs_before() from public, anon, authenticated;

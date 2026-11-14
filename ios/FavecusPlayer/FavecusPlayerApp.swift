@@ -3,6 +3,11 @@ import UIKit
 
 /// 背面で終わった保存の通信を、再起動されたときに受け取る（BackgroundTransfers が同じ識別子のセッションを作り直して続きを受け取る）。
 final class AppDelegate: NSObject, UIApplicationDelegate {
+    /// 画面の向きの制限：通常は縦のみ。動画の最大化の間だけ、OrientationLock が横を許す。
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        OrientationLock.mask
+    }
+
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
         BackgroundTransfers.register(identifier: identifier, completion: completionHandler)
     }
@@ -88,10 +93,13 @@ final class AppEnvironment: ObservableObject {
             let engine = PlaybackEngine(core: core, store: store, backend: AVPlayerBackend(), provider: downloadService, makeSystem: { SystemAudio(controls: $0) })
             let artworkLookup = downloadService
             engine.artworkProvider = { entry in artworkStore.image(for: artworkLookup?.entryKeys[entry.id]) }
+            // 再生回数の台帳（同期が無効でも数える）。数え方・重みの規則は共通JS
+            let playCounts = PlayCountStore(core: core, directory: store.syncDirectory.deletingLastPathComponent())
+            engine.counts = playCounts
             player = engine
             // 同期は、再生などとは別のJavaScriptCoreで動かす。Keychainが使えない環境でも、起動は妨げない（同期の画面にエラーとして出る）。
             let vault = KeychainVault()
-            let host = StoreSyncHost(store: store, directory: store.syncDirectory, vault: vault)
+            let host = StoreSyncHost(store: store, directory: store.syncDirectory, vault: vault, counts: playCounts)
             sync = (try? SyncCore(bundle: .main, host: host)).map { SyncCoordinator(store: store, core: $0, host: host, vault: vault) }
         } catch {
             // 起動に必要な部品がない：保存データには触らず、画面に理由を出す。

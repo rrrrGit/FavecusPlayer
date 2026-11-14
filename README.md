@@ -1,4 +1,4 @@
-# Favecus Player 0.7.0
+# Favecus Player 0.7.1
 
 Bilibiliとローカルの音楽・動画を、階層プレイリストで再生するWindows向けアプリです。iPhone版（個人利用・AltStore経由）と、プレイリストの同期に対応しました。
 
@@ -14,7 +14,7 @@ Bilibiliとローカルの音楽・動画を、階層プレイリストで再生
 
 最大3曲の並列保存、再圧縮しない保存、既存の再生・ショートカット・クラッシュ対策を維持しています。iPhone版は個人利用向けで、AltStoreで導入します（導入・更新の手順は開発状況の資料にあります）。
 
-Windows x64向け更新用Patchの作成対象ブランチです。更新ファイル名はFavecus-Player-0.7.0-Patch.exeです。アプリを終了し、Patchは更新対象フォルダーの外から実行して、FavecusPlayer.exe・app・runtimeがある最上位フォルダーを選びます。標準の直下はapp・downloads・runtime・FavecusPlayer.exeです。
+Windows x64向け更新用Patchの作成対象ブランチです。更新ファイル名はFavecus-Player-0.7.1-Patch.exeです。アプリを終了し、Patchは更新対象フォルダーの外から実行して、FavecusPlayer.exe・app・runtimeがある最上位フォルダーを選びます。標準の直下はapp・downloads・runtime・FavecusPlayer.exeです。
 
 - [操作ガイド](docs/GUIDE.html)
 - [開発・配布](docs/BUILD.md)

@@ -9,6 +9,7 @@ struct PlaylistSaveSheet: View {
     let playlistName: String
     @Binding var isPresented: Bool
     @State private var kind = "audio"
+    @AppStorage("downloadVideoHeight") private var videoHeight = 720
     @State private var includeChildren = false
 
     private var document: LibraryDocument? { store.document }
@@ -45,6 +46,14 @@ struct PlaylistSaveSheet: View {
                     }
                     .pickerStyle(.segmented)
                     .disabled(downloads.batch != nil) // 実行中は、形式を変えられない（取り消しが別の形式に効かないように）
+                    if kind == "video" {
+                        Picker("動画の画質", selection: $videoHeight) {
+                            ForEach(DownloadService.heightChoices, id: \.self) { Text("\($0)p").tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                        .disabled(downloads.batch != nil)
+                        Text("選んだ画質がない動画は、近い画質で保存します。").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    }
                     if hasChildren {
                         Toggle("子のプレイリストの曲も含める", isOn: $includeChildren).tint(Theme.accent).foregroundStyle(Theme.text)
                     }
@@ -62,7 +71,7 @@ struct PlaylistSaveSheet: View {
                         }
                         Button("まとめての保存を取り消す") { downloads.cancelAll() }.buttonStyle(SecondaryButtonStyle())
                     } else {
-                        Button { downloads.saveAll(entries: pending, kind: kind) } label: {
+                        Button { downloads.saveAll(entries: pending, kind: kind, height: DownloadService.heightChoices.contains(videoHeight) ? videoHeight : 720) } label: {
                             Label(kind == "video" ? "動画を保存する（\(pending.count)曲）" : "音声を保存する（\(pending.count)曲）", systemImage: "arrow.down.circle").frame(maxWidth: .infinity)
                         }
                         .buttonStyle(PrimaryButtonStyle())
@@ -74,7 +83,7 @@ struct PlaylistSaveSheet: View {
                     }
                     VStack(alignment: .leading, spacing: 6) {
                         Text("曲は1つずつ、間隔をあけて始めます。ログインが必要・混雑・配信先の拒否が出たときは、そこで止めて知らせます（回避はしません）。").font(.system(size: 11)).foregroundStyle(Theme.muted)
-                        Text("保存の進み具合は、「保存」タブで見られます。モバイル通信で保存したくないときは、「保存」タブの「Wi-Fiのときだけ保存する」をオンにします。").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                        Text("保存の進み具合は、「保存」タブで見られます。モバイル通信で保存したくないときは、「保存」タブの「Wi-Fi接続時のみ保存」をオンにします。").font(.system(size: 11)).foregroundStyle(Theme.muted)
                     }
                 }
                 .padding(16)

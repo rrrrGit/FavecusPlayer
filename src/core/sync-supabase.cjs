@@ -125,6 +125,41 @@ class SupabaseSyncRepository {
     const got = await this.Rows(cursor);
     return { changes: got.rows.map(row => ({ id: row.record_id, f: row.f })), cursor: got.last };
   }
+  // ---- v0.7.1：再生回数・設定（別テーブル。supabase/schema.sql を再実行していないときは、code: 'missing' で知らせる。ライブラリの同期は、これと無関係に動く）
+  async Extra(method, path, options) {
+    try { return await this.Call(method, path, options); }
+    catch (error) { if (error instanceof SyncError && error.code === 'bad' && /404/.test(error.message)) throw new SyncError('missing', '再生回数の同期は、まだ設定されていません（Supabaseで schema.sql をもう一度実行してください）。'); throw error; }
+  }
+  // 自分の端末の行を、1つずつ上書きで送る（サーバーは、回数が減る更新を拒む）。rows：[{ epoch, month, key, n }]
+  async PushCounts(deviceId, rows) {
+    for (let i = 0; i < rows.length; i += this.chunk) {
+      await this.Extra('POST', 'sync_counts?on_conflict=user_id,device_id,epoch,month,media_key', { body: rows.slice(i, i + this.chunk).map(row => ({ device_id: deviceId, epoch: row.epoch, month: row.month, media_key: row.key, n: row.n })), prefer: 'resolution=merge-duplicates,return=minimal' });
+    }
+  }
+  // cursorより後に変わった行（自分の端末の行は除く）。戻り値：{ rows: [{ device, epoch, month, key, n }], cursor }
+  async PullCounts(cursor, ownDeviceId) {
+    const rows = []; let last = Number.isInteger(cursor) && cursor >= 0 ? cursor : 0;
+    for (let page = 0; page < 10000; page++) {
+      const got = await this.Extra('GET', `sync_counts?select=seq,device_id,epoch,month,media_key,n&seq=gt.${last}&order=seq.asc&limit=${this.pageSize}`);
+      if (!Array.isArray(got)) throw new SyncError('bad', FRIENDLY.bad);
+      if (got.length === 0) break;
+      for (const row of got) {
+        if (!Number.isInteger(row.seq) || row.seq <= last) throw new SyncError('bad', FRIENDLY.bad);
+        last = row.seq;
+        if (row.device_id !== ownDeviceId) rows.push({ device: row.device_id, epoch: row.epoch, month: row.month, key: row.media_key, n: Number(row.n) });
+      }
+    }
+    return { rows, cursor: last };
+  }
+  async GetPrefs() {
+    const got = await this.Extra('GET', 'sync_prefs?select=epoch,weighted_shuffle,weighted_at');
+    if (!Array.isArray(got)) throw new SyncError('bad', FRIENDLY.bad);
+    const row = got[0];
+    return row ? { epoch: Number(row.epoch) || 0, weighted: row.weighted_shuffle !== false, at: Number(row.weighted_at) || 0 } : null;
+  }
+  async PutPrefs({ epoch, weighted, at }) {
+    await this.Extra('POST', 'sync_prefs?on_conflict=user_id', { body: [{ epoch, weighted_shuffle: weighted, weighted_at: at }], prefer: 'resolution=merge-duplicates,return=minimal' });
+  }
   // 保持期間を過ぎたTombstoneの整理。どのレコードを消すかは共通の規則（S.Compact：復旧に使われるTombstoneは残す）で決め、サーバーは指定されたIDの行を消すだけ。
   async Compact(now = this.now(), retentionMs = RETENTION_MS) {
     const all = await this.Rows(0), state = S.Merge(S.NewState(), all.rows.map(row => ({ id: row.record_id, f: row.f }))).state;

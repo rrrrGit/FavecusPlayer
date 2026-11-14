@@ -10,6 +10,7 @@ const { ParseState, SerializeState } = require('./sync-statefile.cjs');
 const { ContextOf, MergeView, Compose } = require('./sync-merge.cjs');
 const { ValidateLibrary } = require('./library-data.cjs');
 const X = require('./sync-supabase.cjs');
+const { SyncExtras } = require('./sync-counts.cjs');
 
 const Pretty = value => JSON.stringify(value, null, 2);
 let runtime = null;
@@ -36,6 +37,14 @@ function Adapter(host) {
       catch (error) { throw Object.assign(new Error(String(error && error.message || error)), { code: 'changed' }); } // 書き込み時に編集が入っていた場合も、やり直す
       return true;
     }
+  };
+}
+// 再生回数の同期のアダプター：読み書きは、Swiftの host（PlayCountStore）が行う。countsRead() → JSON文字列（sync-counts.cjs の Read と同じ形。対応していなければ null）
+function CountsAdapter(host) {
+  return {
+    Read: async () => { const text = await host.countsRead(); if (!text) throw new Error('再生回数の保存先を開けません。'); return JSON.parse(text); },
+    Apply: async value => { await host.countsApply(JSON.stringify(value)); },
+    Pushed: async () => { await host.countsPushed(); }
   };
 }
 const Status = () => runtime && runtime.session.device ? { pending: runtime.session.device.outbox.length, conflicts: runtime.session.device.conflicts.length, lastSyncAt: runtime.session.lastSyncAt, origin: runtime.session.origin, blocked: runtime.session.blocked, deviceId: runtime.session.device.id } : { pending: 0, conflicts: 0, lastSyncAt: 0, origin: { url: '', userId: '' }, blocked: '', deviceId: '' };
@@ -72,7 +81,11 @@ async function Enable(options) {
 async function Cycle(options) {
   try {
     if (!runtime || !runtime.session.ready) throw new Error('同期が有効になっていません。');
-    return { ...(await runtime.session.Cycle(options || {})), ...Status() };
+    const result = await runtime.session.Cycle(options || {});
+    // 再生回数・「再生回数が少ない曲を優先する」設定の同期（ライブラリの同期が成功したあと。失敗・SQL未実行でも、ライブラリの同期には影響しない）
+    let extras = null;
+    if (result.ok && typeof Host().countsRead === 'function') extras = await SyncExtras(CountsAdapter(Host()), runtime.session.makeRepository());
+    return { ...result, ...(extras ? { extras } : {}), ...Status() };
   } catch (error) { return Fail(error); }
 }
 // 停止の解除（利用者の選択）。mode：'restore'（同期した内容で復元）／'keep'（この端末の内容を正とする）

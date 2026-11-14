@@ -32,6 +32,7 @@ function ValidateSettings(input) {
   s.keybindings = Keys.Validate(input?.keybindings);
   s.playlistSort = Tree.SortModes.includes(input?.playlistSort) ? input.playlistSort : 'manual';
   for (const key of ['weightedShuffle', 'discordThumbnail', 'discordVideoLink', 'discordEnabled', 'hideWhenPaused', 'shuffle', 'thumbnailMode', 'autoThumbnailEnabled', 'taskbarEmbed']) if (typeof input?.[key] === 'boolean') s[key] = input[key];
+  if (Number.isSafeInteger(input?.weightedShuffleAt) && input.weightedShuffleAt >= 0) s.weightedShuffleAt = input.weightedShuffleAt;
   if (Number.isFinite(input?.autoThumbnailMinutes)) s.autoThumbnailMinutes = Math.round(Math.max(1, Math.min(120, input.autoThumbnailMinutes)));
   if (Number.isFinite(input?.sidebarWidth)) s.sidebarWidth = Math.round(Math.max(170, Math.min(400, input.sidebarWidth)));
   if (Number.isFinite(input?.taskbarWidth)) s.taskbarWidth = Math.round(Math.max(260, Math.min(520, input.taskbarWidth)));
@@ -214,7 +215,10 @@ class Store {
       return this.AddItems(action.destinationIds ?? action.playlistId, this.InputItems(action));
     }
     else if (action.type === 'settings') {
-      const settings = ValidateSettings({ ...this.data.settings, ...action.settings }), before = structuredClone(this.data);
+      // 「再生回数が少ない曲を優先する」を利用者が変えたときは、変更時刻を付ける（別の端末との同期で、新しい変更が勝つ。同期から反映するときは、action.settings に時刻が含まれる）
+      const stamped = Object.hasOwn(action.settings || {}, 'weightedShuffle') && !Object.hasOwn(action.settings, 'weightedShuffleAt') && action.settings.weightedShuffle !== this.data.settings.weightedShuffle
+        ? { ...action.settings, weightedShuffleAt: Date.now() } : action.settings;
+      const settings = ValidateSettings({ ...this.data.settings, ...stamped }), before = structuredClone(this.data);
       try {
         this.data.settings = settings;
         if (Object.hasOwn(action.settings || {}, 'titleCleanupWords')) {

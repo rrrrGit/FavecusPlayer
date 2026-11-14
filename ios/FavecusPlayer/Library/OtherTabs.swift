@@ -12,7 +12,7 @@ struct DownloadsTab: View {
         NavigationStack {
             Group {
                 if let downloads = services.downloads {
-                    DownloadsList(store: store, downloads: downloads)
+                    DownloadsList(store: store, downloads: downloads, stopPlayback: { services.player?.stop() })
                 } else {
                     VStack { Spacer(); Text("保存を使えません").foregroundStyle(.secondary); Spacer() }.frame(maxWidth: .infinity)
                 }
@@ -33,7 +33,15 @@ private struct DownloadItem: Identifiable {
 private struct DownloadsList: View {
     @ObservedObject var store: LibraryStore
     @ObservedObject var downloads: DownloadService
+    let stopPlayback: () -> Void
     @AppStorage("downloadWiFiOnly") private var wifiOnly = false
+    @State private var confirmDeleteAll = false
+    @State private var now = Date()
+    @State private var reloading = false
+    @State private var free: Int64?
+    /// 一覧に出す件数の上限（超えた分は、記録だけが残り、一覧には出さない）。
+    private static let problemLimit = 10
+    private static let savedLimit = 50
 
     private var items: [DownloadItem] {
         var seen = Set<String>()
@@ -49,34 +57,94 @@ private struct DownloadsList: View {
         return result
     }
 
+    private var summary: String {
+        let saved = ByteCountFormatter.string(fromByteCount: downloads.savedBytes, countStyle: .file)
+        guard let free else { return "保存済み \(saved)" }
+        return "保存済み \(saved)・空き \(ByteCountFormatter.string(fromByteCount: free, countStyle: .file))"
+    }
+
     var body: some View {
         let all = items
         let active = all.filter { $0.record.state.inProgress }
-        let problems = all.filter { $0.record.state == .failed || $0.record.state == .cancelled }
-        let saved = all.filter { $0.record.state == .completed }
+        let problems = all.filter { downloads.isRecentProblem($0.record, now: now) }.sorted { $0.record.updatedAt > $1.record.updatedAt }
+        let saved = all.filter { $0.record.state == .completed }.sorted { $0.record.updatedAt > $1.record.updatedAt }
+        let savedCount = downloads.records.values.filter { $0.state == .completed }.count
+        let busy = downloads.records.values.contains { $0.state.inProgress }
         List {
             Section {
-                Toggle("Wi-Fiのときだけ保存する", isOn: $wifiOnly)
-            } footer: {
-                Text("画面を閉じたり、ロックしたりしても、保存は続きます。ただし、アプリを上へスワイプして終了すると、iOSの仕様で保存は止まります。")
+                HStack {
+                    Text(summary).font(.caption).foregroundStyle(Theme.muted)
+                    Spacer()
+                    Button {
+                        Task {
+                            reloading = true
+                            await downloads.reload()
+                            free = downloads.freeBytes()
+                            reloading = false
+                        }
+                    } label: {
+                        Image(systemName: "arrow.clockwise").frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(reloading)
+                    .accessibilityLabel("更新")
+                }
+                Toggle("Wi-Fi接続時のみ保存", isOn: $wifiOnly)
             }
             if !active.isEmpty {
                 Section { ForEach(active) { row($0) } } header: { SectionLabel(text: "保存中") }
             }
             if !problems.isEmpty {
-                Section { ForEach(problems) { row($0) } } header: { SectionLabel(text: "保存できなかったもの") }
+                Section {
+                    ForEach(problems.prefix(Self.problemLimit)) { row($0) }
+                } header: {
+                    SectionLabel(text: "保存できなかったもの")
+                } footer: {
+                    if problems.count > Self.problemLimit { Text("他 \(problems.count - Self.problemLimit) 件は表示していません（記録は残っています）。") }
+                }
             }
             Section {
                 if saved.isEmpty { Text("保存した曲はありません").foregroundStyle(.secondary) }
-                ForEach(saved) { row($0) }
+                ForEach(saved.prefix(Self.savedLimit)) { row($0) }
             } header: {
                 SectionLabel(text: "保存済み")
             } footer: {
-                if !saved.isEmpty { Text("合計 " + ByteCountFormatter.string(fromByteCount: saved.reduce(0) { $0 + $1.record.bytes }, countStyle: .file)) }
+                if saved.count > Self.savedLimit { Text("新しい \(Self.savedLimit) 件を表示しています（他 \(saved.count - Self.savedLimit) 件は、曲のメニューから確認できます）。") }
             }
+            if savedCount > 0 {
+                Section {
+                    Button(role: .destructive) { confirmDeleteAll = true } label: { Text("すべてのオフライン用データを削除") }
+                        .disabled(busy)
+                } footer: {
+                    if busy { Text("保存中のものがあります。取り消してから削除してください。") }
+                }
+            }
+        }
+        .confirmationDialog(
+            "保存した音声・動画 \(savedCount)件（\(ByteCountFormatter.string(fromByteCount: downloads.savedBytes, countStyle: .file))）を、この端末から削除します。曲やプレイリストは消えません。再生を停止します。元に戻せません。",
+            isPresented: $confirmDeleteAll, titleVisibility: .visible
+        ) {
+            Button("すべて削除", role: .destructive) {
+                Task {
+                    stopPlayback()
+                    _ = await downloads.removeAllOffline()
+                    free = downloads.freeBytes()
+                }
+            }
+            Button("キャンセル", role: .cancel) {}
         }
         .scrollContentBackground(.hidden)
         .background(Theme.background)
+        .onAppear { free = downloads.freeBytes(); now = Date() }
+        .task {
+            // 一定時間を過ぎた失敗の表示を消す。この画面を開いている間は、受信が止まった取得も検知する
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                now = Date()
+                free = downloads.freeBytes()
+                await downloads.reconcile()
+            }
+        }
     }
 
     @ViewBuilder
@@ -109,7 +177,7 @@ private struct DownloadsList: View {
     private func detail(_ record: DeviceMediaRecord) -> String {
         let kind = record.kind == "video" ? "動画" : "音声"
         switch record.state {
-        case .completed: return "\(kind)・" + ByteCountFormatter.string(fromByteCount: record.bytes, countStyle: .file)
+        case .completed: return "\(kind)・" + (record.kind == "video" && record.quality > 0 ? "\(record.quality)p・" : "") + ByteCountFormatter.string(fromByteCount: record.bytes, countStyle: .file)
         case .failed: return "\(kind)・" + (record.message ?? "保存に失敗しました。")
         case .cancelled: return "\(kind)・取り消しました"
         case .preparing: return "\(kind)・準備中"
@@ -136,6 +204,9 @@ struct SettingsTab: View {
     let openBilibili: () -> Void
     let openDiagnostics: () -> Void
     @AppStorage("downloadWiFiOnly") private var wifiOnly = false
+    @AppStorage("downloadVideoHeight") private var videoHeight = 720
+    @AppStorage("weightedShuffle") private var weighted = true
+    @State private var confirmResetCounts = false
 
     var body: some View {
         NavigationStack {
@@ -149,9 +220,24 @@ struct SettingsTab: View {
                     if hasExporter { Button { openExport() } label: { Label("ZIPへ出力する", systemImage: "square.and.arrow.up") } }
                 }
                 Section {
-                    Toggle("Wi-Fiのときだけ保存する", isOn: $wifiOnly)
+                    Toggle("Wi-Fi接続時のみ保存", isOn: $wifiOnly)
+                    Picker("動画の画質", selection: $videoHeight) {
+                        ForEach(DownloadService.heightChoices, id: \.self) { Text("\($0)p").tag($0) }
+                    }
                 } header: {
                     Text("保存")
+                } footer: {
+                    Text("動画を保存するときの画質です。選んだ画質がない動画は、近い画質で保存します。保存済みの動画の画質は変わりません（変えるときは、保存を削除してから保存し直します）。")
+                }
+                if let counts = services.player?.counts {
+                    Section {
+                        Toggle("再生回数が少ない曲を優先する", isOn: Binding(get: { weighted }, set: { value in weighted = value; counts.setWeighted(value) }))
+                        Button("再生回数をリセット", role: .destructive) { confirmResetCounts = true }
+                    } header: {
+                        Text("シャッフル")
+                    } footer: {
+                        Text("曲ごとの再生回数（実際に3秒以上再生した回数）を数え、回数が多い曲ほど後に出やすくなります。順番は毎回変わります。同じ動画・パートは、別のリストでも共通の回数です。プレイリストの同期を有効にすると、Windows版とも共通になります（ローカルの曲は、この端末だけ）。リセットは、次にシャッフルを始めたときから反映されます。")
+                    }
                 }
                 Section("アプリ") {
                     Button { openDiagnostics() } label: { Label("診断", systemImage: "stethoscope") }
@@ -162,6 +248,10 @@ struct SettingsTab: View {
             .scrollContentBackground(.hidden)
             .background(Theme.background)
             .navigationTitle("設定")
+            .confirmationDialog("再生回数をすべて0に戻します。同期している他の端末の回数も、同じように0になります。元に戻せません。", isPresented: $confirmResetCounts, titleVisibility: .visible) {
+                Button("リセットする", role: .destructive) { Task { await services.player?.counts?.reset() } }
+                Button("キャンセル", role: .cancel) {}
+            }
         }
         .miniPlayer(services, showPlayer: $showPlayer)
     }

@@ -84,3 +84,22 @@ test('shots picks the preview cell near 60 seconds using only view and videoshot
   Host(url => ({ status: 200, json: url.pathname === '/x/web-interface/view' ? { code: 0, data: { bvid: 'BV1aaaaaaaaa', aid: 1, duration: 400, pages: [{ page: 1, cid: 7 }] } } : { code: 0, data: { index: [], image: [] } } }));
   assert.match((await Bili.Shots({ url: 'BV1aaaaaaaaa' })).error, /プレビュー画像がありません/);
 });
+
+// v0.7.1 Step1：複数パートの動画は、指定したパートのcidで配信先を求め、そのパートの長さを返す（全体やP1の長さと取り違えない）。
+test('resolve for a later part asks playurl with that part cid and returns that part length, not the whole video length', async () => {
+  const multi = { code: 0, data: { bvid: 'BV1aaaaaaaaa', aid: 1, duration: 600, pic: 'https://i0.hdslb.com/pic.jpg', pages: [{ page: 1, cid: 7, duration: 300 }, { page: 2, cid: 8, duration: 120 }, { page: 3, cid: 9, duration: 180 }] } };
+  const calls = Host(url => ({ status: 200, json: url.pathname === '/x/web-interface/view' ? multi : { code: 0, data: { dash: { audio: [audio], video: [] }, timelength: 120000 } } }));
+  const result = await Bili.Resolve({ url: 'https://www.bilibili.com/video/BV1aaaaaaaaa/?p=2', kind: 'audio', height: 720 });
+  assert.equal(result.error, undefined, JSON.stringify(result));
+  assert.equal(result.resolved.duration, 120);
+  const play = calls.find(c => new URL(c.url).pathname.endsWith('/playurl'));
+  assert.equal(new URL(play.url).searchParams.get('cid'), '8');
+});
+
+test('resolve for a part that does not exist fails instead of falling back to another part', async () => {
+  const multi = { code: 0, data: { bvid: 'BV1aaaaaaaaa', aid: 1, duration: 600, pic: 'https://i0.hdslb.com/pic.jpg', pages: [{ page: 1, cid: 7, duration: 300 }, { page: 2, cid: 8, duration: 120 }] } };
+  const calls = Host(url => ({ status: 200, json: url.pathname === '/x/web-interface/view' ? multi : { code: 0, data: { dash: { audio: [audio], video: [] }, timelength: 1000 } } }));
+  const result = await Bili.Resolve({ url: 'https://www.bilibili.com/video/BV1aaaaaaaaa/?p=5', kind: 'audio', height: 720 });
+  assert.match(result.error, /パート/);
+  assert.ok(!calls.some(c => new URL(c.url).pathname.endsWith('/playurl')));
+});

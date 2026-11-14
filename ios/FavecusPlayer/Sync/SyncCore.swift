@@ -12,6 +12,16 @@ protocol SyncHost: AnyObject, Sendable {
     func recovered() async -> Bool
     func request(method: String, url: String, json: String) async throws -> String
     func saveSession(_ json: String)
+    /// 再生回数・設定の同期（対応していないhostは nil / 何もしない）。
+    func countsRead() async -> String?
+    func countsApply(_ json: String) async
+    func countsPushed() async
+}
+
+extension SyncHost {
+    func countsRead() async -> String? { nil }
+    func countsApply(_ json: String) async {}
+    func countsPushed() async {}
 }
 
 final class SyncCore: @unchecked Sendable {
@@ -58,7 +68,11 @@ final class SyncCore: @unchecked Sendable {
         let recovered: @convention(block) () -> JSValue = { [unowned self] in promise { await host.recovered() } }
         let request: @convention(block) (String, String, String) -> JSValue = { [unowned self] method, url, json in promise { try await host.request(method: method, url: url, json: json) } }
         let saveSession: @convention(block) (String) -> JSValue = { [unowned self] json in host.saveSession(json); return promise { nil } }
-        for (name, block) in [("library", library as Any), ("write", write), ("persist", persist), ("backup", backup), ("recovered", recovered), ("request", request), ("saveSession", saveSession)] {
+        let countsRead: @convention(block) () -> JSValue = { [unowned self] in promise { await host.countsRead() } }
+        let countsApply: @convention(block) (String) -> JSValue = { [unowned self] json in promise { await host.countsApply(json); return nil } }
+        let countsPushed: @convention(block) () -> JSValue = { [unowned self] in promise { await host.countsPushed(); return nil } }
+        for (name, block) in [("library", library as Any), ("write", write), ("persist", persist), ("backup", backup), ("recovered", recovered), ("request", request), ("saveSession", saveSession),
+                              ("countsRead", countsRead), ("countsApply", countsApply), ("countsPushed", countsPushed)] {
             object?.setObject(block, forKeyedSubscript: name as NSString)
         }
         context.setObject(object, forKeyedSubscript: "__favecusHost" as NSString)

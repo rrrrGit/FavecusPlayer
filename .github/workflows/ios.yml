@@ -3,7 +3,7 @@ name: iOS build
 # macOSランナーは消費が大きいため、iOS関連の変更があるときだけ実行する。
 on:
   push:
-    branches: ["release/v0.7.0"]
+    branches: ["release/v0.7.0", "release/v0.7.1"]
     paths:
       - "ios/**"
       - "shared/**"
@@ -44,6 +44,8 @@ on:
       - "src/core/bilibili-download.cjs"
       - "src/core/thumbnail.cjs"
       - "src/core/library-share.cjs"
+      - "src/core/play-ledger.cjs"
+      - "src/core/sync-counts.cjs"
       - "src/core/import-identity.cjs"
       - "src/core/playlist-icon-data.cjs"
       - "src/core/queue.cjs"
@@ -170,7 +172,7 @@ jobs:
           DIR="$DATA/Library/Application Support/FavecusPlayer"
           mkdir -p "$DIR"
           node ../scripts/demo-library.cjs "$DIR/library.json" "$DIR/downloads.json" "$DIR/thumbnails"
-          mkdir -p "$DIR/downloads"; : > "$DIR/downloads/demo-audio-1.m4a"; : > "$DIR/downloads/demo-video-2.mp4"
+          mkdir -p "$DIR/downloads"; : > "$DIR/downloads/demo-audio-1.m4a"; : > "$DIR/downloads/demo-video-2.mp4"; : > "$DIR/downloads/demo-audio-5.m4a"
           shot() { # 名前 起動引数...
             NAME=$1; shift
             xcrun simctl launch "$SIM_UDID" dev.favecus.player "$@" > /dev/null
