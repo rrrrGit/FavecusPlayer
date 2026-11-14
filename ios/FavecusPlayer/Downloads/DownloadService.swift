@@ -27,6 +27,7 @@ final class DownloadService: ObservableObject, MediaProvider {
     private var running: [String: Task<Void, Never>] = [:]
     private var finishing: Set<String> = []       // 仕上げ中のジョブID（重ねて仕上げない）
     private var cancelRequested: Set<String> = [] // 仕上げ中に取り消された記録ID
+    private var reconciling = false
     private var started = false                  // 記録を読み込み終えるまで、取得の結果を処理しない（読み込み前に仕上げて、記録を失わないため）
     private var jobRecords: [String: String] = [:] // ジョブID → 記録ID（進み具合の表示用）
     private var fetching: [String: Task<URL, Error>] = [:]
@@ -91,6 +92,7 @@ final class DownloadService: ObservableObject, MediaProvider {
     /// 前面へ戻ったとき：取得が終わっているジョブ、仕上げが途中で止まったジョブを続ける。
     func resume() async {
         guard started else { return }
+        transfers.markForeground()
         for job in transfers.jobs() { await evaluate(job.id) }
         for job in transfers.jobs() { await transfers.restartStalled(job.id, idleFor: 180) }
     }
@@ -131,7 +133,9 @@ final class DownloadService: ObservableObject, MediaProvider {
     /// 保存中の処理の再確認：取得が終わっていれば仕上げ、失敗していれば止め、通信もジョブもないのに途中のまま残った記録は失敗にする。
     /// idleFor：受信がこの秒数まったく進んでいない取得は、次の候補で取り直す（なければ失敗にする）。
     func reconcile(idleFor: TimeInterval = 180) async {
-        guard started else { return }
+        guard started, !reconciling else { return } // 重ねて実行しない（同じ取得を二重に取り直さない）
+        reconciling = true
+        defer { reconciling = false }
         let jobs = transfers.jobs()
         let live = await transfers.liveJobIds()
         let now = Date().timeIntervalSince1970
@@ -141,7 +145,8 @@ final class DownloadService: ObservableObject, MediaProvider {
         }
         for job in transfers.jobs() { await transfers.restartStalled(job.id, idleFor: idleFor) }
         let remaining = Set(transfers.jobs().map(\.recordId))
-        for record in records.values where record.state.inProgress && !remaining.contains(record.id) && running[record.id] == nil {
+        // 失敗・取り消しの処理の最中（記録の更新前）は、途中の記録を触らない
+        for record in records.values where finishing.isEmpty && record.state.inProgress && !remaining.contains(record.id) && running[record.id] == nil {
             var next = record
             next.state = .failed
             next.message = "中断されました。もう一度保存してください。"

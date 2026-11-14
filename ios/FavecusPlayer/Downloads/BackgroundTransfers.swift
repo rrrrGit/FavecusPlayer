@@ -156,6 +156,13 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
         Set(await session.allTasks.compactMap { Self.parse($0.taskDescription)?.id })
     }
 
+    /// 前面へ戻ったとき：背面の間は進み具合の通知が届かず、時刻が古いままなので、いまから数え直す（順調な取得を、止まったと誤判定しない）。
+    func markForeground() {
+        lock.lock()
+        for key in activity.keys { activity[key] = Date() }
+        lock.unlock()
+    }
+
     /// 受信が一定時間まったく進まないジョブの、未完了の取得を取り直す：次の候補のURLがあればそちらで、なければ失敗として残す
     /// （背面のセッションは接続を待ち続けるため、止まったままの取得を検知する）。URLは記録しない。戻り値：取り直した・失敗にした取得の数。
     @discardableResult

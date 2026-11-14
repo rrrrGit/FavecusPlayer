@@ -76,7 +76,7 @@ actor DownloadCatalog {
                 let exists = record.fileName.map { FileManager.default.fileExists(atPath: mediaDirectory.appendingPathComponent($0).path) } ?? false
                 if !exists { next.state = .failed; next.message = "保存したファイルが見つかりません。"; next.fileName = nil }
             }
-            if next != record { records[id] = next; changed = true }
+            if next != record { next.updatedAt = Date().timeIntervalSince1970; records[id] = next; changed = true } // 見つからなくなった保存も、新しい失敗として一覧に出す
         }
         if changed { try save() }
     }
