@@ -17,18 +17,36 @@ struct ImportList: Decodable, Identifiable, Equatable {
     let childIds: [String]
 }
 
+/// ZIPに同梱された、保存済みの動画・音声（Windows版の downloads/catalog.json の1件）。
+struct ImportDownload: Equatable {
+    let url: String
+    let kind: String      // audio / video
+    let media: String     // ZIP内の名前（downloads/media/…）
+    let bytes: Int64
+    let duration: Double
+    let height: Int
+}
+
 struct ImportPlan {
     let url: URL
     let mode: String
     let lists: [ImportList]
     let rootPlaylistIds: [String]
     let plan: Any
-    /// この版では取り込まない部分（ダウンロード済みメディアなど。Step13で対応）の件数。
+    /// 取り込まない部分（保存済みメディアの表紙画像など）の件数。
     let ignoredEntries: Int
+    /// すでにこの端末に同じ構成のプレイリストがある候補のID。
+    let identicalIds: Set<String>
+    /// 同梱された保存済みメディア（動画・音声）。
+    let downloads: [ImportDownload]
 }
 
 struct ImportOutcome: Equatable {
     var imported: Int
+    var skippedIdentical = 0
+    /// 取り込んだ保存済みメディア（動画・音声）の数と、取り込めなかった数。
+    var downloaded = 0
+    var downloadsFailed = 0
     var missing: Int
     var omitted: Int
     var copied: Int
@@ -51,6 +69,7 @@ final class TransferService: @unchecked Sendable {
         var mode: String?
         var lists: [ImportList]?
         var rootPlaylistIds: [String]?
+        var identicalIds: [String]?
     }
 
     private struct ImportFile: Decodable {
@@ -62,6 +81,7 @@ final class TransferService: @unchecked Sendable {
         var error: String?
         var text: String?
         var imported: Int?
+        var skippedIdentical: Int?
         var missing: Int?
         var omitted: Int?
         var files: [ImportFile]?
@@ -81,7 +101,8 @@ final class TransferService: @unchecked Sendable {
 
     // MARK: 取り込み候補の読み取り
 
-    func prepare(url: URL) async throws -> ImportPlan {
+    /// libraryText：いまの端末のライブラリ（すでに同じ構成のリストを見つけるために、共通JSへ渡す）。
+    func prepare(url: URL, libraryText: String? = nil) async throws -> ImportPlan {
         let core = self.core
         return try await Task.detached {
             let zip = try ZipArchive(source: try FileSource(url: url))
@@ -94,7 +115,8 @@ final class TransferService: @unchecked Sendable {
             if inner.has("identity.json") { identity = try TransferService.text(try inner.data("identity.json", limit: TransferService.innerLimit)) }
             var records: [String] = []
             for name in inner.names where name != "identity.json" { records.append(try TransferService.text(try inner.data(name, limit: TransferService.innerLimit))) }
-            let request: [String: Any] = ["identity": identity, "records": records, "innerNames": inner.names, "outerNames": zip.names]
+            var request: [String: Any] = ["identity": identity, "records": records, "innerNames": inner.names, "outerNames": zip.names]
+            if let libraryText { request["text"] = libraryText }
             let response = try core.call("TransferPrepare", try TransferService.json(request))
             let decoded = try JSONDecoder().decode(PrepareResponse.self, from: Data(response.utf8))
             if let message = decoded.error { throw TransferError.message(message) }
@@ -102,8 +124,9 @@ final class TransferService: @unchecked Sendable {
                   let object = try JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any], let plan = object["plan"] else {
                 throw TransferError.message("取り込み内容を読み取れません。")
             }
-            let ignored = zip.names.filter { $0 != "playlists.fvpa" && !$0.hasPrefix("media/") }.count
-            return ImportPlan(url: url, mode: mode, lists: lists, rootPlaylistIds: roots, plan: plan, ignoredEntries: ignored)
+            let downloads = try TransferService.readDownloads(zip)
+            let ignored = zip.names.filter { $0 != "playlists.fvpa" && !$0.hasPrefix("media/") && !($0.hasPrefix("downloads/media/") || $0 == "downloads/catalog.json") }.count
+            return ImportPlan(url: url, mode: mode, lists: lists, rootPlaylistIds: roots, plan: plan, ignoredEntries: ignored, identicalIds: Set(decoded.identicalIds ?? []), downloads: downloads)
         }.value
     }
 
@@ -116,7 +139,7 @@ final class TransferService: @unchecked Sendable {
             let available = zip.names.filter { $0.hasPrefix("media/") }.map { String($0.dropFirst(6)) }
             let idCount = plan.lists.reduce(0) { $0 + $1.count } * 3 + plan.lists.count * 3 + 64
             var request: [String: Any] = ["text": libraryText, "plan": plan.plan, "ids": ids, "available": available,
-                                          "newIds": (0..<idCount).map { _ in UUID().uuidString.lowercased() }, "now": LibraryStore.now()]
+                                          "newIds": (0..<idCount).map { _ in UUID().uuidString.lowercased() }, "now": LibraryStore.now(), "skipIdentical": true]
             if let parentId { request["parentId"] = parentId }
             let response = try core.call("TransferImport", try TransferService.json(request))
             let decoded = try JSONDecoder().decode(ImportResponse.self, from: Data(response.utf8))
@@ -143,8 +166,27 @@ final class TransferService: @unchecked Sendable {
                 for url in published { try? manager.removeItem(at: url) } // 公開済みの自分のファイルだけ戻す
                 throw error
             }
-            return ImportBuilt(newText: text, outcome: ImportOutcome(imported: decoded.imported ?? 0, missing: decoded.missing ?? 0, omitted: decoded.omitted ?? 0, copied: files.count), published: published)
+            return ImportBuilt(newText: text, outcome: ImportOutcome(imported: decoded.imported ?? 0, skippedIdentical: decoded.skippedIdentical ?? 0, missing: decoded.missing ?? 0, omitted: decoded.omitted ?? 0, copied: files.count), published: published)
         }.value
+    }
+
+    /// 同梱の保存済みメディアの一覧（downloads/catalog.json）。形式・ファイル名・大きさを確かめ、正しくないものは受け付けない（黙って読み込まない）。
+    static func readDownloads(_ zip: ZipArchive) throws -> [ImportDownload] {
+        guard zip.has("downloads/catalog.json") else { return [] }
+        guard let object = try JSONSerialization.jsonObject(with: try zip.data("downloads/catalog.json", limit: 32 * 1024 * 1024)) as? [String: Any],
+              object["version"] as? Int == 1, let files = object["files"] as? [[String: Any]], files.count <= 20000 else {
+            throw TransferError.message("保存済みデータの一覧が正しくありません。")
+        }
+        var seen = Set<String>()
+        return try files.map { file in
+            guard let url = file["url"] as? String, let kind = file["kind"] as? String, ["audio", "video"].contains(kind),
+                  let media = file["media"] as? String, let bytes = (file["bytes"] as? NSNumber)?.int64Value, bytes > 0,
+                  media.range(of: #"^downloads/media/[A-Za-z0-9._-]{1,200}\.(mp4|m4a)$"#, options: .regularExpression) != nil,
+                  zip.entries[media]?.bytes == UInt64(bytes), seen.insert(media).inserted else {
+                throw TransferError.message("保存済みデータの参照が正しくありません。")
+            }
+            return ImportDownload(url: url, kind: kind, media: media, bytes: bytes, duration: (file["duration"] as? NSNumber)?.doubleValue ?? 0, height: (file["height"] as? NSNumber)?.intValue ?? 0)
+        }
     }
 
     /// ライブラリの保存に失敗したとき、公開済みのメディアを戻す。

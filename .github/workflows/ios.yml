@@ -190,6 +190,8 @@ jobs:
           shot 8-edit -FavecusDemoPath $P1 -FavecusDemoEdit YES
           shot 9-add -FavecusDemoPath $P1 -FavecusDemoAdd YES
           shot 12-save -FavecusDemoPath $P1 -FavecusDemoSave YES
+          shot 13-playing -FavecusDemoPath $P1 -FavecusDemoMini YES
+          shot 14-search -FavecusDemoSearch Lo-fi
           shot 10-home-edit -FavecusDemoHomeEdit YES
           shot 11-sync -FavecusDemoSync YES
           ls -l out

@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const { FakeServer } = require('../test/fake-supabase.cjs');
 
 const port = Number(process.argv[2] || 0), readyFile = process.argv[3];
-const server = FakeServer();
+const server = FakeServer({ now: Date.now() }); // 偽のサーバーの時計は、実際の時刻から始める（固定の日付だと、日がたつと、端末との時刻のずれで同期が止まりテストが失敗する）
 server.now = Date.now(); server.ttl = 24 * 3600; // 実際の時刻で、トークンの期限を長めに
 http.createServer((req, res) => {
   const chunks = [];

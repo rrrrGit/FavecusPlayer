@@ -115,4 +115,20 @@ async function ResolveWith(request, video, kind, height = 720, now = Date.now())
 }
 // 動画のURL（または BV/av）から、解決する。
 const ResolveEntry = (request, url, kind, height, now) => ResolveWith(request, ParseBilibili(url), kind, height, now);
-module.exports = { Md5, ImageURL, SignQuery, MediaURL, Stream, SelectStreams, ApiData, ViewQuery, PlayQuery, ResolveSteps, ResolveWith, ResolveEntry };
+// サムネイルに使う動画の場面（PC版と同じ規則）：60秒付近。長さが分かる短い動画は、長さの30%（1秒以上）。
+function FrameTarget(duration) { const length = Number(duration); return length > 0 ? Math.min(60, Math.max(1, length * 0.3)) : 60; }
+// 公式のプレビュー画像（videoshot：一定間隔の場面を並べた画像）から、目標の時刻に最も近い1コマを選ぶ。戻り値：{ sheet, x, y, width, height, time }（sheet はプレビュー画像のURL）。選べなければ null。
+function ShotCell(shot, target, duration) {
+  const times = Array.isArray(shot && shot.index) ? shot.index : [], images = Array.isArray(shot && shot.image) ? shot.image : [];
+  const columns = Number(shot && shot.img_x_len), rows = Number(shot && shot.img_y_len), width = Number(shot && shot.img_x_size), height = Number(shot && shot.img_y_size);
+  if (![columns, rows, width, height].every(n => Number.isInteger(n) && n > 0 && n < 4000) || !times.length || !images.length) return null;
+  const wanted = Math.min(target, Number(duration) > 0 ? Number(duration) * 0.5 : target);
+  let best = 0;
+  for (let i = 0; i < times.length; i++) if (Math.abs(times[i] - wanted) < Math.abs(times[best] - wanted)) best = i;
+  const perSheet = columns * rows, sheet = images[Math.floor(best / perSheet)];
+  if (!sheet) return null;
+  const position = best % perSheet;
+  let url; try { url = ImageURL(sheet); } catch { return null; }
+  return { sheet: url, x: (position % columns) * width, y: Math.floor(position / columns) * height, width, height, time: times[best] };
+}
+module.exports = { FrameTarget, ShotCell, Md5, ImageURL, SignQuery, MediaURL, Stream, SelectStreams, ApiData, ViewQuery, PlayQuery, ResolveSteps, ResolveWith, ResolveEntry };

@@ -91,6 +91,7 @@ ${parts.join(',\n')}
     BiliResolve: function (json) { return runner().BiliResolveAsync(json); },
     BiliProfile: function (json) { return runner().BiliProfile(json); },
     BiliInfo: function (json) { return runner().BiliInfoAsync(json); },
+    BiliShots: function (json) { return runner().BiliShotsAsync(json); },
     SyncOpen: function (json) { return runner().SyncOpen(json); },
     SyncEnable: function (json) { return runner().SyncEnable(json); },
     SyncCycle: function (json) { return runner().SyncCycle(json); },

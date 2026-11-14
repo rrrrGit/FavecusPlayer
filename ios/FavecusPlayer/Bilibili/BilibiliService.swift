@@ -57,6 +57,16 @@ final class BilibiliService: @unchecked Sendable {
         return VideoInfo(title: reply.title ?? "", duration: reply.duration ?? 0, thumbnailURL: reply.thumbnailURL)
     }
 
+    /// 動画の特定の場面（60秒付近）の1コマの場所（公式のプレビュー画像 videoshot の中）。拒否・制限は、そのまま知らせる。
+    func shotCell(url: String) async throws -> SheetCell {
+        struct Reply: Decodable { var cell: SheetCell?; var error: String?; var stopBatch: Bool? }
+        let request = String(decoding: try JSONSerialization.data(withJSONObject: ["url": url]), as: UTF8.self)
+        let reply = try JSONDecoder().decode(Reply.self, from: Data(try await core.call("BiliShots", request).utf8))
+        if let message = reply.error { throw BilibiliError.failed(message, stopBatch: reply.stopBatch == true) }
+        guard let cell = reply.cell else { throw BilibiliError.failed("動画の場面を取得できません。", stopBatch: false) }
+        return cell
+    }
+
     /// kind：audio または video。height：video のときの希望の高さ。拒否・制限の応答は、方法を変えて再試行せず、そのまま知らせる。
     func resolve(url: String, kind: String, height: Int = 720) async throws -> ResolvedMedia {
         let request = String(decoding: try JSONSerialization.data(withJSONObject: ["url": url, "kind": kind, "height": height]), as: UTF8.self)

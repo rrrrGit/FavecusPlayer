@@ -328,6 +328,59 @@ final class DownloadTests: XCTestCase {
         XCTAssertEqual(record.state, .completed, record.message ?? "")
     }
 
+    // MARK: ZIPに同梱された保存済みメディアの取り込み
+
+    private func makeDownloadsZip(audio: Data, declaredBytes: Int? = nil, media: String = "downloads/media/abc.m4a") throws -> URL {
+        let url = directory.appendingPathComponent("downloads-\(UUID().uuidString).zip")
+        let writer = try ZipWriter(url: url)
+        let catalog: [String: Any] = ["version": 1, "files": [["url": "https://www.bilibili.com/video/BV1aaaaaaaaa/", "kind": "audio", "media": media, "bytes": declaredBytes ?? audio.count, "duration": 2, "height": 0]]]
+        try writer.add(name: "downloads/catalog.json", data: try JSONSerialization.data(withJSONObject: catalog))
+        try writer.add(name: media, data: audio)
+        try writer.finish()
+        return url
+    }
+
+    func testDownloadedMediaInTheZipIsImportedForSongsInTheLibraryAndNotForOthers() async throws {
+        let audio = try makeAudio(seconds: 2)
+        let (service, _) = try environment(Fixture(audio: audio))
+        await service.start()
+        let url = try makeDownloadsZip(audio: audio)
+        let zip = try ZipArchive(source: try FileSource(url: url))
+        let records = try TransferService.readDownloads(zip)
+        XCTAssertEqual(records.count, 1)
+        // ライブラリにない曲の分は、取り込まない
+        let none = await service.importDownloaded(from: url, records: records, entries: [])
+        XCTAssertEqual(none.imported, 0)
+        let result = await service.importDownloaded(from: url, records: records, entries: [entry])
+        XCTAssertEqual(result.imported, 1)
+        XCTAssertEqual(result.failed, 0)
+        let key = try await requireKey(service)
+        XCTAssertNotNil(service.savedFile(key: key), "取り込んだメディアが、保存済みとして扱われる")
+        // すでに保存済みなら、重ねて取り込まない
+        let again = await service.importDownloaded(from: url, records: records, entries: [entry])
+        XCTAssertEqual(again.imported, 0)
+        XCTAssertTrue(leftovers(service).isEmpty)
+    }
+
+    func testABrokenOrMismatchedDownloadsCatalogIsRefusedAndAnUnreadableMediaFileIsCountedAsFailed() async throws {
+        let audio = try makeAudio(seconds: 2)
+        let mismatch = try makeDownloadsZip(audio: audio, declaredBytes: audio.count + 1)
+        XCTAssertThrowsError(try TransferService.readDownloads(try ZipArchive(source: try FileSource(url: mismatch))))
+        let badName = try makeDownloadsZip(audio: audio, media: "downloads/media/evil.exe")
+        XCTAssertThrowsError(try TransferService.readDownloads(try ZipArchive(source: try FileSource(url: badName))))
+        // 再生できないデータ（音声ではない）は、取り込まずに失敗として数える
+        let garbage = try makeDownloadsZip(audio: Data(repeating: 7, count: 4096))
+        let (service, _) = try environment(Fixture(audio: audio))
+        await service.start()
+        let records = try TransferService.readDownloads(try ZipArchive(source: try FileSource(url: garbage)))
+        let result = await service.importDownloaded(from: garbage, records: records, entries: [entry])
+        XCTAssertEqual(result.imported, 0)
+        XCTAssertEqual(result.failed, 1)
+        let key = try await requireKey(service)
+        XCTAssertNil(service.savedFile(key: key))
+        XCTAssertTrue(leftovers(service).isEmpty)
+    }
+
     func testTheCatalogKeepsAnInProgressRecordThatStillHasAJob() async throws {
         let media = directory.appendingPathComponent("downloads", isDirectory: true)
         try FileManager.default.createDirectory(at: media, withIntermediateDirectories: true)

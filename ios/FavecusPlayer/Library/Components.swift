@@ -164,15 +164,17 @@ struct SongRow: View {
     let services: Services
     /// 一覧での番号（PC版と同じ「01」）。
     var number: Int?
+    /// 検索結果の行で、所属のリスト名を2行目に添える。
+    var context: String?
     /// このリストから曲を外す（nil なら出さない）。
     var onRemove: (() -> Void)?
 
     var body: some View {
         if let player = services.player {
             if entry.type == "bilibili", let downloads = services.downloads {
-                BiliSongRow(entry: entry, scope: scope, number: number, player: player, downloads: downloads, artwork: services.artwork, onRemove: onRemove)
+                BiliSongRow(entry: entry, scope: scope, number: number, context: context, player: player, downloads: downloads, artwork: services.artwork, onRemove: onRemove)
             } else {
-                LocalSongRow(entry: entry, scope: scope, number: number, player: player, onRemove: onRemove)
+                LocalSongRow(entry: entry, scope: scope, number: number, context: context, player: player, artwork: services.artwork, key: services.downloads?.entryKeys[entry.id], onRemove: onRemove)
             }
         } else {
             Text(entry.title.isEmpty ? "（無題）" : entry.title)
@@ -263,15 +265,19 @@ private struct LocalSongRow: View {
     let entry: EntryItem
     let scope: String
     let number: Int?
+    let context: String?
     @ObservedObject var player: PlaybackEngine
+    @ObservedObject var artwork: ArtworkStore
+    let key: String?
     var onRemove: (() -> Void)?
 
     var body: some View {
+        _ = artwork.revision
         let playable = player.canPlay(entry)
         var actions: [RowAction] = []
         if playable { actions.append(RowAction(icon: "play.fill", title: "再生") { Task { await player.play(entryId: entry.id, scope: scope) } }) }
         if let onRemove { actions.append(RowAction(icon: "minus.circle", title: "このリストから外す", destructive: true, run: onRemove)) }
-        return RowLayout(number: number, title: entry.title, meta: metaText(for: entry), status: playable ? nil : "この端末にファイルがありません", image: nil,
+        return RowLayout(number: number, title: entry.title, meta: metaText(for: entry) + (context.map { " · " + $0 } ?? ""), status: playable ? nil : "この端末にファイルがありません", image: artwork.image(for: key),
                          current: player.current?.entryId == entry.id, playing: player.isPlaying, dimmed: !playable, saved: false, progress: nil, actions: actions,
                          tap: { Task { await player.play(entryId: entry.id, scope: scope) } })
     }
@@ -281,6 +287,7 @@ private struct BiliSongRow: View {
     let entry: EntryItem
     let scope: String
     let number: Int?
+    let context: String?
     @ObservedObject var player: PlaybackEngine
     @ObservedObject var downloads: DownloadService
     @ObservedObject var artwork: ArtworkStore
@@ -317,7 +324,7 @@ private struct BiliSongRow: View {
     var body: some View {
         _ = artwork.revision // 画像が増えたら描き直す
         let saved = record("audio")?.state == .completed || record("video")?.state == .completed
-        return RowLayout(number: number, title: entry.title, meta: metaText(for: entry), status: status, image: artwork.image(for: key),
+        return RowLayout(number: number, title: entry.title, meta: metaText(for: entry) + (context.map { " · " + $0 } ?? ""), status: status, image: artwork.image(for: key),
                          current: player.current?.entryId == entry.id, playing: player.isPlaying, dimmed: false, saved: saved,
                          progress: record("audio")?.state.inProgress == true ? key.flatMap { downloads.progress["\($0)|audio"] } : nil,
                          actions: actions,

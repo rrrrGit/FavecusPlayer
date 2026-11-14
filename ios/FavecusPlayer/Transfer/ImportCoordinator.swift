@@ -19,6 +19,8 @@ final class ImportCoordinator: ObservableObject {
 
     private let service: TransferService
     private let store: LibraryStore
+    /// 同梱の保存済みメディア（動画・音声）を取り込む処理（DownloadService）。nilなら取り込まない。
+    var downloadImporter: ((_ zip: URL, _ records: [ImportDownload], _ entries: [EntryItem]) async -> (imported: Int, failed: Int))?
     private var scopedURL: URL?
     private var localCopy: URL?
     private var generation = 0
@@ -54,7 +56,7 @@ final class ImportCoordinator: ObservableObject {
                 let local = try await Self.makeLocalCopy(of: url)
                 guard mine == generation else { try? FileManager.default.removeItem(at: local.deletingLastPathComponent()); return }
                 localCopy = local
-                let plan = try await service.prepare(url: local)
+                let plan = try await service.prepare(url: local, libraryText: store.currentText)
                 guard mine == generation else { return } // 閉じられた・取って代わられた
                 phase = .choosing(plan)
             } catch {
@@ -84,7 +86,15 @@ final class ImportCoordinator: ObservableObject {
             let built = try await service.build(plan: plan, ids: ids, parentId: nil, libraryText: base, mediaDirectory: store.mediaDirectory)
             do { try await store.replaceLibrary(expecting: base, with: built.newText) }
             catch { service.rollback(built.published); throw error }
-            phase = .done(built.outcome)
+            var outcome = built.outcome
+            // 保存済みの動画・音声：ライブラリへ入れたあとに、取り込んだ曲（と、すでにあって保存のない曲）の分だけを取り込む
+            if !plan.downloads.isEmpty, let importer = downloadImporter {
+                let entries = store.document?.playlists.flatMap(\.entries) ?? []
+                let result = await importer(plan.url, plan.downloads, entries)
+                outcome.downloaded = result.imported
+                outcome.downloadsFailed = result.failed
+            }
+            phase = .done(outcome)
         } catch {
             phase = .failed(ErrorText.safe(error))
         }

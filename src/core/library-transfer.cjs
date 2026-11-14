@@ -57,11 +57,37 @@ function Prepare(input) {
   };
 }
 
+// 取り込み候補のうち、すでに同じ構成（名前・曲の並び・子のリスト）のものがライブラリにあるリストのID。
+// 同期済みのリストのように、同じ構造のものを二重に取り込まないための判定（曲の同一性は、メディアキーで見る）。
+function IdenticalIds(library, plan) {
+  const aliases = VideoAliases([...(library.videoAliases || []), ...(plan.input.videoAliases || [])]), keyOf = LibraryMediaKey(aliases);
+  const signatures = lists => {
+    const byId = new Map(lists.map(p => [p.id, p])), cache = new Map();
+    const sign = (id, trail) => {
+      if (cache.has(id)) return cache.get(id);
+      const p = byId.get(id); if (!p || trail.has(id) || trail.size > 40) return null;
+      const next = new Set(trail).add(id), kids = p.childIds.map(child => sign(child, next));
+      const value = kids.includes(null) ? null : JSON.stringify([p.name, p.entries.map(entry => { try { return keyOf(entry); } catch { return `?${entry.id}`; } }), kids]);
+      cache.set(id, value); return value;
+    };
+    return new Map(lists.map(p => [p.id, sign(p.id, new Set())]));
+  };
+  const existing = new Set([...signatures(library.playlists).values()].filter(value => value !== null));
+  return [...signatures(plan.input.playlists)].filter(([, value]) => value !== null && existing.has(value)).map(([id]) => id);
+}
+
 // 選んだリストを、既存のライブラリへ合成する（ファイル操作はしない。コピーすべきファイルを files で返す）。
 //   options：{ library, plan, ids, parentId, available（ZIP内にあるメディアの元のfileName）, createId, cleanTitle }
 function Import(options) {
-  const { library, plan, ids, createId } = options, cleanTitle = options.cleanTitle || (value => CleanText(value));
+  const { library, plan, createId } = options; let { ids } = options; const cleanTitle = options.cleanTitle || (value => CleanText(value));
   if (!Array.isArray(ids) || !ids.length || ids.length > MAX_PLAYLISTS || ids.some(id => !plan.input.playlists.some(p => p.id === id))) throw new Error('取り込むプレイリストを選んでください。');
+  let skippedIdentical = 0;
+  if (options.skipIdentical) {
+    const identical = new Set(IdenticalIds(library, plan)), kept = ids.filter(id => !identical.has(id));
+    skippedIdentical = ids.length - kept.length;
+    if (!kept.length) throw new Error('選んだプレイリストは、すでに同じ構成のものがあります。取り込みは不要です。');
+    ids = kept;
+  }
   const parentId = options.parentId || null;
   if (parentId && !library.playlists.some(p => p.id === parentId)) throw new Error('再生リストが見つかりません。');
   const locals = new Map(plan.share.locals), available = new Set(options.available || []);
@@ -104,7 +130,7 @@ function Import(options) {
   if (parent) parent.lastAddedAt = options.now || parent.lastAddedAt;
   next.activePlaylistId = identity.idMap.get(ids[0]);
   Tree.ValidateGraph(next.playlists, next.rootPlaylistIds);
-  return { library: next, imported: lists.length, ancestors: selection.ancestorIds.length, missing, omitted, files, skipped: plan.skipped || 0 };
+  return { library: next, imported: lists.length, ancestors: selection.ancestorIds.length, missing, omitted, files, skipped: plan.skipped || 0, skippedIdentical };
 }
 
 // 出力の内容を作る（ファイル操作はしない）。available：端末にある実体のfileName。
@@ -126,4 +152,4 @@ function Export(options) {
     locals: [...locals].map(([fileName, included]) => ({ fileName, included })), missing, omitted
   };
 }
-module.exports = { MAX_FILES, SafeName, ID, BuildShareInput, CheckInnerNames, CheckOuterNames, Prepare, Import, Export };
+module.exports = { MAX_FILES, SafeName, ID, BuildShareInput, CheckInnerNames, CheckOuterNames, Prepare, Import, Export, IdenticalIds };

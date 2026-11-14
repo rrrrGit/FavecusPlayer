@@ -8,8 +8,8 @@ const KEY = jwt('anon');
 const CONFIG = X.SupabaseConfig({ url: 'https://abcdefgh.supabase.co', anonKey: KEY });
 
 // 偽のSupabase。連番はコミット順（schema.sqlのトリガーと同じ）。再送（同じbatch/idx）は無視するが連番は消費する。
-function FakeServer() {
-  const s = { rows: [], lastSeq: 0, watermark: 0, requests: [], online: true, down: 0, ttl: 3600, now: T0, tokens: new Map(), codes: new Map(), refreshCount: 0, failNext401: 0 };
+function FakeServer(options = {}) {
+  const s = { rows: [], lastSeq: 0, watermark: 0, requests: [], online: true, down: 0, ttl: 3600, now: options.now ?? T0, tokens: new Map(), codes: new Map(), refreshCount: 0, failNext401: 0 };
   const issue = user => {
     const n = s.tokens.size + 1, access = `acc-${n}`, refresh = `ref-${n}`;
     s.tokens.set(access, { user, exp: Math.floor(s.now / 1000) + s.ttl }); s.tokens.set(refresh, { user, refresh: true });

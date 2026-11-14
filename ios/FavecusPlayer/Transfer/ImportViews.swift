@@ -39,8 +39,8 @@ struct ImportSheet: View {
             Section {
                 Text(plan.mode == "information" ? "情報のみ（ローカル曲の実体は含まれません）" : plan.mode == "media" ? "メディア付き" : "旧形式")
                     .font(.footnote).foregroundStyle(.secondary)
-                if plan.ignoredEntries > 0 { Text("ダウンロード済みのデータ \(plan.ignoredEntries)件は、この版では取り込みません。").font(.footnote).foregroundStyle(.secondary) }
-                Text("親を選ぶと、その子も一緒に取り込みます。同じ名前のリストは「（取り込みN）」を付けて追加し、既存のリストは変更しません。")
+                if !plan.downloads.isEmpty { Text("保存済みの動画・音声 \(plan.downloads.count)件を含みます（取り込むリストの曲の分を、この端末へ保存します）。").font(.footnote).foregroundStyle(.secondary) }
+                Text("親を選ぶと、その子も一緒に取り込みます。すでに同じ構成のプレイリスト（同期済みのものなど）は、二重に取り込みません。名前だけが同じで中身が違うリストは「（取り込みN）」を付けて追加し、既存のリストは変更しません。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("取り込むプレイリスト") {
@@ -49,6 +49,7 @@ struct ImportSheet: View {
                         VStack(alignment: .leading) {
                             Text(list.name)
                             Text("\(list.count)曲・子 \(list.childIds.count)").font(.caption).foregroundStyle(.secondary)
+                            if plan.identicalIds.contains(list.id) { Text("すでにあります（同じ構成）").font(.caption).foregroundStyle(Theme.mint) }
                         }
                     }
                 }
@@ -61,13 +62,17 @@ struct ImportSheet: View {
                 .disabled(selected.isEmpty)
             }
         }
-        .onAppear { if selected.isEmpty { selected = Set(plan.rootPlaylistIds) } }
+        // 初めの選択：すでに同じ構成のものがあるリストは、選ばない
+        .onAppear { if selected.isEmpty { selected = Set(plan.rootPlaylistIds).subtracting(plan.identicalIds) } }
     }
 
     private func result(_ outcome: ImportOutcome) -> some View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.circle").font(.largeTitle)
             Text("\(outcome.imported)件のプレイリストを取り込みました").font(.headline)
+            if outcome.skippedIdentical > 0 { Text("すでに同じ構成の \(outcome.skippedIdentical)件は、取り込みませんでした").font(.footnote) }
+            if outcome.downloaded > 0 { Text("保存済みの動画・音声 \(outcome.downloaded)件を、この端末へ保存しました") }
+            if outcome.downloadsFailed > 0 { Text("保存済みの動画・音声 \(outcome.downloadsFailed)件は、読み取れず、取り込めませんでした").font(.footnote).foregroundStyle(Theme.warning) }
             if outcome.copied > 0 { Text("ローカル曲のメディア \(outcome.copied)件を保存しました") }
             if outcome.missing > 0 { Text("実体のないローカル曲が \(outcome.missing)件あります（情報のみ取り込みました）").font(.footnote) }
             if outcome.omitted > 0 { Text("情報のみのため、ローカル曲 \(outcome.omitted)件は再生できません").font(.footnote) }

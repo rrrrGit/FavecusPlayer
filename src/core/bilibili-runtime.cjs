@@ -3,7 +3,7 @@
 // （Cookieの付与・接続先の制限・通信そのものはSwift側。api.bilibili.com 宛てだけにCookieを付ける）。
 // 規則は、Windows版と共通の bilibili-resolve.cjs。ここは、ステータスの扱いと、結果の整形だけ。
 // 方針：ログイン要・リスク制御（412・-352など）では、方法を変えて再試行せず、停止して知らせる。保護された動画・試聴用は扱わない。
-const { ResolveWith, ApiData, ViewQuery, ImageURL } = require('./bilibili-resolve.cjs');
+const { ResolveWith, ApiData, ViewQuery, ImageURL, FrameTarget, ShotCell } = require('./bilibili-resolve.cjs');
 const { ParseBilibili } = require('./urls.cjs');
 
 const Host = () => { const host = globalThis.__favecusHost; if (!host) throw new Error('通信の接続先（host）が用意されていません。'); return host; };
@@ -52,4 +52,19 @@ async function Info(options) {
     return { title, duration: Number(page.duration || details.duration) || 0, thumbnailURL };
   } catch (error) { return Fail(error); }
 }
-module.exports = { Resolve, Profile, Info };
+// 動画の特定の場面（60秒付近）の1コマの場所（公式のプレビュー画像 videoshot の中）。view と videoshot だけを呼ぶ。options：{ url }。
+// 戻り値：{ cell: { sheet, x, y, width, height, time } } または { error }（プレビュー画像のない動画は error）
+async function Shots(options) {
+  try {
+    const video = ParseBilibili(options.url), request = Requester();
+    const details = ApiData(await request('/x/web-interface/view', ViewQuery(video)));
+    const page = (details.pages || []).find(p => p.page === video.part);
+    if (!page || !page.cid || !details.bvid) throw new Error('動画の情報を確認できません。');
+    const duration = Number(page.duration || details.duration) || 0;
+    const shot = ApiData(await request('/x/player/videoshot', { bvid: details.bvid, cid: page.cid, index: 1 }));
+    const cell = ShotCell(shot, FrameTarget(duration), duration);
+    if (!cell) throw new Error('この動画には、場面のプレビュー画像がありません。');
+    return { cell };
+  } catch (error) { return Fail(error); }
+}
+module.exports = { Resolve, Profile, Info, Shots };

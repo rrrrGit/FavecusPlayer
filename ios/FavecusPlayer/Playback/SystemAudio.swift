@@ -7,7 +7,7 @@ import MediaPlayer
 @MainActor
 protocol SystemAudioHooks: AnyObject {
     func activate()
-    func update(title: String?, position: Double, duration: Double, playing: Bool)
+    func update(title: String?, position: Double, duration: Double, playing: Bool, artwork: UIImage?)
     func clear()
 }
 
@@ -104,14 +104,25 @@ final class SystemAudio: SystemAudioHooks {
         return .success
     }
 
-    func update(title: String?, position: Double, duration: Double, playing: Bool) {
-        guard let title else { clear(); return }
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = [
+    /// ロック画面・コントロールセンターの表示。サムネイル（動画の場面）があれば、アートワークとして出す。
+    private var artworkSource: UIImage?
+    private var artworkItem: MPMediaItemArtwork?
+
+    func update(title: String?, position: Double, duration: Double, playing: Bool, artwork: UIImage?) {
+        guard let title else { artworkSource = nil; artworkItem = nil; clear(); return }
+        if artwork !== artworkSource {
+            artworkSource = artwork
+            // 要求の処理はメインスレッド以外で呼ばれるため、画像そのものを持たせる（画面の部品には触れない）
+            artworkItem = artwork.map { image in MPMediaItemArtwork(boundsSize: image.size) { _ in image } }
+        }
+        var info: [String: Any] = [
             MPMediaItemPropertyTitle: title,
             MPMediaItemPropertyPlaybackDuration: duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
             MPNowPlayingInfoPropertyPlaybackRate: playing ? 1.0 : 0.0
         ]
+        if let artworkItem { info[MPMediaItemPropertyArtwork] = artworkItem }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
     }
 
     func clear() {

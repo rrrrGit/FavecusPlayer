@@ -84,6 +84,8 @@ const CALLS = {
   BiliMd5: text => bilibili.Md5(text),
   BiliSign: (query, images, now) => bilibili.SignQuery(query, images, now),
   BiliMediaURL: raw => bilibili.MediaURL(raw),
+  BiliFrameTarget: duration => bilibili.FrameTarget(duration),
+  BiliShotCell: spec => bilibili.ShotCell(spec.shot, spec.target, spec.duration),
   BiliSelect: (info, kind, height) => bilibili.SelectStreams(info, kind, height),
   // 通信の順番：決まった応答を順に渡し、要求（endpoint・query）と最終結果を返す。
   BiliResolve: spec => {
@@ -210,9 +212,10 @@ const SyncVerifyCode = json => Json(syncRuntime.VerifyCode(JSON.parse(json)));
 const BiliResolveAsync = json => Json(biliRuntime.Resolve(JSON.parse(json)));
 const BiliProfile = () => Json(biliRuntime.Profile());
 const BiliInfoAsync = json => Json(biliRuntime.Info(JSON.parse(json)));
+const BiliShotsAsync = json => Json(biliRuntime.Shots(JSON.parse(json)));
 const QueueSync = json => JSON.stringify(libraryApp.QueueSync(JSON.parse(json)));
 const QueuePeek = json => JSON.stringify(libraryApp.QueuePeek(JSON.parse(json)));
 const TransferPrepare = json => JSON.stringify(libraryApp.TransferPrepare(JSON.parse(json)));
 const TransferImport = json => JSON.stringify(libraryApp.TransferImport(JSON.parse(json)));
 const TransferExport = json => JSON.stringify(libraryApp.TransferExport(JSON.parse(json)));
-module.exports = { RunCases, Observe, Bench, MediaKeys, LibraryOpen, LibraryApply, QueueStart, QueueMove, QueueSync, QueuePeek, SyncOpen, SyncEnable, SyncCycle, SyncUnblock, SyncChanged, SyncReset, SyncState, SyncValidate, SyncSendCode, SyncVerifyCode, BiliResolveAsync, BiliInfoAsync, BiliProfile, TransferPrepare, TransferImport, TransferExport };
+module.exports = { RunCases, Observe, Bench, MediaKeys, LibraryOpen, LibraryApply, QueueStart, QueueMove, QueueSync, QueuePeek, SyncOpen, SyncEnable, SyncCycle, SyncUnblock, SyncChanged, SyncReset, SyncState, SyncValidate, SyncSendCode, SyncVerifyCode, BiliResolveAsync, BiliInfoAsync, BiliShotsAsync, BiliProfile, TransferPrepare, TransferImport, TransferExport };

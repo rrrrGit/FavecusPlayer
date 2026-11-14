@@ -12922,6 +12922,7 @@
   "expect": {
    "text": "{\n  \"version\": 3,\n  \"identityVersion\": 2,\n  \"videoAliases\": [],\n  \"activePlaylistId\": \"00000001-0000-4000-8000-000000000001\",\n  \"rootPlaylistIds\": [\n    \"00000001-0000-4000-8000-000000000090\",\n    \"00000001-0000-4000-8000-000000000001\",\n    \"00000001-0000-4000-8000-000000000003\"\n  ],\n  \"playlists\": [\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000090\",\n      \"name\": \"親\",\n      \"icon\": \"\",\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000001\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"title\": \"既存\",\n          \"addedAt\": \"\",\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\n        }\n      ],\n      \"childIds\": [],\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000001\",\n      \"childIds\": [\n        \"00000001-0000-4000-8000-000000000002\"\n      ],\n      \"icon\": \"\",\n      \"name\": \"親（取り込み1）\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": [\n        {\n          \"id\": \"cccccccc-0000-4000-8000-000000000003\",\n          \"title\": \"曲1\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1ffffffff1\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000002\",\n          \"title\": \"ローカルA\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\n          \"type\": \"local\",\n          \"fileName\": \"cccccccc-0000-4000-8000-000000000001.mp3\"\n        }\n      ]\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000002\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"子\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": false,\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000003\",\n          \"title\": \"ローカルB\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\n          \"type\": \"local\",\n          \"fileName\": \"cccccccc-0000-4000-8000-000000000002.flac\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000004\",\n          \"title\": \"曲4\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000004\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1ffffffff4\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff4/\"\n        }\n      ]\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000003\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"独立\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": []\n    }\n  ]\n}",
    "imported": 3,
+   "skippedIdentical": 0,
    "missing": 1,
    "omitted": 0,
    "files": [
@@ -13111,6 +13112,7 @@
   "expect": {
    "text": "{\n  \"version\": 3,\n  \"identityVersion\": 2,\n  \"videoAliases\": [],\n  \"activePlaylistId\": \"00000001-0000-4000-8000-000000000002\",\n  \"rootPlaylistIds\": [\n    \"00000001-0000-4000-8000-000000000090\",\n    \"00000001-0000-4000-8000-000000000001\"\n  ],\n  \"playlists\": [\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000090\",\n      \"name\": \"親\",\n      \"icon\": \"\",\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000001\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"title\": \"既存\",\n          \"addedAt\": \"\",\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\n        }\n      ],\n      \"childIds\": [],\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000001\",\n      \"childIds\": [\n        \"00000001-0000-4000-8000-000000000002\"\n      ],\n      \"icon\": \"\",\n      \"name\": \"親（取り込み1）\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": []\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000002\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"子\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": false,\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000003\",\n          \"title\": \"ローカルB\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\n          \"type\": \"local\",\n          \"fileName\": \"cccccccc-0000-4000-8000-000000000001.flac\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000004\",\n          \"title\": \"曲4\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000004\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1ffffffff4\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff4/\"\n        }\n      ]\n    }\n  ]\n}",
    "imported": 2,
+   "skippedIdentical": 0,
    "missing": 1,
    "omitted": 0,
    "files": [],
@@ -13297,6 +13299,7 @@
   "expect": {
    "text": "{\n  \"version\": 3,\n  \"identityVersion\": 2,\n  \"videoAliases\": [],\n  \"activePlaylistId\": \"00000001-0000-4000-8000-000000000001\",\n  \"rootPlaylistIds\": [\n    \"00000001-0000-4000-8000-000000000090\"\n  ],\n  \"playlists\": [\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000090\",\n      \"name\": \"親\",\n      \"icon\": \"\",\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000001\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"title\": \"既存\",\n          \"addedAt\": \"\",\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\n        }\n      ],\n      \"childIds\": [\n        \"00000001-0000-4000-8000-000000000001\",\n        \"00000001-0000-4000-8000-000000000003\"\n      ],\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"2026-11-13T09:00:00.000Z\",\n      \"includeInAll\": true\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000001\",\n      \"childIds\": [\n        \"00000001-0000-4000-8000-000000000002\"\n      ],\n      \"icon\": \"\",\n      \"name\": \"親（取り込み1）\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": [\n        {\n          \"id\": \"cccccccc-0000-4000-8000-000000000003\",\n          \"title\": \"曲1\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1ffffffff1\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000002\",\n          \"title\": \"ローカルA\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\n          \"type\": \"local\",\n          \"fileName\": \"cccccccc-0000-4000-8000-000000000001.mp3\"\n        }\n      ]\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000002\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"子\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": false,\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000003\",\n          \"title\": \"ローカルB\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\n          \"type\": \"local\",\n          \"fileName\": \"cccccccc-0000-4000-8000-000000000002.flac\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000004\",\n          \"title\": \"曲4\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000004\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1ffffffff4\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff4/\"\n        }\n      ]\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000003\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"独立\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": []\n    }\n  ]\n}",
    "imported": 3,
+   "skippedIdentical": 0,
    "missing": 1,
    "omitted": 0,
    "files": [
@@ -13662,6 +13665,7 @@
   "expect": {
    "text": "{\n  \"version\": 3,\n  \"identityVersion\": 2,\n  \"videoAliases\": [],\n  \"activePlaylistId\": \"00000001-0000-4000-8000-000000000001\",\n  \"rootPlaylistIds\": [\n    \"00000001-0000-4000-8000-000000000090\",\n    \"00000001-0000-4000-8000-000000000001\",\n    \"00000001-0000-4000-8000-000000000003\"\n  ],\n  \"playlists\": [\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000090\",\n      \"name\": \"親\",\n      \"icon\": \"\",\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000001\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"title\": \"既存\",\n          \"addedAt\": \"\",\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\n        }\n      ],\n      \"childIds\": [],\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000001\",\n      \"childIds\": [\n        \"00000001-0000-4000-8000-000000000002\"\n      ],\n      \"icon\": \"\",\n      \"name\": \"親（取り込み1）\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": [\n        {\n          \"id\": \"cccccccc-0000-4000-8000-000000000003\",\n          \"title\": \"曲1\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000001\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1ffffffff1\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff1/\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000002\",\n          \"title\": \"ローカルA\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000002\",\n          \"type\": \"local\",\n          \"fileName\": \"cccccccc-0000-4000-8000-000000000001.mp3\"\n        }\n      ]\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000002\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"子\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": false,\n      \"entries\": [\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000003\",\n          \"title\": \"ローカルB\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000003\",\n          \"type\": \"local\",\n          \"fileName\": \"cccccccc-0000-4000-8000-000000000002.flac\"\n        },\n        {\n          \"id\": \"00000002-0000-4000-8000-000000000004\",\n          \"title\": \"曲4\",\n          \"addedAt\": \"\",\n          \"mediaId\": \"00000003-0000-4000-8000-000000000004\",\n          \"type\": \"bilibili\",\n          \"videoId\": \"BV1ffffffff4\",\n          \"part\": 1,\n          \"url\": \"https://www.bilibili.com/video/BV1ffffffff4/\"\n        }\n      ]\n    },\n    {\n      \"id\": \"00000001-0000-4000-8000-000000000003\",\n      \"childIds\": [],\n      \"icon\": \"\",\n      \"name\": \"独立\",\n      \"createdAt\": \"2026-11-01T00:00:00.000Z\",\n      \"lastAddedAt\": \"\",\n      \"includeInAll\": true,\n      \"entries\": []\n    }\n  ]\n}",
    "imported": 3,
+   "skippedIdentical": 0,
    "missing": 0,
    "omitted": 2,
    "files": [],
@@ -17941,5 +17945,155 @@
     "videoAliases": []
    }
   }
+ },
+ {
+  "name": "bilibili frame target: 60 seconds, or 30 percent of a short video",
+  "call": "BiliFrameTarget",
+  "args": [
+   300
+  ],
+  "expect": 60
+ },
+ {
+  "name": "bilibili frame target: short video",
+  "call": "BiliFrameTarget",
+  "args": [
+   20
+  ],
+  "expect": 6
+ },
+ {
+  "name": "bilibili shot cell: picks the preview cell nearest to the target on the right sheet",
+  "call": "BiliShotCell",
+  "args": [
+   {
+    "shot": {
+     "index": [
+      0,
+      10,
+      20,
+      30,
+      40,
+      50,
+      60,
+      70,
+      80,
+      90,
+      100,
+      110
+     ],
+     "image": [
+      "//i0.hdslb.com/bfs/videoshot/a.jpg",
+      "//i0.hdslb.com/bfs/videoshot/b.jpg"
+     ],
+     "img_x_len": 5,
+     "img_y_len": 2,
+     "img_x_size": 160,
+     "img_y_size": 90
+    },
+    "target": 60,
+    "duration": 400
+   }
+  ],
+  "expect": {
+   "sheet": "https://i0.hdslb.com/bfs/videoshot/a.jpg",
+   "x": 160,
+   "y": 90,
+   "width": 160,
+   "height": 90,
+   "time": 60
+  }
+ },
+ {
+  "name": "bilibili shot cell: later cell lands on the second sheet",
+  "call": "BiliShotCell",
+  "args": [
+   {
+    "shot": {
+     "index": [
+      0,
+      10,
+      20,
+      30,
+      40,
+      50,
+      60,
+      70,
+      80,
+      90,
+      100,
+      110
+     ],
+     "image": [
+      "//i0.hdslb.com/bfs/videoshot/a.jpg",
+      "//i0.hdslb.com/bfs/videoshot/b.jpg"
+     ],
+     "img_x_len": 5,
+     "img_y_len": 2,
+     "img_x_size": 160,
+     "img_y_size": 90
+    },
+    "target": 60,
+    "duration": 100
+   }
+  ],
+  "expect": {
+   "sheet": "https://i0.hdslb.com/bfs/videoshot/a.jpg",
+   "x": 0,
+   "y": 90,
+   "width": 160,
+   "height": 90,
+   "time": 50
+  }
+ },
+ {
+  "name": "bilibili shot cell: refuses a non-Bilibili image host and a malformed preview",
+  "call": "BiliShotCell",
+  "args": [
+   {
+    "shot": {
+     "index": [
+      0,
+      10,
+      20,
+      30,
+      40,
+      50,
+      60,
+      70,
+      80,
+      90,
+      100,
+      110
+     ],
+     "image": [
+      "https://evil.example.com/a.jpg",
+      "https://evil.example.com/b.jpg"
+     ],
+     "img_x_len": 5,
+     "img_y_len": 2,
+     "img_x_size": 160,
+     "img_y_size": 90
+    },
+    "target": 60,
+    "duration": 400
+   }
+  ],
+  "expect": null
+ },
+ {
+  "name": "bilibili shot cell: malformed preview is null",
+  "call": "BiliShotCell",
+  "args": [
+   {
+    "shot": {
+     "index": [],
+     "image": []
+    },
+    "target": 60,
+    "duration": 400
+   }
+  ],
+  "expect": null
  }
 ]

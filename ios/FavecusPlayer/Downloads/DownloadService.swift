@@ -31,6 +31,7 @@ final class DownloadService: ObservableObject, MediaProvider {
     private var jobRecords: [String: String] = [:] // ジョブID → 記録ID（進み具合の表示用）
     private var fetching: [String: Task<URL, Error>] = [:]
     private var batchTask: Task<Void, Never>?
+    private var localFrameTask: Task<Void, Never>?
     private var batchStopped = false
     /// プレイリスト単位の保存の進み具合（保存を始めた曲数／全体）。実行していなければnil。
     @Published private(set) var batch: (done: Int, total: Int)?
@@ -112,10 +113,59 @@ final class DownloadService: ObservableObject, MediaProvider {
     /// 曲を追加するときの動画情報（曲名・長さ）。
     func videoInfo(url: String) async throws -> VideoInfo { try await bilibili.info(url: url) }
 
-    /// 追加した動画のサムネイルを取得して残す（hdslbのhttpsのみ。失敗しても曲の追加には影響しない）。
+    /// 追加した動画のサムネイル（動画の特定の場面）を用意する。失敗しても曲の追加には影響しない。
     func fetchThumbnail(forVideoURL url: String, thumbnailURL: String?) async {
-        guard let artwork, let thumbnailURL, let key = await key(for: EntryItem(id: "", title: "", type: "bilibili", fileName: nil, url: url)) else { return }
-        await artwork.fetch(key: key, urlString: thumbnailURL)
+        guard let key = await key(for: EntryItem(id: "", title: "", type: "bilibili", fileName: nil, url: url)) else { return }
+        await ensureFrame(key: key, url: url, coverURL: thumbnailURL)
+    }
+
+    /// 曲のサムネイルを、動画の特定の場面（60秒付近）で用意する。優先順：保存済みの動画ファイル → 公式のプレビュー画像（videoshot）→（場面が得られない動画だけ）表紙の画像。
+    /// 拒否・制限（ログイン要・混雑など）が出たときは、続けて別の通信をしない。
+    /// 戻り値：制限（ログイン要・混雑など）が出て、続けて要求してはいけないとき true。
+    @discardableResult
+    func ensureFrame(key: String, url: String, coverURL: String?) async -> Bool {
+        guard let artwork, !artwork.hasFrame(for: key) else { return false }
+        if let file = savedFile(key: key, kind: "video"), await artwork.makeFrame(fromFile: file, key: key) { return false }
+        do {
+            let cell = try await bilibili.shotCell(url: url)
+            if await artwork.makeFrame(fromSheet: cell, key: key) { return false }
+        } catch {
+            if (error as? BilibiliError)?.stopBatch == true { return true }
+        }
+        await artwork.fetch(key: key, urlString: coverURL)
+        return false
+    }
+
+    /// このリストの曲のサムネイルを、順に取得する（1秒ずつ間隔をあけ、制限が出たら止める。利用者が押したときだけ）。
+    func ensureFrames(entries: [EntryItem]) async {
+        guard artwork != nil else { return }
+        for entry in entries where entry.type == "bilibili" {
+            guard let url = entry.url, let key = entryKeys[entry.id], artwork?.hasFrame(for: key) == false else { continue }
+            if await ensureFrame(key: key, url: url, coverURL: nil) {
+                message = "サムネイルの取得を止めました：Bilibiliから制限の応答がありました。時間を置いてください。"
+                return
+            }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+    }
+
+    /// ローカルの動画ファイルのサムネイル（目標の場面）を、順に作る。映像のないファイル（音声だけ）は、調べ直さない。
+    func ensureLocalFrames(entries: [EntryItem], mediaDirectory: URL) {
+        guard let artwork else { return }
+        localFrameTask?.cancel()
+        let targets = entries.filter { $0.type == "local" && $0.fileName != nil }
+        guard !targets.isEmpty else { return }
+        localFrameTask = Task {
+            for entry in targets {
+                if Task.isCancelled { break }
+                guard let name = entry.fileName else { continue }
+                let key = "local:" + name
+                let file = mediaDirectory.appendingPathComponent(name)
+                if artwork.hasFrame(for: key) || artwork.knownWithoutFrame(key) || !FileManager.default.fileExists(atPath: file.path) { continue }
+                _ = await artwork.makeFrame(fromFile: file, key: key)
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+        }
     }
 
     /// 保存済みの動画ファイル（再生画面の「動画」表示）。
@@ -124,14 +174,67 @@ final class DownloadService: ObservableObject, MediaProvider {
         return savedFile(key: key, kind: "video")
     }
 
+    /// 動画のURLの一覧に対する同期用メディアキー（共通JS）。求められないURLはnil。
+    func mediaKeys(forURLs urls: [String]) async -> [String?] {
+        guard !urls.isEmpty else { return [] }
+        do {
+            let request = String(decoding: try JSONSerialization.data(withJSONObject: ["entries": urls.map { ["url": $0] }, "aliases": [Any]()]), as: UTF8.self)
+            guard let response = try JSONSerialization.jsonObject(with: Data(try await core.callAsync("MediaKeys", request).utf8)) as? [String: Any], let keys = response["keys"] as? [Any], keys.count == urls.count else { return urls.map { _ in nil } }
+            return keys.map { $0 as? String }
+        } catch { return urls.map { _ in nil } }
+    }
+
+    /// ZIPに同梱された保存済みの動画・音声を取り込む：ライブラリにある曲（取り込んだ曲・すでにあって保存のない曲）の分だけ。
+    /// 端末内へ取り出して再生できるか確かめ、保存先へ移してから、記録（完了）を保存する。読み取れないものは取り込まず、数えて知らせる。
+    func importDownloaded(from zipURL: URL, records: [ImportDownload], entries: [EntryItem]) async -> (imported: Int, failed: Int) {
+        guard started else { return (0, records.count) }
+        await refreshKeys(entries: entries)
+        let wanted = Set(entryKeys.values)
+        let keys = await mediaKeys(forURLs: records.map(\.url))
+        var imported = 0, failed = 0
+        for (record, key) in zip(records, keys) {
+            guard let key, wanted.contains(key) else { continue }
+            if savedFile(key: key, kind: record.kind) != nil || self.record(key: key, kind: record.kind)?.state.inProgress == true { continue }
+            let staging = directory.appendingPathComponent(".dl-import-" + UUID().uuidString, isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: staging) }
+            do {
+                try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+                let name = UUID().uuidString.lowercased() + (record.kind == "video" ? ".mp4" : ".m4a")
+                let staged = staging.appendingPathComponent(name)
+                let media = record.media
+                try await Task.detached {
+                    let zip = try ZipArchive(source: try FileSource(url: zipURL))
+                    try zip.extract(media, to: staged)
+                }.value
+                let duration = try await MediaProcessor.validate(file: staged, needsVideo: record.kind == "video", expectedDuration: record.duration)
+                let destination = directory.appendingPathComponent(name)
+                try FileManager.default.moveItem(at: staged, to: destination)
+                var saved = DeviceMediaRecord(key: key, kind: record.kind, state: .completed)
+                saved.fileName = name
+                saved.quality = record.height
+                saved.duration = duration
+                saved.bytes = record.bytes
+                if record.kind == "video", let artwork {
+                    let length = record.duration
+                    Task { await artwork.makeFrame(fromFile: destination, key: key, duration: length, force: true) }
+                }
+                if await save(saved) { imported += 1 } else { try? FileManager.default.removeItem(at: destination); failed += 1 }
+            } catch { failed += 1 }
+        }
+        return (imported, failed)
+    }
+
     /// 一覧の曲のキーを、共通JSで1回にまとめて求める。
     func refreshKeys(entries: [EntryItem]) async {
+        // ローカルのファイルの曲：サムネイル用のキー（ファイル名）。Bilibiliの曲は、共通JSのメディアキー
+        var locals: [String: String] = [:]
+        for entry in entries where entry.type == "local" { if let name = entry.fileName { locals[entry.id] = "local:" + name } }
         let targets = entries.filter { $0.type == "bilibili" && $0.url != nil }
-        guard !targets.isEmpty else { if !entryKeys.isEmpty { entryKeys = [:] }; return }
+        guard !targets.isEmpty else { if entryKeys != locals { entryKeys = locals }; return }
         do {
             let request = String(decoding: try JSONSerialization.data(withJSONObject: ["entries": targets.map { ["url": $0.url ?? ""] }, "aliases": [Any]()]), as: UTF8.self)
             guard let response = try JSONSerialization.jsonObject(with: Data(try await core.callAsync("MediaKeys", request).utf8)) as? [String: Any], let keys = response["keys"] as? [Any], keys.count == targets.count else { return }
-            var result: [String: String] = [:]
+            var result = locals
             for (entry, key) in zip(targets, keys) { if let key = key as? String { result[entry.id] = key } }
             if result != entryKeys { entryKeys = result }
         } catch {}
@@ -248,7 +351,7 @@ final class DownloadService: ObservableObject, MediaProvider {
         do {
             let media = try await bilibili.resolve(url: url, kind: kind)
             try Task.checkCancellation()
-            if let artwork { Task { await artwork.fetch(key: key, urlString: media.thumbnailURL) } }
+            Task { await self.ensureFrame(key: key, url: url, coverURL: media.thumbnailURL) }
             guard media.layout == "dash" || media.layout == "muxed" else { throw DownloadError.message("この形式（分割された配信）は、保存に対応していません。") }
             let expected = media.streams.reduce(0) { $0 + $1.size }
             try Self.ensureSpace(for: Int64(expected), at: directory)
@@ -360,6 +463,11 @@ final class DownloadService: ObservableObject, MediaProvider {
             record.duration = duration
             record.bytes = (try? FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? NSNumber)?.int64Value ?? 0
             record.message = nil
+            // 動画を保存できたら、サムネイルを、そのファイルの場面（高画質）に置き換える
+            if job.kind == "video", let artwork {
+                let key = job.key, length = job.duration
+                Task { await artwork.makeFrame(fromFile: destination, key: key, duration: length, force: true) }
+            }
         } catch {
             if (error as? DownloadError)?.isCancelled == true || error is CancellationError {
                 record.state = .cancelled
@@ -431,7 +539,7 @@ final class DownloadService: ObservableObject, MediaProvider {
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: staging) }
         let media = try await bilibili.resolve(url: url, kind: "audio")
-        if let artwork { Task { await artwork.fetch(key: key, urlString: media.thumbnailURL) } }
+        Task { await self.ensureFrame(key: key, url: url, coverURL: media.thumbnailURL) }
         try Self.ensureSpace(for: Int64(media.streams.reduce(0) { $0 + $1.size }), at: cacheDirectory)
         let files = try await downloader.download(streams: media.streams, into: staging) { _ in }
         guard let first = files.first else { throw DownloadError.message("配信先から取得できません。") }

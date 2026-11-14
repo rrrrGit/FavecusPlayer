@@ -83,8 +83,12 @@ final class AppEnvironment: ObservableObject {
             downloadService?.artwork = artworkStore
             artwork = artworkStore
             downloads = downloadService
+            if let downloadService { importer?.downloadImporter = { zip, records, entries in await downloadService.importDownloaded(from: zip, records: records, entries: entries) } }
             observer = ServicesObserver(downloads: downloadService, artwork: artworkStore)
-            player = PlaybackEngine(core: core, store: store, backend: AVPlayerBackend(), provider: downloadService, makeSystem: { SystemAudio(controls: $0) })
+            let engine = PlaybackEngine(core: core, store: store, backend: AVPlayerBackend(), provider: downloadService, makeSystem: { SystemAudio(controls: $0) })
+            let artworkLookup = downloadService
+            engine.artworkProvider = { entry in artworkStore.image(for: artworkLookup?.entryKeys[entry.id]) }
+            player = engine
             // 同期は、再生などとは別のJavaScriptCoreで動かす。Keychainが使えない環境でも、起動は妨げない（同期の画面にエラーとして出る）。
             let vault = KeychainVault()
             let host = StoreSyncHost(store: store, directory: store.syncDirectory, vault: vault)

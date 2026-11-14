@@ -63,7 +63,7 @@ async function WindowsJoin(w) {
 }
 
 test('an iPhone device starting from the untouched default library adopts the Windows lists and never duplicates the default list', async () => {
-  const server = FakeServer(), w = WindowsDevice(server), ios = IosDevice(server);
+  const server = FakeServer({ now: Date.now() }), w = WindowsDevice(server), ios = IosDevice(server);
   w.store.Apply({ type: 'create', name: 'Windowsのリスト', select: false }); w.store.Apply({ type: 'delete', playlistId: w.store.data.playlists.find(p => p.name === 'お気に入り').id });
   assert.equal((await WindowsJoin(w)).ok, true);
   const first = await Join(server, ios);
@@ -73,7 +73,7 @@ test('an iPhone device starting from the untouched default library adopts the Wi
 });
 
 test('edits on both devices converge, including a concurrent edit while the other side is away', async () => {
-  const server = FakeServer(), w = WindowsDevice(server), ios = IosDevice(server);
+  const server = FakeServer({ now: Date.now() }), w = WindowsDevice(server), ios = IosDevice(server);
   w.store.Apply({ type: 'create', name: 'W親', select: false }); await WindowsJoin(w); await w.service.SyncNow();
   await Join(server, ios);
   const parent = ios.library().playlists.find(p => p.name === 'W親');
@@ -86,7 +86,7 @@ test('edits on both devices converge, including a concurrent edit while the othe
 });
 
 test('state written by the runtime restores the device after a restart, and an unknown version or broken text blocks without touching anything', async () => {
-  const server = FakeServer(), ios = IosDevice(server, (() => { const l = EmptyLibrary(); l.playlists[0].name = '旅行'; return l; })());
+  const server = FakeServer({ now: Date.now() }), ios = IosDevice(server, (() => { const l = EmptyLibrary(); l.playlists[0].name = '旅行'; return l; })());
   await Join(server, ios);
   const saved = ios.state, session = ios.session;
   const reopened = await Runtime.Open({ stateText: saved, config: ios.config, session, deviceId: 'ios-test' });
@@ -98,7 +98,7 @@ test('state written by the runtime restores the device after a restart, and an u
 });
 
 test('a recovered store or a library that suddenly looks empty blocks sync instead of sending deletions', async () => {
-  const server = FakeServer(), w = WindowsDevice(server), ios = IosDevice(server, (() => { const l = EmptyLibrary(); l.playlists[0].name = '旅行'; return l; })());
+  const server = FakeServer({ now: Date.now() }), w = WindowsDevice(server), ios = IosDevice(server, (() => { const l = EmptyLibrary(); l.playlists[0].name = '旅行'; return l; })());
   await Join(server, ios);
   const saved = ios.state, session = ios.session;
   ios.edit({ type: 'create', name: '二つ目', select: false }); assert.equal((await Runtime.Cycle()).ok, true);
@@ -116,7 +116,7 @@ test('a recovered store or a library that suddenly looks empty blocks sync inste
 });
 
 test('a library change during the sync is kept and applied together with the received changes', async () => {
-  const server = FakeServer(), w = WindowsDevice(server), ios = IosDevice(server);
+  const server = FakeServer({ now: Date.now() }), w = WindowsDevice(server), ios = IosDevice(server);
   w.store.Apply({ type: 'create', name: 'Wの先', select: false }); await WindowsJoin(w); await w.service.SyncNow();
   await Join(server, ios);
   w.store.Apply({ type: 'create', name: 'リモートの追加', select: false }); await w.service.SyncNow();
@@ -128,7 +128,7 @@ test('a library change during the sync is kept and applied together with the rec
 });
 
 test('sign-in errors and offline failures are reported without changing the library or losing the outbox', async () => {
-  const server = FakeServer(), ios = IosDevice(server);
+  const server = FakeServer({ now: Date.now() }), ios = IosDevice(server);
   assert.equal((await Runtime.SendCode({ config: ios.config, email: 'bad' })).error !== undefined, true);
   const session = await SignIn(server, ios);
   await Runtime.Open({ stateText: null, config: ios.config, session, deviceId: 'ios-test' }); await Runtime.Enable({ origin: { url: URL_, userId: session.userId } });
@@ -139,7 +139,7 @@ test('sign-in errors and offline failures are reported without changing the libr
 });
 
 test('a block survives a restart and an edit, and is lifted only by the user: restore from the server, or keep this device', async () => {
-  const server = FakeServer(), w = WindowsDevice(server), ios = IosDevice(server, (() => { const l = EmptyLibrary(); l.playlists[0].name = '旅行'; return l; })());
+  const server = FakeServer({ now: Date.now() }), w = WindowsDevice(server), ios = IosDevice(server, (() => { const l = EmptyLibrary(); l.playlists[0].name = '旅行'; return l; })());
   await Join(server, ios); ios.edit({ type: 'create', name: '二つ目', select: false }); assert.equal((await Runtime.Cycle()).ok, true);
   await WindowsJoin(w);
   const session = ios.session, synced = ios.state;
@@ -157,7 +157,7 @@ test('a block survives a restart and an edit, and is lifted only by the user: re
 });
 
 test('keeping this device after a block sends the deletions only because the user chose it', async () => {
-  const server = FakeServer(), w = WindowsDevice(server), ios = IosDevice(server, (() => { const l = EmptyLibrary(); l.playlists[0].name = '作業用'; return l; })());
+  const server = FakeServer({ now: Date.now() }), w = WindowsDevice(server), ios = IosDevice(server, (() => { const l = EmptyLibrary(); l.playlists[0].name = '作業用'; return l; })());
   await Join(server, ios); ios.edit({ type: 'create', name: '作業用2', select: false }); assert.equal((await Runtime.Cycle()).ok, true); await WindowsJoin(w);
   const session = ios.session, synced = ios.state;
   ios.text = Pretty(EmptyLibrary()); await Runtime.Open({ stateText: synced, config: ios.config, session, deviceId: 'ios-test' });
@@ -168,7 +168,7 @@ test('keeping this device after a block sends the deletions only because the use
 });
 
 test('an edit that lands between reading the library and applying the result is not lost', async () => {
-  const server = FakeServer(), w = WindowsDevice(server), ios = IosDevice(server);
+  const server = FakeServer({ now: Date.now() }), w = WindowsDevice(server), ios = IosDevice(server);
   w.store.Apply({ type: 'create', name: 'W親', select: false }); await WindowsJoin(w); await w.service.SyncNow();
   await Join(server, ios);
   w.store.Apply({ type: 'create', name: 'リモートの追加', select: false }); await w.service.SyncNow();
@@ -186,7 +186,7 @@ test('an edit that lands between reading the library and applying the result is 
 });
 
 test('a changed connection or account stops the cycle before any network request', async () => {
-  const server = FakeServer(), ios = IosDevice(server);
+  const server = FakeServer({ now: Date.now() }), ios = IosDevice(server);
   await Join(server, ios);
   const before = server.requests.length;
   let r = await Runtime.Cycle({ origin: { url: 'https://zzzzzzzz.supabase.co', userId: ios.session.userId } });

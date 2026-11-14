@@ -1,6 +1,7 @@
 import AVFoundation
 import Combine
 import Foundation
+import UIKit
 
 /// 再生に使う音声ファイルを用意する（Bilibiliの曲：保存済みならそのファイル、なければ一時ファイルへ取得）。失敗は理由つきで投げる（回避しない）。
 @MainActor
@@ -55,6 +56,9 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     private var generation = 0
     private var libraryObserver: AnyCancellable?
     private let provider: MediaProvider?
+    /// ロック画面に出す、曲のサムネイル（アプリが設定する）。
+    var artworkProvider: ((EntryItem) -> UIImage?)?
+    private var artworkCache: (id: String, image: UIImage)?
     private var audioFile: URL?
     private var videoFile: URL?
     private var loadedFile: URL?
@@ -347,10 +351,19 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         self.duration = duration
     }
 
+    /// 再生中の曲のサムネイル。画像が見つかるまでは、毎回探す（見つかったら、曲が変わるまで覚える）。
+    private func currentArtwork() -> UIImage? {
+        guard let current else { artworkCache = nil; return nil }
+        if let artworkCache, artworkCache.id == current.entryId { return artworkCache.image }
+        guard let entry = entry(current.entryId), let image = artworkProvider?(entry) else { return nil }
+        artworkCache = (current.entryId, image)
+        return image
+    }
+
     private func refresh() {
         isPlaying = backend.isPlaying
         position = backend.position
         duration = backend.duration
-        system?.update(title: current?.title, position: position, duration: duration, playing: isPlaying)
+        system?.update(title: current?.title, position: position, duration: duration, playing: isPlaying, artwork: currentArtwork())
     }
 }
