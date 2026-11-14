@@ -27,5 +27,3 @@ test('a value applied from sync keeps the time it came with', t => {
   store.Apply({ type: 'settings', settings: { shuffle: true } }); // 別の設定を変えても、時刻は保たれる
   assert.deepEqual([store.data.settings.weightedShuffle, store.data.settings.weightedShuffleAt], [false, 12345]);
 });
-  assert.deepEqual([store.data.settings.weightedShuffle, store.data.settings.weightedShuffleAt], [false, 12345], '不正な値は無視する');
-});
