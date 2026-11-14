@@ -71,7 +71,6 @@ struct ImportSheet: View {
             if outcome.copied > 0 { Text("ローカル曲のメディア \(outcome.copied)件を保存しました") }
             if outcome.missing > 0 { Text("実体のないローカル曲が \(outcome.missing)件あります（情報のみ取り込みました）").font(.footnote) }
             if outcome.omitted > 0 { Text("情報のみのため、ローカル曲 \(outcome.omitted)件は再生できません").font(.footnote) }
-            Button("エラーの内容をコピー") { Clipboard.copy(message) }.padding(.top, 8)
             Button("閉じる") { coordinator.cancel(); isPresented = false }.padding(.top)
         }
         .padding()
@@ -83,6 +82,7 @@ struct ImportSheet: View {
             Text("取り込めませんでした").font(.headline)
             Text(message).font(.footnote).multilineTextAlignment(.center)
             Text("保存データは変更していません。").font(.footnote).foregroundStyle(.secondary)
+            Button("エラーの内容をコピー") { Clipboard.copy(message) }.padding(.top, 8)
             Button("閉じる") { coordinator.cancel(); isPresented = false }.padding(.top)
         }
         .padding()
