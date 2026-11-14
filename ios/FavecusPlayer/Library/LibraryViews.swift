@@ -472,9 +472,9 @@ private struct PlaylistDetail: View {
             .background(RoundedRectangle(cornerRadius: 8).fill(Theme.background))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.controlLine, lineWidth: 1))
             HStack(spacing: 8) {
-                Button { withAnimation { editMode = editing ? .inactive : .active } } label: { Text(editing ? "並べ替えを終わる" : "並べ替え").frame(maxWidth: .infinity) }
+                Button { withAnimation { editMode = editing ? .inactive : .active } } label: { Text(editing ? "並べ替えを終わる" : "並べ替え").lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity) }
                     .buttonStyle(SecondaryButtonStyle())
-                Button { play(shuffled: true) } label: { Label("シャッフル再生", systemImage: "shuffle").frame(maxWidth: .infinity) }
+                Button { play(shuffled: true) } label: { Label("シャッフル再生", systemImage: "shuffle").lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity) }
                     .buttonStyle(TintedButtonStyle(color: Theme.accent, fill: Color(hex: 0x2A2440)))
                 Button { play(shuffled: false) } label: { Label("再生", systemImage: "play.fill").frame(maxWidth: .infinity) }
                     .buttonStyle(TintedButtonStyle(color: Theme.mint, fill: Color(hex: 0x1F2C2C)))
