@@ -170,7 +170,7 @@ jobs:
           DIR="$DATA/Library/Application Support/FavecusPlayer"
           mkdir -p "$DIR"
           node ../scripts/demo-library.cjs "$DIR/library.json" "$DIR/downloads.json" "$DIR/thumbnails"
-          mkdir -p "$DIR/downloads"; : > "$DIR/downloads/demo-audio-1.m4a"; : > "$DIR/downloads/demo-video-2.mp4"
+          mkdir -p "$DIR/downloads"; : > "$DIR/downloads/demo-audio-1.m4a"; : > "$DIR/downloads/demo-video-2.mp4"; : > "$DIR/downloads/demo-audio-5.m4a"
           shot() { # 名前 起動引数...
             NAME=$1; shift
             xcrun simctl launch "$SIM_UDID" dev.favecus.player "$@" > /dev/null

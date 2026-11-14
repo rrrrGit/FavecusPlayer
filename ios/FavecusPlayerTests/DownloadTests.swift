@@ -424,4 +424,67 @@ final class DownloadTests: XCTestCase {
         XCTAssertNil(service2.savedFile(key: key, kind: "video"))
         XCTAssertNotNil(service2.savedFile(key: key, kind: "audio"), "音声の保存は残る")
     }
+
+    // MARK: 保存タブの表示と更新（v0.7.1）
+
+    func testClearingProblemsRemovesOnlyFailedAndCancelledRecords() async throws {
+        let media = directory.appendingPathComponent("downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: media, withIntermediateDirectories: true)
+        try Data([1]).write(to: media.appendingPathComponent("done.m4a"))
+        let catalog = DownloadCatalog(url: directory.appendingPathComponent("downloads.json"), mediaDirectory: media)
+        try await catalog.upsert(DeviceMediaRecord(key: "k1", kind: "audio", state: .failed))
+        try await catalog.upsert(DeviceMediaRecord(key: "k2", kind: "video", state: .cancelled))
+        try await catalog.upsert(DeviceMediaRecord(key: "k3", kind: "audio", state: .downloading))
+        var done = DeviceMediaRecord(key: "k4", kind: "audio", state: .completed)
+        done.fileName = "done.m4a"
+        try await catalog.upsert(done)
+        let removed = try await catalog.removeProblems()
+        XCTAssertEqual(removed, 2)
+        let failed = await catalog.record(key: "k1", kind: "audio"), cancelled = await catalog.record(key: "k2", kind: "video")
+        let running = await catalog.record(key: "k3", kind: "audio"), saved = await catalog.record(key: "k4", kind: "audio")
+        XCTAssertNil(failed)
+        XCTAssertNil(cancelled)
+        XCTAssertEqual(running?.state, .downloading)
+        XCTAssertEqual(saved?.state, .completed)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: media.appendingPathComponent("done.m4a").path), "保存したファイルは消さない")
+    }
+
+    func testAFailureIsNotShownForASongWhoseOtherFormatIsSavedAndExpiresAfterAWhile() async throws {
+        let audio = try makeAudio(seconds: 2)
+        let (service, catalog) = try environment(Fixture(audio: audio))
+        try FileManager.default.createDirectory(at: service.directory, withIntermediateDirectories: true)
+        try Data([1]).write(to: service.directory.appendingPathComponent("a.m4a"))
+        var failedVideo = DeviceMediaRecord(key: "only-failed", kind: "video", state: .failed)
+        failedVideo.message = "結合に失敗しました"
+        try await catalog.upsert(failedVideo)
+        failedVideo.key = "audio-saved"
+        try await catalog.upsert(failedVideo)
+        var saved = DeviceMediaRecord(key: "audio-saved", kind: "audio", state: .completed)
+        saved.fileName = "a.m4a"
+        saved.bytes = 1
+        try await catalog.upsert(saved)
+        await service.start()
+        XCTAssertEqual(service.problemStatus(key: "only-failed"), "保存に失敗")
+        XCTAssertNil(service.problemStatus(key: "audio-saved"), "もう一方の形式が保存済みなら、失敗を出さない")
+        let record = try XCTUnwrap(service.record(key: "only-failed", kind: "video"))
+        XCTAssertTrue(service.isRecentProblem(record))
+        XCTAssertFalse(service.isRecentProblem(record, now: Date().addingTimeInterval(DownloadService.problemLifetime + 60)), "一定時間を過ぎた失敗は出さない")
+        XCTAssertEqual(service.savedBytes, 1)
+    }
+
+    func testReloadClearsFailuresButKeepsSavedMedia() async throws {
+        let audio = try makeAudio(seconds: 2)
+        let (service, catalog) = try environment(Fixture(audio: audio))
+        try FileManager.default.createDirectory(at: service.directory, withIntermediateDirectories: true)
+        try Data([1]).write(to: service.directory.appendingPathComponent("a.m4a"))
+        try await catalog.upsert(DeviceMediaRecord(key: "k-failed", kind: "audio", state: .failed))
+        var saved = DeviceMediaRecord(key: "k-saved", kind: "audio", state: .completed)
+        saved.fileName = "a.m4a"
+        try await catalog.upsert(saved)
+        await service.start()
+        XCTAssertNotNil(service.record(key: "k-failed", kind: "audio"))
+        await service.reload()
+        XCTAssertNil(service.record(key: "k-failed", kind: "audio"), "更新で、失敗の記録は消える")
+        XCTAssertNotNil(service.savedFile(key: "k-saved"), "保存済みは消えない")
+    }
 }

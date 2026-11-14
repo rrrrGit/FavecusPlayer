@@ -94,6 +94,60 @@ final class DownloadService: ObservableObject, MediaProvider {
         for job in transfers.jobs() { await evaluate(job.id) }
     }
 
+    // MARK: 更新・一覧の表示
+
+    /// 失敗・取り消しの記録を一覧に出しておく時間（秒）。過ぎたものは表示しない（記録は残る）。
+    static let problemLifetime: TimeInterval = 3600
+
+    /// 保存済み（完了）の合計容量。曲の一覧に関係なく、すべての記録から求める。
+    var savedBytes: Int64 { records.values.filter { $0.state == .completed }.reduce(0) { $0 + $1.bytes } }
+
+    /// 端末の空き容量（取得できないときはnil）。
+    func freeBytes() -> Int64? {
+        try? directory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage
+    }
+
+    /// 表示してよい失敗・取り消し（一定時間を過ぎたものは出さない）。
+    func isRecentProblem(_ record: DeviceMediaRecord, now: Date = Date()) -> Bool {
+        (record.state == .failed || record.state == .cancelled) && now.timeIntervalSince1970 - record.updatedAt < Self.problemLifetime
+    }
+
+    /// 曲の行に出す失敗の文言。どちらかの形式が保存済みなら出さない（音声だけ保存できた動画の失敗が残り続けないように）。
+    func problemStatus(key: String) -> String? {
+        let audio = record(key: key, kind: "audio"), video = record(key: key, kind: "video")
+        if audio?.state == .completed || video?.state == .completed { return nil }
+        return [audio, video].contains { $0.map { $0.state == .failed && isRecentProblem($0) } ?? false } ? "保存に失敗" : nil
+    }
+
+    /// 更新：古い失敗の表示を消してから、保存中の処理を実際の状態と照らし合わせ直す。
+    func reload() async {
+        guard started else { return }
+        do { try await catalog.removeProblems() } catch { message = "保存の記録を整理できません：\(ErrorText.safe(error))" }
+        await publish()
+        await reconcile()
+    }
+
+    /// 保存中の処理の再確認：取得が終わっていれば仕上げ、失敗していれば止め、通信もジョブもないのに途中のまま残った記録は失敗にする。
+    func reconcile() async {
+        guard started else { return }
+        let jobs = transfers.jobs()
+        let live = await transfers.liveJobIds()
+        let now = Date().timeIntervalSince1970
+        for job in jobs {
+            // 始めたばかりのジョブは、通信の引き継ぎの途中の可能性があるため、通信の有無では判断しない
+            await evaluate(job.id, live: now - job.createdAt > 20 ? live : nil)
+        }
+        let remaining = Set(transfers.jobs().map(\.recordId))
+        for record in records.values where record.state.inProgress && !remaining.contains(record.id) && running[record.id] == nil {
+            var next = record
+            next.state = .failed
+            next.message = "中断されました。もう一度保存してください。"
+            next.fileName = nil
+            progress[record.id] = nil
+            await update(next)
+        }
+    }
+
     private func publish() async {
         records = Dictionary(uniqueKeysWithValues: await catalog.all().map { ($0.id, $0) })
     }

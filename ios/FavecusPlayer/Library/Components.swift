@@ -300,8 +300,7 @@ private struct BiliSongRow: View {
     private var status: String? {
         let audio = record("audio"), video = record("video")
         if audio?.state.inProgress == true || video?.state.inProgress == true { return "保存中" }
-        if audio?.state == .failed || video?.state == .failed { return "保存に失敗" }
-        return nil
+        return key.flatMap { downloads.problemStatus(key: $0) }
     }
 
     private var actions: [RowAction] {

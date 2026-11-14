@@ -99,6 +99,17 @@ actor DownloadCatalog {
         try save()
     }
 
+    /// 失敗・取り消しの記録だけを消す（保存中・保存済みの記録とファイルは消さない）。戻り値：消した件数。
+    @discardableResult
+    func removeProblems() throws -> Int {
+        guard ready else { throw TransferError.message("保存記録を読み込めていません。") }
+        let ids = records.values.filter { $0.state == .failed || $0.state == .cancelled }.map(\.id)
+        guard !ids.isEmpty else { return 0 }
+        for id in ids { records[id] = nil }
+        try save()
+        return ids.count
+    }
+
     /// 他の記録が参照していないファイルだけ、削除してよい（同じファイルを別の記録が指すことはないが、念のため確認する）。
     func isReferenced(fileName: String, except: String) -> Bool {
         records.values.contains { $0.id != except && $0.fileName == fileName }

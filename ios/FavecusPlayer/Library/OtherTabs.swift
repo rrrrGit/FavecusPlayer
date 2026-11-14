@@ -34,6 +34,12 @@ private struct DownloadsList: View {
     @ObservedObject var store: LibraryStore
     @ObservedObject var downloads: DownloadService
     @AppStorage("downloadWiFiOnly") private var wifiOnly = false
+    @State private var now = Date()
+    @State private var reloading = false
+    @State private var free: Int64?
+    /// 一覧に出す件数の上限（超えた分は、記録だけが残り、一覧には出さない）。
+    private static let problemLimit = 10
+    private static let savedLimit = 50
 
     private var items: [DownloadItem] {
         var seen = Set<String>()
@@ -49,34 +55,70 @@ private struct DownloadsList: View {
         return result
     }
 
+    private var summary: String {
+        let saved = ByteCountFormatter.string(fromByteCount: downloads.savedBytes, countStyle: .file)
+        guard let free else { return "保存済み \(saved)" }
+        return "保存済み \(saved)・空き \(ByteCountFormatter.string(fromByteCount: free, countStyle: .file))"
+    }
+
     var body: some View {
         let all = items
         let active = all.filter { $0.record.state.inProgress }
-        let problems = all.filter { $0.record.state == .failed || $0.record.state == .cancelled }
-        let saved = all.filter { $0.record.state == .completed }
+        let problems = all.filter { downloads.isRecentProblem($0.record, now: now) }.sorted { $0.record.updatedAt > $1.record.updatedAt }
+        let saved = all.filter { $0.record.state == .completed }.sorted { $0.record.updatedAt > $1.record.updatedAt }
         List {
             Section {
-                Toggle("Wi-Fiのときだけ保存する", isOn: $wifiOnly)
-            } footer: {
-                Text("画面を閉じたり、ロックしたりしても、保存は続きます。ただし、アプリを上へスワイプして終了すると、iOSの仕様で保存は止まります。")
+                HStack {
+                    Text(summary).font(.caption).foregroundStyle(Theme.muted)
+                    Spacer()
+                    Button {
+                        Task {
+                            reloading = true
+                            await downloads.reload()
+                            free = downloads.freeBytes()
+                            reloading = false
+                        }
+                    } label: {
+                        Image(systemName: "arrow.clockwise").frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(reloading)
+                    .accessibilityLabel("更新")
+                }
+                Toggle("Wi-Fi接続時のみ保存", isOn: $wifiOnly)
             }
             if !active.isEmpty {
                 Section { ForEach(active) { row($0) } } header: { SectionLabel(text: "保存中") }
             }
             if !problems.isEmpty {
-                Section { ForEach(problems) { row($0) } } header: { SectionLabel(text: "保存できなかったもの") }
+                Section {
+                    ForEach(problems.prefix(Self.problemLimit)) { row($0) }
+                } header: {
+                    SectionLabel(text: "保存できなかったもの")
+                } footer: {
+                    if problems.count > Self.problemLimit { Text("他 \(problems.count - Self.problemLimit) 件は表示していません（記録は残っています）。") }
+                }
             }
             Section {
                 if saved.isEmpty { Text("保存した曲はありません").foregroundStyle(.secondary) }
-                ForEach(saved) { row($0) }
+                ForEach(saved.prefix(Self.savedLimit)) { row($0) }
             } header: {
                 SectionLabel(text: "保存済み")
             } footer: {
-                if !saved.isEmpty { Text("合計 " + ByteCountFormatter.string(fromByteCount: saved.reduce(0) { $0 + $1.record.bytes }, countStyle: .file)) }
+                if saved.count > Self.savedLimit { Text("新しい \(Self.savedLimit) 件を表示しています（他 \(saved.count - Self.savedLimit) 件は、曲のメニューから確認できます）。") }
             }
         }
         .scrollContentBackground(.hidden)
         .background(Theme.background)
+        .onAppear { free = downloads.freeBytes(); now = Date() }
+        .task {
+            // 一定時間を過ぎた失敗の表示を消す
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                now = Date()
+                free = downloads.freeBytes()
+            }
+        }
     }
 
     @ViewBuilder
@@ -149,7 +191,7 @@ struct SettingsTab: View {
                     if hasExporter { Button { openExport() } label: { Label("ZIPへ出力する", systemImage: "square.and.arrow.up") } }
                 }
                 Section {
-                    Toggle("Wi-Fiのときだけ保存する", isOn: $wifiOnly)
+                    Toggle("Wi-Fi接続時のみ保存", isOn: $wifiOnly)
                 } header: {
                     Text("保存")
                 }
