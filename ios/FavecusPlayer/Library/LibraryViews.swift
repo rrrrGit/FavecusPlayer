@@ -320,7 +320,7 @@ private struct LibraryTab: View {
             if editing {
                 face.overlay(alignment: .top) { editControls(list, index: index) }
             } else {
-                NavigationLink(value: list.id) { face }.buttonStyle(.plain)
+                Button { path.append(list.id) } label: { face }.buttonStyle(.plain)
             }
         }
         .opacity(dragging == list.id ? 0.4 : 1)
@@ -460,17 +460,12 @@ private struct PlaylistDetail: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Theme.background)
+        .ignoresSafeArea(edges: .top)
         .environment(\.editMode, $editMode)
         .toolbar(.hidden, for: .navigationBar)
         .background(SwipeBackEnabler()) // ナビゲーションバーを隠しても、画面の端からのスワイプで戻れるようにする
         .overlay(alignment: .bottomTrailing) {
-            Button { showAdd = true } label: {
-                Image(systemName: "plus").font(.system(size: 24, weight: .bold)).foregroundStyle(Theme.accentText)
-                    .frame(width: 56, height: 56).background(Circle().fill(Theme.accent))
-                    .shadow(color: .black.opacity(0.45), radius: 8, y: 3)
-            }
-            .accessibilityLabel("このプレイリストへ曲を追加")
-            .padding(.trailing, 18).padding(.bottom, 14)
+            AddSongButton(player: services.player) { showAdd = true }
         }
         .sheet(isPresented: $showAdd) {
             AddSongSheet(store: store, downloads: services.downloads, playlistId: parentId, playlistName: parent?.name ?? "", isPresented: $showAdd)
@@ -513,7 +508,7 @@ private struct PlaylistDetail: View {
     private var hero: some View {
         Theme.panel
             .frame(maxWidth: .infinity)
-            .frame(height: 260)
+            .frame(height: 260 + Self.topInset)
             .overlay {
                 if let cover {
                     Image(uiImage: cover).resizable().scaledToFill()
@@ -543,8 +538,13 @@ private struct PlaylistDetail: View {
                         .accessibilityLabel("メニュー")
                     }
                 }
-                .padding(.horizontal, 12).padding(.top, 8)
+                .padding(.horizontal, 12).padding(.top, Self.topInset + 8)
             }
+    }
+
+    /// 画面上端の安全領域（ステータスバーの高さ）。見出しの画像を、画面の上端まで広げるために使う。
+    private static var topInset: CGFloat {
+        UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first?.safeAreaInsets.top ?? 0
     }
 
     private func circle(_ icon: String, label: String, action: @escaping () -> Void) -> some View {
@@ -637,4 +637,32 @@ private struct SwipeBackEnabler: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> Holder { Holder() }
     func updateUIViewController(_ controller: Holder, context: Context) {}
+}
+
+/// 右下に浮かぶ「＋」（いま開いているプレイリストへ曲を追加）。再生バーが出ているときは、その上に置く。
+private struct AddSongButton: View {
+    let player: PlaybackEngine?
+    let action: () -> Void
+
+    var body: some View {
+        if let player { Floating(player: player, action: action) } else { button(lift: 0) }
+    }
+
+    private struct Floating: View {
+        @ObservedObject var player: PlaybackEngine
+        let action: () -> Void
+        var body: some View { AddSongButton.circle(action: action, lift: player.current != nil ? 72 : 0) }
+    }
+
+    private func button(lift: CGFloat) -> some View { Self.circle(action: action, lift: lift) }
+
+    fileprivate static func circle(action: @escaping () -> Void, lift: CGFloat) -> some View {
+        Button(action: action) {
+            Image(systemName: "plus").font(.system(size: 24, weight: .bold)).foregroundStyle(Theme.accentText)
+                .frame(width: 56, height: 56).background(Circle().fill(Theme.accent))
+                .shadow(color: .black.opacity(0.45), radius: 8, y: 3)
+        }
+        .accessibilityLabel("このプレイリストへ曲を追加")
+        .padding(.trailing, 18).padding(.bottom, 14 + lift)
+    }
 }
