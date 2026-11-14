@@ -12,7 +12,7 @@ struct DownloadsTab: View {
         NavigationStack {
             Group {
                 if let downloads = services.downloads {
-                    DownloadsList(store: store, downloads: downloads)
+                    DownloadsList(store: store, downloads: downloads, stopPlayback: { services.player?.stop() })
                 } else {
                     VStack { Spacer(); Text("保存を使えません").foregroundStyle(.secondary); Spacer() }.frame(maxWidth: .infinity)
                 }
@@ -33,7 +33,9 @@ private struct DownloadItem: Identifiable {
 private struct DownloadsList: View {
     @ObservedObject var store: LibraryStore
     @ObservedObject var downloads: DownloadService
+    let stopPlayback: () -> Void
     @AppStorage("downloadWiFiOnly") private var wifiOnly = false
+    @State private var confirmDeleteAll = false
     @State private var now = Date()
     @State private var reloading = false
     @State private var free: Int64?
@@ -66,6 +68,8 @@ private struct DownloadsList: View {
         let active = all.filter { $0.record.state.inProgress }
         let problems = all.filter { downloads.isRecentProblem($0.record, now: now) }.sorted { $0.record.updatedAt > $1.record.updatedAt }
         let saved = all.filter { $0.record.state == .completed }.sorted { $0.record.updatedAt > $1.record.updatedAt }
+        let savedCount = downloads.records.values.filter { $0.state == .completed }.count
+        let busy = downloads.records.values.contains { $0.state.inProgress }
         List {
             Section {
                 HStack {
@@ -107,6 +111,27 @@ private struct DownloadsList: View {
             } footer: {
                 if saved.count > Self.savedLimit { Text("新しい \(Self.savedLimit) 件を表示しています（他 \(saved.count - Self.savedLimit) 件は、曲のメニューから確認できます）。") }
             }
+            if savedCount > 0 {
+                Section {
+                    Button(role: .destructive) { confirmDeleteAll = true } label: { Text("すべてのオフライン用データを削除") }
+                        .disabled(busy)
+                } footer: {
+                    if busy { Text("保存中のものがあります。取り消してから削除してください。") }
+                }
+            }
+        }
+        .confirmationDialog(
+            "保存した音声・動画 \(savedCount)件（\(ByteCountFormatter.string(fromByteCount: downloads.savedBytes, countStyle: .file))）を、この端末から削除します。曲やプレイリストは消えません。再生を停止します。元に戻せません。",
+            isPresented: $confirmDeleteAll, titleVisibility: .visible
+        ) {
+            Button("すべて削除", role: .destructive) {
+                Task {
+                    stopPlayback()
+                    _ = await downloads.removeAllOffline()
+                    free = downloads.freeBytes()
+                }
+            }
+            Button("キャンセル", role: .cancel) {}
         }
         .scrollContentBackground(.hidden)
         .background(Theme.background)
@@ -152,7 +177,7 @@ private struct DownloadsList: View {
     private func detail(_ record: DeviceMediaRecord) -> String {
         let kind = record.kind == "video" ? "動画" : "音声"
         switch record.state {
-        case .completed: return "\(kind)・" + ByteCountFormatter.string(fromByteCount: record.bytes, countStyle: .file)
+        case .completed: return "\(kind)・" + (record.kind == "video" && record.quality > 0 ? "\(record.quality)p・" : "") + ByteCountFormatter.string(fromByteCount: record.bytes, countStyle: .file)
         case .failed: return "\(kind)・" + (record.message ?? "保存に失敗しました。")
         case .cancelled: return "\(kind)・取り消しました"
         case .preparing: return "\(kind)・準備中"
@@ -179,6 +204,7 @@ struct SettingsTab: View {
     let openBilibili: () -> Void
     let openDiagnostics: () -> Void
     @AppStorage("downloadWiFiOnly") private var wifiOnly = false
+    @AppStorage("downloadVideoHeight") private var videoHeight = 720
 
     var body: some View {
         NavigationStack {
@@ -193,8 +219,13 @@ struct SettingsTab: View {
                 }
                 Section {
                     Toggle("Wi-Fi接続時のみ保存", isOn: $wifiOnly)
+                    Picker("動画の画質", selection: $videoHeight) {
+                        ForEach(DownloadService.heightChoices, id: \.self) { Text("\($0)p").tag($0) }
+                    }
                 } header: {
                     Text("保存")
+                } footer: {
+                    Text("動画を保存するときの画質です。選んだ画質がない動画は、近い画質で保存します。保存済みの動画の画質は変わりません（変えるときは、保存を削除してから保存し直します）。")
                 }
                 Section("アプリ") {
                     Button { openDiagnostics() } label: { Label("診断", systemImage: "stethoscope") }

@@ -110,6 +110,14 @@ actor DownloadCatalog {
         return ids.count
     }
 
+    /// 指定した記録を消す（ファイルは消さない。呼び出し側が、先にファイルを消してから呼ぶ）。
+    func removeRecords(ids: [String]) throws {
+        guard ready else { throw TransferError.message("保存記録を読み込めていません。") }
+        guard !ids.isEmpty else { return }
+        for id in ids { records[id] = nil }
+        try save()
+    }
+
     /// 他の記録が参照していないファイルだけ、削除してよい（同じファイルを別の記録が指すことはないが、念のため確認する）。
     func isReferenced(fileName: String, except: String) -> Bool {
         records.values.contains { $0.id != except && $0.fileName == fileName }

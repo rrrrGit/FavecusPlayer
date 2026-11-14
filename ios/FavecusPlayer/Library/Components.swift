@@ -313,7 +313,7 @@ private struct BiliSongRow: View {
                 } else if state == .completed {
                     result.append(RowAction(icon: "trash", title: "\(label)の保存を削除", destructive: true) { Task { await downloads.remove(key: key, kind: kind) } })
                 } else {
-                    result.append(RowAction(icon: kind == "video" ? "film" : "arrow.down.circle", title: "\(label)を保存") { downloads.save(entry: entry, kind: kind) })
+                    result.append(RowAction(icon: kind == "video" ? "film" : "arrow.down.circle", title: kind == "video" ? "動画を保存（\(DownloadService.preferredHeight)p）" : "\(label)を保存") { downloads.save(entry: entry, kind: kind) })
                 }
             }
         }

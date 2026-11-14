@@ -524,4 +524,47 @@ final class DownloadTests: XCTestCase {
         XCTAssertEqual(handled, 0)
         XCTAssertEqual(transfers.job(job.id)?.streams.first?.urlIndex, 0)
     }
+
+    // MARK: 画質の選択とオフライン用データの一括削除（v0.7.1）
+
+    func testTheChosenHeightIsSentToThePlayUrlRequest() async throws {
+        let audio = try makeAudio(seconds: 2)
+        let (service, _) = try environment(Fixture(audio: audio))
+        await service.start()
+        let key = try await requireKey(service)
+        service.save(entry: entry, kind: "audio", height: 360)
+        _ = try await wait(service, key: key, [.completed, .failed])
+        let play = StubProtocol.requests.first { $0.url?.path.hasSuffix("/playurl") == true }
+        let query = URLComponents(url: try XCTUnwrap(play?.url), resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertEqual(query.first { $0.name == "qn" }?.value, "16", "360p は qn=16")
+        XCTAssertTrue(DownloadService.heightChoices.contains(DownloadService.preferredHeight))
+    }
+
+    func testRemovingAllOfflineDataDeletesOnlyTheRecordedFilesAndKeepsTheRest() async throws {
+        let audio = try makeAudio(seconds: 2)
+        let (service, catalog) = try environment(Fixture(audio: audio))
+        try FileManager.default.createDirectory(at: service.directory, withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: service.directory.appendingPathComponent("a.m4a"))
+        try Data([4, 5]).write(to: service.directory.appendingPathComponent("b.mp4"))
+        try Data([9]).write(to: service.directory.appendingPathComponent("not-managed.txt"))
+        var first = DeviceMediaRecord(key: "k1", kind: "audio", state: .completed)
+        first.fileName = "a.m4a"; first.bytes = 3
+        var second = DeviceMediaRecord(key: "k1", kind: "video", state: .completed)
+        second.fileName = "b.mp4"; second.bytes = 2
+        try await catalog.upsert(first)
+        try await catalog.upsert(second)
+        try await catalog.upsert(DeviceMediaRecord(key: "k2", kind: "audio", state: .failed))
+        await service.start()
+        let result = await service.removeAllOffline()
+        XCTAssertEqual(result?.count, 2)
+        XCTAssertEqual(result?.bytes, 5)
+        XCTAssertNil(service.savedFile(key: "k1", kind: "audio"))
+        XCTAssertNil(service.savedFile(key: "k1", kind: "video"))
+        XCTAssertNil(service.record(key: "k1", kind: "audio"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: service.directory.appendingPathComponent("a.m4a").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: service.directory.appendingPathComponent("b.mp4").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: service.directory.appendingPathComponent("not-managed.txt").path), "記録にないファイルは消さない")
+        XCTAssertNotNil(service.record(key: "k2", kind: "audio"), "失敗の記録など、保存済み以外は触れない")
+        XCTAssertEqual(service.savedBytes, 0)
+    }
 }
