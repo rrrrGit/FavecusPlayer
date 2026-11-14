@@ -70,6 +70,7 @@ final class DownloadTests: XCTestCase {
         var audioSizeOverride: Int?
         var videoURL = "https://upos.bilivideo.com/v/64.m4s"
         var audioURL = "https://upos.bilivideo.com/a/30280.m4s"
+        var audioBackups: [String] = []
         var duration = 3
     }
 
@@ -81,7 +82,7 @@ final class DownloadTests: XCTestCase {
         let biliCore = try BiliCore(bundle: Bundle(for: SharedCore.self), host: bilibiliHost)
         let view: [String: Any] = ["code": 0, "data": ["bvid": "BV1aaaaaaaaa", "aid": 1, "duration": fixture.duration, "pic": "https://i0.hdslb.com/pic.jpg", "pages": [["page": 1, "cid": 7, "duration": fixture.duration]]]]
         var audioItem: [String: Any] = ["id": 30280, "bandwidth": 64000, "codecs": "mp4a.40.2", "baseUrl": disallowed ? "https://evil.example.com/a.m4s" : fixture.audioURL, "size": fixture.audioSizeOverride ?? fixture.audio.count]
-        audioItem["backupUrl"] = [String]()
+        audioItem["backupUrl"] = fixture.audioBackups
         var dash: [String: Any] = ["audio": [audioItem], "video": [Any]()]
         if !fixture.video.isEmpty { dash["video"] = [["id": 64, "height": 720, "bandwidth": 500000, "codecs": "avc1.640028", "baseUrl": fixture.videoURL, "size": fixture.video.count] as [String: Any]] }
         let play: [String: Any] = ["code": 0, "data": ["dash": dash, "timelength": fixture.duration * 1000]]
@@ -91,6 +92,7 @@ final class DownloadTests: XCTestCase {
             switch (request.url?.host, path) {
             case ("api.bilibili.com", "/x/web-interface/view"): return (200, try! JSONSerialization.data(withJSONObject: view))
             case ("api.bilibili.com", "/x/player/playurl"): return (200, try! JSONSerialization.data(withJSONObject: play))
+            case ("upos.bilivideo.com", "/a/broken.m4s"): return (567, Data())
             case ("upos.bilivideo.com", let media) where media.hasPrefix("/a/"): return (mediaStatus, audio)
             case ("upos.bilivideo.com", let media) where media.hasPrefix("/v/"): return (mediaStatus, video)
             default: return (404, Data())
@@ -162,6 +164,21 @@ final class DownloadTests: XCTestCase {
         XCTAssertNil(service.savedFile(key: key))
         XCTAssertTrue(leftovers(service).isEmpty)
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: service.directory.path).filter { !$0.hasPrefix(".") }.count, 0)
+    }
+
+    func testAServerErrorFromOneMediaUrlFallsBackToTheNextCandidateAndSendsABrowserUserAgentWithoutCookies() async throws {
+        var fixture = Fixture(audio: try makeAudio(seconds: 2))
+        fixture.audioURL = "https://upos.bilivideo.com/a/broken.m4s"
+        fixture.audioBackups = ["https://upos.bilivideo.com/a/good.m4s"]
+        let (service, _) = try environment(fixture)
+        await service.start()
+        let key = try await requireKey(service)
+        service.save(entry: entry)
+        let record = try await wait(service, key: key, [.completed, .failed])
+        XCTAssertEqual(record.state, .completed, record.message ?? "")
+        let media = StubProtocol.requests.filter { $0.url?.host == "upos.bilivideo.com" }
+        XCTAssertEqual(media.count, 2, "拒否ではない失敗（567）は、次の候補のURLで試す")
+        XCTAssertTrue(media.allSatisfy { ($0.value(forHTTPHeaderField: "User-Agent") ?? "").hasPrefix("Mozilla/5.0") && $0.value(forHTTPHeaderField: "Cookie") == nil })
     }
 
     func testAnHttpErrorFromTheMediaHostFailsWithAMessageAndIsNotRetriedElsewhere() async throws {
