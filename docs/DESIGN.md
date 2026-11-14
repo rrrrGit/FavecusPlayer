@@ -1,5 +1,194 @@
 # Favecus Player の構造
 
+## v0.7.0：iOS版・同期の方針と共通データ仕様（Step1）
+
+本節は設計の確定であり、Step1ではコードを変更していません。実装はStep2以降です。判断1〜3は2026-11-13にユーザーが確定しました（末尾の「確定した判断」）。
+
+### 層と配置
+
+- `src/`（Windows版）は移動しません。端末非依存の共通JS（library-data / library-identity / media-identity / library-share / import-identity / queue / urls / library-tree / library-search 等）を規則の正本とします。
+- `shared/spec/`（スキーマ）と `shared/fixtures/`（期待値付きの共通テストデータ）を追加し、NodeとiOSの両方で同じデータを実行して仕様のずれを検出します。
+- iOSは `ios/`（XcodeGenの `project.yml`、App / Features / Domain / Platform の層）に置きます。保存・通信・再生・認証はPlatform層でネイティブ実装し、データ規則はDomain層がJavaScriptCoreの共通JSまたはSwift再実装（共通テストデータで一致保証）で担います。
+- JavaScriptCoreで実行する範囲は構造検証・階層・識別・検索・共有形式・同期のマージです。`library-data.cjs` が `require('../ui/library-tree.js')` で別ディレクトリを参照しており、JavaScriptCoreには `require` がありません。束ね方はStep3で決定済みです（下記）。`atob`・`TextEncoder` 等がJavaScriptCoreで使えるかは主張せず、Step3で実機相当のシミュレーターで検証します。
+
+### 共通JSのiOS実行（Step3）
+
+- **実行環境：JSContext（JavaScriptCore）。** 同期のマージ・検証は同期処理が必要なためWKWebViewは使いません（WKWebViewはログイン等に限定）。データ規則はSwiftへ再実装せず、共通JSを正本にします。
+- **束ね方：** `scripts/build-shared-bundle.cjs` が許可リスト（`src/core` の library-data / library-identity / media-identity / urls / library-share / import-identity / playlist-icon-data / queue、`src/ui` の library-tree / library-search、`shared/runtime` の prelude / fixture-runner）を単一の `shared/dist/favecus-core.js` にまとめます。生成物はGitに入れず、CIとローカルで生成します。非相対・許可リスト外のrequireはビルドで失敗します。
+- **JSCに無いAPI：** `URL`・`atob`・`structuredClone` は `shared/runtime/prelude.js` の自前実装を、各モジュールのラッパー関数の引数として渡します（グローバルを使わないため、将来JSCが同名APIを持ってもiOSでは検証済みの実装を使います）。
+  - URL：http/httpsの絶対URLのみ。**Node（WHATWG）と結果が異なるURLは許容しません**。Nodeが受理しpreludeが拒否する入力は既知の相違として許容します（http/https以外、相対URL、IPv6、IPv4として解釈される数値ホスト、非ASCIIホスト）。このうち非ASCIIホストには、全角の `ｗｗｗ．ｂｉｌｉｂｉｌｉ．ｃｏｍ` のようにNodeが許可ホストへ正規化する入力が含まれます。**この入力はWindows版は受理し、iOS版は拒否します**（逆はない）。登録時にはASCIIへ正規化したURLを保存するため、同期されたデータのMediaKeyには影響しませんが、iOSで貼り付けるときだけ拒否されます。
+  - atob：WHATWG forgiving-base64と一致（約2万件の乱択と固定ケースでNodeと照合）。
+  - structuredClone：検証済みJSON値の複製に限定（JSON往復。undefined値・NaN・Date・Mapの保持は対象外）。
+- **共通テストデータ：** `shared/fixtures/cases.json`（116件）。入力は手書き、期待値はNode本来のWeb APIで `scripts/update-shared-fixtures.cjs` が生成します（正本はWindows版の挙動）。同じファイルをNode（ECMAScriptのみのvm）とiOS（XCTest＋JSContext）が実行し、iOSでは全件一致を確認しました。`divergence: "ios-rejects"` は上の既知の相違だけに付け、iOS側の結果が 'Invalid URL' による拒否であることを検査します。
+- **差分検査：** `test/shared-runtime.test.cjs` が、約4万件のURL（固定の乱択）についてpreludeとNodeのURLを比較します。Nodeが拒否する入力をpreludeが受理すること、受理した結果が異なることを許容しません。
+- **iOSの呼び出し：** `ios/FavecusPlayer/Core/SharedCore.swift` がバンドルを読み、JSON文字列だけを入出力します（JSValueの木を渡さない）。JS例外は `exceptionHandler` で収集して失敗にします。1つのJSContextを複数スレッドで共有しません。
+- **未確認・後続で確認：** 実機（JITなし）での速度、`Intl.Collator('ja')`（library-tree.js）による名前順がNodeのICUとiOSのICUで異なる可能性（表示順のみ。Step8で確認）、ローカルMacでの `xcodegen`（先にバンドル生成が必要）。
+
+### SyncMediaKeyとDeviceMedia（Step4で実装）
+
+**Step4は純粋な派生値と読み取り専用の投影だけを導入し、保存形式（library.json・DLカタログ・ZIP/JSON共有）を変更しません。** 何も新しく書き込まないため、移行と原本保護の対象はありません。ZIPのmanifest拡張はStep10で行います。
+
+- **SyncMediaKey**（`library-identity.cjs` の `LibrarySyncKey(videoAliases)`）：確認済みのBVがあれば `bili:<BV>:p<パート>`、avのみなら `bili-av:<aid>:p<パート>`、ローカル曲は `null`。曲名・所属リスト・登録曲id・mediaId・ファイル名・端末のパスに依存しません。BVの大小文字は保持し、aidは桁を保つ数字列、パートは1〜10000で `p1` も省略しません。保存済みの `videoId` / `part` は、URLがその値から作られた正規の形（検証時に作られる形）と完全に一致するときだけ使い、URLを再解析しません（iPhoneでの検証が1秒台のため、1万件の再解析を避ける）。食い違い・不正な値・未検証の項目はURLを解析して求め、**URLを正**とします（保存値を無条件に信頼しない）。
+- **同じ動画の別の形**（`LibrarySyncKeyForms`）：確認済みのav/BV対応があれば `[bili:…, bili-av:…]` の両方を返します。Step6の同期で、片方の端末だけが対応を確認している場合の照合に使います。av/BV対応表は一対一で、矛盾すれば例外です（既存の検証と同じ）。
+- **DeviceMedia**（`device-media.cjs`）：状態は NotDownloaded / Preparing / Downloading / Processing / Validating / Completed / Failed / Cancelled。`RestoredState` は再起動後、保存途中の状態と未知の状態を NotDownloaded に戻し、Completed・Failed・Cancelled・NotDownloaded だけを保持します（完成扱いは Completed のみ）。`DeviceMediaList` はDLカタログ相当の記録の読み取り専用の投影で、出力は syncKey・形式・画質・容量・時間・状態・collision（同じsyncKeyと形式の記録の件数）だけです。**パス・トークン・URLを含まず、同期しません。** カタログが証明できる範囲（確認済みの実体があれば Completed、なければ NotDownloaded）だけを写し、途中の状態は作りません。同じsyncKeyと形式に複数の記録（av URLとBV URLの別保存など）がある場合も、推測で統合せず全件を画質・容量の降順など決定的な順で返し、何も削除しません。型の異なる入力は空として扱い、実体確認の例外はその記録だけ NotDownloaded とします（完成扱いは isAvailable が true を返したときだけ）。矛盾したav/BV対応表は誤ったキーを黙って作らないため、例外のまま伝えます。Windows版は `OfflineLibrary.DeviceMedia()` が `File(token)` による実体確認を渡して使います。
+- **IDの点検**（`AuditIds`）：リスト・登録曲・mediaIdがUUID（版1〜8）でない件数だけを返す読み取り専用の関数です（値は返さない）。現行の検証 `ID = /^[a-f0-9-]{36}$/` は緩い形式ですが、過去版（v0.6.2以降）のIDは `randomUUID` で作られ、旧形式（階層なし）から移行するIDも検証時に `randomUUID` で再割当されます。このため、独立して作られたライブラリのID衝突を避けるための付け替えは**不要**と判断します。外部から取り込んだデータや将来の同期の有効化時に点検に使います。利用者の実データには触れていません。
+- 共通テストデータ：`shared/fixtures/cases.json` に42件追加（SyncMediaKey・形式・点検・状態・DeviceMedia投影、計158件）。iOSのJavaScriptCoreでもNodeと同じ結果を確認します。
+
+### 識別：MediaKeyを端末間の正本にする
+
+- 名称：既存の `media-identity.cjs` の `MediaKey()`（正規化URL＋パートの照合キー）と区別するため、同期用の文字列を**SyncMediaKey**と呼び、同期レコードのフィールド名は `syncKey` とします。SyncMediaKeyは `MediaKey()` の結果（確認済みav/BVの対応後の代表URL＋パート）から導出する純粋な変換で、Step4で実装します。以下「mediaKey」と書いた箇所はこのSyncMediaKeyを指します。
+- **端末間の同一性はSyncMediaKeyで決めます。mediaIdは端末内の参照用に留めます。** 同期しても読み込み規則（照合キーとmediaIdが一対一。DESIGN上の既存規則）を破らないためです。別端末が同じBV＋パートを独立に登録するとmediaIdが異なるので、同期では次のとおり扱います。
+  - 同期レコードには `mediaKey` を持たせ、受信側はmediaKeyが既存の登録と一致すれば**自端末のmediaIdを使い、受信側のmediaIdは採用しない**。一致しなければ受信側が新しいmediaIdを割り当てます。この対応は端末ごとの表に保持し、同期レコードには端末のmediaIdを含めません。
+  - これにより、マージ結果が一対一規則に違反して起動を止めることを防ぎます。
+- SyncMediaKeyの形式（v1）：`bili:<BV>:p<パート>`。CIDは保存せず、確認済みメタデータとして任意に保持します。
+- av番号のみで確認済みBVがない登録の仮キー：`bili-av:<aid>:p<パート>`。通常APIでav/BVの対応が確認されたとき `bili:<BV>:p<パート>` へ昇格し、昇格は「旧キー→新キー」の変更レコードとして同期します。受信側は旧キーと新キーを同一として扱います。この昇格レコードは実質的にav/BV対応の同期なので、下記の判断2に従います。判断2が否決された場合、各端末は自分で対応を確認した後にだけ昇格し、受信した昇格レコードは確認まで保留します。
+- ローカル曲：識別は端末内のfileNameのまま、内容ハッシュによる同定は既存方針どおり行いません。他端末では `mediaIncluded:false` の取り込みと同様に**未充足参照**として表示します。ZIPで実体を取り込んだ場合のみ充足します。
+- **videoAliases（av/BV対応）の同期**：現行方針は「外部のaliasesを取り込み先の確認済み対応表へ登録しない」です。同一アカウントの他端末が確認した対応は、同期経由に限り**確認済みとして受け入れます**（確定）。これは現行方針の変更であり、受け入れた対応は一対一・矛盾拒否の既存検証を通し、矛盾する場合は受け入れず通知します。ZIPと他者の共有ファイルには従来どおりこの変更を適用しません。
+### 保存形式と移行
+
+- 同期用の追加情報は、既存JSONの `identityVersion` を上げず、独立した `syncVersion`（初版1）として別ファイル `sync/state.json` に保存します。既存JSON（version 3 / identityVersion 2）は変更せず、導入時に `library.pre-0.7.0-*.json` へバイト単位で原本を保存します。バックアップできなければ同期を有効にしません。
+- 未知の `syncVersion` は、旧版へ戻して上書きせず同期を停止します（既存の未知identityVersionの扱いと同じ）。
+- 同期をオフにしたままの端末は、従来どおり単独で動作します。
+
+### 同期レコード
+
+変更単位の追記型とし、状態全体を送りません。レコードの種類は次のとおりです。
+
+| 種類 | 識別 | 主な内容 |
+| --- | --- | --- |
+| playlist | playlistId | 名前、アイコン参照、参加フラグ、削除状態 |
+| edge | (parentId, childId) | 並び順キー。最上位は擬似親 `ROOT` からの辺として表す |
+| track | trackId（登録曲id） | 所属playlistId、mediaKey、曲名、元URL、パート、並び順キー、削除状態 |
+| mediaAlias | (aid, bvid) | 確認済みav/BV対応 |
+
+各レコードは `hlc`（下記）、`deviceId`、`deleted` を持ちます。実体（MP4/M4A）、端末の絶対パス、一時ファイル、Bilibiliの認証情報は含みません。同じ子リストを複数の親が持つ共有子リストは、単一のParentIdではなく**辺の集合**で表し、情報を失いません。
+
+### 時刻・並び順・競合
+
+- 時計はHLC（ハイブリッド論理時計）とし、端末の壁時計を信頼しません。HLCが同じときは `deviceId` の辞書順で決定します。
+- 並び順キーは分数インデックス（挿入間に文字列キーを生成する方式）とし、同一位置への同時挿入は `(キー, hlc, deviceId)` で決定的に整列します。キーが長くなりすぎた場合は、その親の辺だけを再採番する変更レコードを送ります。
+- 同一フィールドの競合は最新のhlcが勝つ（フィールド単位のLWW）。削除と更新の競合は削除が勝ちます。削除済みの辺・リストを復活させるのは、新しいhlcを持つ明示的な作成レコードのみです。
+- **循環**：各端末では局所的に正しい二つの移動を両方適用すると循環する場合があります。マージ後に循環を検出したら、循環を作った辺のうち hlc が最大のもの（同値ならdeviceIdが大きいもの）を**無効化**します（削除済みの辺を復活させません）。その結果、子に生きた親が残らなければ子を `ROOT` に付けます。決定的に同じ結果になることを共通テストデータで確認します。
+- **親の削除**：削除は辺と playlist 自身にだけ付き、子へ連鎖しません。他に親を持つ共有子リストは残ります。生きた親がなくなった子は `ROOT` に付け、曲を失わせません。
+- **削除されたリストの曲**：リストのTombstoneより新しいhlcを持つ登録曲（削除後に他端末がオフラインで追加したもの）は、黙って削除せず、`ROOT` 直下の復旧用リスト（名前は「復旧」、競合として通知）へ移して保持します。Tombstoneより古い曲はリストとともに削除します。
+- **上限999個**：マージ後の総数が999を超える場合は、受信したplaylistを `(hlc, deviceId)` 順に並べ、**全端末で同じ先頭N件だけを適用**して残りを保留キューに置き、ユーザーへ通知します（保留する端末同士が互いに異なる集合を保留して収束しないことを防ぐため）。保留したリストに依存する辺・登録曲のレコードも保留します。起動を止める状態の書き込みは行いません。
+- 登録曲の上限10000件も同じ規則で保留します。
+
+### 既存JSONとの変換・初回同期・書き込み順
+
+- **変換**：`childIds` と `rootPlaylistIds` の配列順を、親（最上位は `ROOT`）ごとの辺レコードへ変換し、順序に等間隔の初期並び順キーを付けます。登録曲の配列順も同様に並び順キーへ変換します。初期hlcは変換時点の物理時刻とカウンタ0にdeviceIdを付けたものとし、同一内容を再変換しても同じレコードIDになります。逆方向（同期状態→既存JSON）は並び順キー・hlc順で配列へ戻し、変換→逆変換で階層・順序・IDが一致することを共通テストデータで確認します。
+- **正本**：`library.json`（既存）を表示・再生の正本とし、`sync/state.json` は同期の補助（outbox、保留キュー、hlc、Tombstone）です。
+- **書き込み順**：変更はまずoutboxへ追記して確定し、その後 `library.json` へ反映します。受信側は適用を（レコードID＋hlc）で冪等にし、途中で停止しても未送信の変更を失わず、同じ変更を二重に適用しません。再起動時はoutboxの未反映分を `library.json` へ再適用します。
+- **初回同期**：同じplaylistId/登録曲idは同一レコードとして統合します（Windows版のZIPをiPhoneへ取り込み、IDが保たれている場合）。互いに独立して作られたライブラリは、IDが異なれば別物として併存し、同一syncKeyの登録曲はmediaIdだけを共有して登録行は別々に残します（名前の重複は既存の取り込み用接尾辞で区別）。自動で統合・削除しません。
+- **ID形式の確認（Step4の前提）**：現行の `library-data.cjs` はリスト/登録曲idがUUIDかを検証していません。pre-0.5.0からの移行データに短い独自IDが残っている場合、独立した二つのライブラリで衝突して無関係なリストが統合される恐れがあります。Step4で既存データのID形式を確認し、UUID以外があれば同期の有効化時に原本を保護して新しいUUIDへ付け替える手順（既存の取り込みの再割当と同じ対応表方式）を定義します。
+
+### Step6の実装（共通JS：src/core/sync-*.cjs）
+
+上記の方針を次のとおり実装しました。方針との差は明記します。
+
+- **レコード**：`{id, f:{項目:[値, hlc]}}`。種類は playlist / edge / track / alias（IDの接頭辞で区別）。項目ごとのLWWで、hlcが同じ（同じ端末）ときは値の文字列で決めます。hlcは固定長の文字列（`壁時計12桁16進-カウンタ4桁16進-端末ID`）で、文字列比較だけで順序が決まります（Intl不使用）。
+- **削除**：`deleted` も通常のLWW項目として扱います（上の「削除が勝つ」からの変更）。復活は、より新しい `deleted:false` が明示された場合だけです。古い更新が届いても復活しません。
+- **導出と修復**（循環の切断、親を失った子の `ROOT` 化、復旧リスト「復旧：…」、リストが0件のときの既定リスト）はMaterialize（導出）時に行い、保存しません。全端末が同じレコードから同じ結果を導きます。上限（999リスト/10000登録）は `(born, id)` 順の先頭N件を採用し、残りは保留（削除しません）。
+- **ローカルファイルの曲**：同期するのは拡張子（`ext`）のみで、ファイル名・パスは同期しません。実体がない端末では、IDから導いた参照（未充足）になります。
+- **別名（alias）の競合**：同じav/BVに異なる対応が来たときは、先に作られた方を採用します。
+- **並び順**：分数インデックスのキー（`sync-order.cjs`）。
+- **端末と同期**（`sync-engine.cjs`）：編集→状態とoutboxへ→通信可能時にPull→取り込み→Push。マージは冪等です。SyncRepositoryはPush/Pullの抽象で、メモリ実装（テスト用）と整理（Compact、保持90日）を含みます。Supabase実装と `sync/state.json` への保存はStep7です。
+- **共通テストデータ**：`shared/fixtures/cases.json` の `sync …` 14件（時計・並び順・マージ・変換・端末同士の筋書き）をNodeとJavaScriptCoreの両方で実行します。
+
+### iPhone版のローカルDBと編集操作（Step8）
+
+- **ローカルDB = Windows版と同じv3の `library.json`**（Application Support内、原子的に保存し `.bak` を保持）。SQLite・SwiftData・Core Dataは使いません（データ規則をSwiftへ持ち込まないため）。同期の状態は別ファイル（Windowsの `sync/state.json` に相当）です。
+- **編集操作は共通JS**：Windows版のStoreにあった階層・名前・並び順・曲の削除/並べ替えの規則を `src/core/library-actions.cjs`（端末APIなし。ID生成・時刻・曲名整形は注入）へ移し、StoreとiPhone版（JavaScriptCore）が同じ処理を使います。URLからの追加、移動/コピー（Transfer）、ZIP、設定は端末側の処理です。共通テストデータに操作ごとのケース（正常・拒否）と、名前順（Intl.Collator）の混在ケースを追加し、NodeとiOSで比較します。
+- 保存の流れ：編集のたびに全体検証はせず、Storeと同じく階層の検証＋保存。全体検証は読み込み時のみ。
+- **iPhone版の入口**（`src/core/library-app.cjs`、共通JS）：`Open`（保存ファイルの読み込み判定：new/ok/unsupported/invalid。BOM許容、全体検証、`identityVersion` が未知・形式がv3以外は `unsupported`）と `Apply`（操作1つ＋階層検証。失敗は `{error}` を返し、元は変えない）。IDと時刻は呼び出し側が渡します（ID規則は小文字のみなので、Swiftは `UUID().uuidString.lowercased()` を渡す）。
+- **Swift側 `LibraryStore`**：Application Support/FavecusPlayer/library.json、一時ファイル経由の原子的な置換＋`.bak`、ファイル保護は `completeUntilFirstUserAuthentication`（後の工程のロック中の音声・ダウンロードからも読めるため）。壊れた/未対応の保存データは上書きせず（壊れていて.bakが正常なら、壊れたファイルを `library.json.damaged-*` に残して復元）、書き込みを止めて理由を表示します。操作は積んだ順に直列で処理し、保存に失敗したら画面も更新しません。SwiftはJSON文字列を正本として持ち、構造体から書き戻しません（未知の項目を落とさない）。`JSContext` は専用の直列キューで使います。
+- **仮の最小画面**（Step15で置き換え）：ドリルダウンの階層表示、作成・名前変更・スワイプ削除（子は1つ上へ）、リスト・曲の並べ替え（`onMove` → 前/後ろの指定へ変換）、曲の削除。操作1回ごとに全体のJSONをJSで処理するため、規模が大きい場合の実機での所要時間は未計測です（Step8後半で `actionMs`・Edit相当を実機で確認）。
+
+### Supabaseの構成（Step7-1・7-2）
+
+- **サーバーは追記だけの変更ログ**：`supabase/schema.sql` を、利用者がSupabaseのSQL Editorで1回実行します。表は `sync_changes`（行：利用者・連番・レコードID・項目`f`・端末・重複防止キー）と `sync_meta`（連番の末尾・整理の境界）。LWW・整理の規則はサーバーへ複製せず、共通JS（`src/core/sync-state.cjs`）に置きます。
+- **連番はコミット順**：同じ利用者の挿入は `pg_advisory_xact_lock` で直列化して連番を振ります（identity列はコミット順にならず、読み手が小さい番号を取りこぼすおそれがあるため使いません）。cursorは連番で、読み取り済みより前に後からコミットされる行はありません。
+- **再送が行を増やさない**：変更の内容から導く `batch_id` と一意制約（`on_conflict ... ignore-duplicates`）。
+- **アクセス制御（RLS）**：自分の行だけの SELECT / INSERT / DELETE。UPDATEは許可しません。クライアントのDELETE権限もなく（既定の権限は一度すべて外して付け直し）、削除は `sync_compact(ids, 読み取り末尾の連番)` だけが行い、読み取り後に同じレコードへ届いた行があるレコードは消しません。`sync_meta` はクライアントから読み取りのみで、連番・境界は `security definer` の関数だけが更新します。匿名（anon）ロールは何も許可しません。
+- **整理（Compact）**：`sync_compact(ids)` は、クライアントが共通の規則で選んだレコードIDの行を消し、削除があったときだけ境界を末尾へ進めます（復旧リストが参照するTombstoneは消さない規則はクライアント側）。
+- **クライアント**：`src/core/sync-supabase.cjs`（共通JS。通信は注入された `request`）。メールのワンタイムコードでサインインし、アクセストークンは期限前または401で更新します。Pushは500件ずつ、Pullは1000件ずつのページ取得。エラーは `offline / auth / paused / server / bad` に分類し、トークン・キーは文言に含めません。キーは anon / publishable のみ受け付け、service_role・secret は拒否します。URLは `https://<プロジェクト>.supabase.co` のみ。
+- **利用者が行うこと**：Supabaseのプロジェクト作成、`schema.sql` の実行、Authのメール（OTP）設定の確認、URLとanonキーをアプリへ入力。実Supabaseとの通信は、この準備の後の確認項目です。
+
+### Windows版の同期の運用（Step7-3：src/core/sync-service.cjs・sync-storage.cjs）
+
+- **既定はオフ**。設定の「プレイリストの同期」で、接続先（URLとanonキー）の保存→メールのコードでサインイン→「同期を有効にする」の順に進みます。有効化の直前に `library.pre-sync-<時刻>.json` へバックアップを残します。
+- **正本はlibrary.json**。同期の状態（`userData/sync/state.json`：端末ID・時計・cursor・同期状態・未送信の変更・保留した変更）は補助で、storeとの差分からいつでも作り直せます。接続設定は `sync/config.json`（URL・anonキー・メール・有効フラグ。トークンは含まない）。
+- **サインイン情報**：アクセス・更新トークンはElectronの `safeStorage`（OSの暗号化）で暗号化した `sync/session.bin` にだけ保存します。暗号化が使えない環境では保存せず、同期を使えません（平文へ代替しません）。設定・ログ・エラー文・診断には含めません。anonキー以外（service_role・secret）は拒否します。
+- **ローカルの編集の取り込み**：storeの現在の内容と、直前に同期した表示（base）との差分を変更として積みます（古いコピーで他端末の追加を削除しない）。同期中にstoreが変わったときは、同期前のbaseとの差分として取り込んでから反映します。
+- **書き込み順（DESIGN前半の「outboxが先」からの変更）**：受信した変更は先に `library.json` へ反映し、その後 `sync/state.json` を保存します。ローカルの編集は、storeの保存（library.json）が先で、同期状態はその差分から作ります。どちらの順で途中停止しても、次回の差分は削除・上書きにならず（再送は冪等）、失われる編集はありません。`state.json` が未知の `syncVersion`・壊れた内容のときは、上書きせず同期を停止します。
+- **同期しない端末固有の情報の保持**：アイコン、ローカルファイル曲のファイル名、既存の `mediaId`、設定、再生中の選択は、受信の反映でも保持します（同じ動画の `mediaId` は既存を共有）。リモートで削除された曲・リストは、手元の削除と同じ経路で保存され、保存済みメディアの整理も既存の仕組みに従います。
+- **失敗時**：オフライン・Supabaseの一時停止・未サインインでは、変更とoutboxを保持して「同期に失敗しました」と表示し、5分ごと・保存の1.5秒後・起動5秒後に再試行します。整理（Compact）は成功した同期の後、1日に1回までです。
+- **保護**：ストアが破損から復旧した状態（`store.recovered`）では同期を停止し、空のライブラリを削除として送りません。同期データは作成時の接続先URL・ユーザーを記録し、違う接続先・アカウントでは同期せず、「接続を初期化」で同期データを別名（`state.replaced-*.json`）に残して手元のライブラリから始め直します。接続先URLを変えるとサインイン情報は消えます。
+- **メインとの境界**：`main.cjs` は `sync:run`（status/configure/send-code/verify/enable/disable/now/sign-out）の窓口と、storeの保存通知（`committed`）、反映後の `state` 通知だけを持ちます。
+
+### Tombstoneと長期オフライン
+
+- 削除はTombstone（`deleted:true`）で表し、古い情報による復活を防ぎます。保持期間は90日です（確定）。
+- 保持期間を超えて同期していない端末は、差分ではなく全量再同期とします。そのとき端末側の未送信の変更は、競合として一覧にして確認します（黙って上書き・復活させません）。
+
+### ローカルDBと同期キュー
+
+- 操作は先にローカルDBへ反映し、同期キューへ積み、通信可能時に送ります。オフラインでも閲覧・編集・並び替え・保存済み再生ができます。
+- 保存や同期が途中で失敗しても、中途の状態を確定扱いにしません。再起動後は最後に確定した状態から再開します。
+
+### DeviceMediaと保存状態
+
+- DeviceMedia（端末ごとの保存情報）は、mediaKey、形式（動画/音声）、画質、保存状態、端末内パスを持ち、**同期しません**。
+- 状態：NotDownloaded / Preparing / Downloading / Processing / Validating / Completed / Failed / Cancelled。Windowsの既存カタログ（layout 4）はCompletedに相当します。再起動後、Completed以外のファイルは完成扱いにしません。サムネイルの失敗で本体を削除しません。
+
+### iPhone版のローカル再生（Step9：音声のみ）
+
+- **再生順は共通JS**：Windows版と同じ `Queue`（`src/core/queue.cjs`）を `library-app.cjs` の `QueueStart/QueueMove/QueuePeek` から使う（1つの `JSContext` が状態を持つ）。端末で再生できる曲（この端末にメディアの実体があるローカル曲）だけを `playable` として渡すため、再生できない曲は順番に入らず、自動送りで空回りしない。シャッフルの重み（再生回数）はWindows版のみで、iPhone版は均等。共通テストデータに順番のケース（リピート・シャッフル・再生できない曲・子リスト・全体・ライブラリの変更の反映）を追加。
+- **Swift側**：`PlaybackEngine`（再生できる曲の集約・JS呼び出し・状態）、`PlayerBackend`（AVPlayerの抽象。テストでは偽物）、`SystemAudio`（オーディオセッション `.playback`、割り込み、イヤホンを抜いたら一時停止、ロック画面・コントロールセンターの操作と曲情報）。`UIBackgroundModes=audio` は `project.yml` の `info:` で宣言し、ビルドされたInfo.plistにあることをCIで確認する。
+- **範囲**：音声のみ（動画の表示は含まない）。Bilibiliのオンライン再生はStep12、ダウンロード済みはStep13。メディアのファイル保護は `completeUntilFirstUserAuthentication`（ロック中の再生のため）で、Step13以降も同じ。
+- **挙動**：曲を選ぶと、その曲のあるリスト（子を含む）が再生範囲。再生位置が3秒を超えているときの「前へ」は曲の頭へ戻る。読み込み・再生に失敗した曲は飛ばし、続けて失敗しても無限に回らず止める。
+
+### ZIPの出力・取り込みの仕様（Step10：実装から確定した形式）
+
+- **外側のZIP**：すべて無圧縮（method 0）、フラグ0x808（データ記述子・UTF-8）。サイズが4GB以上のときはZIP64。読み取りは中央ディレクトリのサイズを使い、method 0と8（deflate）を受け付ける。許可する名前は `[a-zA-Z0-9_./-]` 200文字以内で、先頭の/・`.`・`..`・空要素は不可（`SafeName`、共通JS）。構成：`playlists.fvpa`、`media/<fileName>`（ローカル曲の実体）、DL済みメディアの部分（出力方式 media のとき。iPhoneへの取り込みはStep13）。
+- **`playlists.fvpa`（自動形式 FVPA0002）**：ヘッダー52バイト＝マジック`FVPA0002`（8）＋鍵（32）＋nonce（12）、続けて認証タグ（16）、暗号文（AES-256-GCM、ヘッダー全体をAAD）。鍵を同梱するため秘密保護ではなく、破損検出用。パスワード形式（FVPA0001、scrypt）は **iPhone版では未対応**（CryptoKitにscryptがないため。ユーザーが必要としたら追加）。
+- **平文＝内側のZIP**：`identity.json`（shareVersion・exportMode・identityVersion・videoAliases）と `playlists/<ID>.json`（`{version:3, playlist, rootIndex}`）。JSONは `ExportJSON`（ASCIIのUnicode表記・CRLF）。内側の上限は32MB。
+- **共通JS**（`src/core/library-transfer.cjs`、iPhone版の入口は `library-app.cjs` の `TransferPrepare/Import/Export`）：名前の規則、内側/外側の構成検査、取り込み入力の組み立て、検証（ReadShare）、選択・祖先・上限・ローカル曲のファイル名の付け替え・`PlanImportIdentity`・同名リストへの（取り込みN）・曲名整形・出力内容の生成。Windows版の `library-archive.cjs` はこのうち名前の規則と構成検査を共有し、出力内容・取り込み結果が共通処理と同じになることを `test/library-transfer.test.cjs` で確認する（出力はバイト単位で一致）。
+- **Swift側（iPhone）の責務**：入れ物と実体だけ。ZIPのストリーム読み書き（ZIP64・CRC32）、AES-GCMの復号/暗号化、ステージング領域への展開とCRC・サイズ検査、公開（衝突した別ファイルは削除・上書きしない）、メディアは `Application Support` 配下に `completeUntilFirstUserAuthentication` で保存（ロック中の音声再生のため。Step9・13も同じ）。共有シート用のApp拡張は作らない（AltStoreのApp ID上限のため）。`fileImporter`・ドキュメントタイプ＋`onOpenURL`・`ShareLink`/`fileExporter` を使う。
+- **範囲の決定（2026-11-13、ユーザー）**：ユーザーのライブラリはローカル曲0件・Bilibili曲631件・DL済みメディア1265個（約6.6GB）で、ZIPのmedia部分だけでは再生できる実体がない。Step10は**構造とローカル曲のメディアの取り込み・出力**までとし、DL済みメディアの取り込みはStep13で行う。再生確認は小さなローカル音声で行う。
+
+### ZIPの拡張
+
+既存のFVPA0002（内側のidentity.json、shareVersion 1）は維持し、`manifest.json` にmediaKeyの一覧を追加します（shareVersion 2案）。旧ZIPは従来の互換経路で読み込みます。新ZIPを旧版アプリで読めることは保証しません。ZIPはバックアップ、手動移行、メディア共有に残し、削除しません。
+
+### 認証情報
+
+Windows：Electron safeStorage。iOS：Keychain。平文保存、ログ、同期、ZIPへの出力は行いません。取得できない配信は「取得不可」で終え、保護・制限の回避は実装しません。
+
+### 外部ツールの責務
+
+署名・導入・更新はAltStore Classic／AltServer／iOSショートカットに任せ、FavecusPlayerは署名制限の回避処理もAltStoreの内部状態の取得も持ちません。App IDは10個まで（各1週間）でアプリの拡張機能ごとに消費されるため、**iOS版はApp拡張（Share Extension等）を持たない**制約とします。Step10の共有シート/Filesからの取り込みは、書類タイプの登録と「このアプリで開く」で実現します。AltStore自体が有効アプリ3つの枠を使うかは公式ページで未確認です（Step2・16で実機確認）。
+
+### 外部情報（2026-11-13に公式ページで確認／未確認）
+
+| 項目 | 確認した内容 | 出典 |
+| --- | --- | --- |
+| Supabase Free | データベース500MB/プロジェクト、MAU 50,000、API要求は無制限、egress 5GB、Free枠のプロジェクトは2つ | supabase.com/pricing, docs/guides/platform/billing-on-supabase |
+| Supabase 一時停止 | Freeプロジェクトは1週間の非活動で停止（有料は停止しない） | supabase.com/pricing |
+| Supabase 一時停止の詳細（2026-11-13確認） | 7日間に「十分なユーザーのDB利用」がないと停止（目安：毎日数回のリクエスト）。停止前の約1週間前に警告メール、停止後に確認メール。停止後1年間はダッシュボードの「Resume project」で、データ・設定ごと復旧できる | supabase.com/docs/guides/platform/free-project-pausing（context7経由で取得） |
+| Supabase 認証 | メールのワンタイムコード：`POST /auth/v1/otp` → `POST /auth/v1/verify`（type=email）、更新は `POST /auth/v1/token?grant_type=refresh_token`。リフレッシュトークンは更新ごとに差し替わる | supabase.com/docs（context7経由） |
+| GitHub Actions | GitHub Freeの含有利用は金額で$12/月（分数ではない）。標準macOSランナーは$0.062/分（Linux 2コアは$0.006/分）。公開リポジトリの標準ランナーは無料 | docs.github.com の課金ページ |
+| GitHub 未確認 | 公式の「倍率」表記はなし。macOSでの無料枠の分数換算（約194分）は筆者の概算で、公式値ではない。リポジトリはPrivateのため、枠の消費を実行ごとに記録する | |
+| AltStore | AltStoreのアプリは7日で期限切れ。AltServerと同一Wi-Fi（またはUSB）でRefreshし、PC起動時にAltServerを起動しておく運用を推奨。同時に有効にできるsideloadアプリは3つ、App IDは10個まで（各1週間） | faq.altstore.io |
+| AltStore 未確認 | 無料Apple Accountに限る旨の明記、Background RefreshにAltServerが必須と明記された記述、ショートカット「Refresh All」の手順（「Add to Siri」のショートカットとPersonal Automationの記載のみ）。Windows版はiTunes・iCloudをMicrosoft Store版でなくApple配布版で入れる必要 | |
+
+### 確定した判断（2026-11-13、ユーザー）
+
+1. 同期基盤はSupabaseを使う。Freeの1週間停止は、データが残り1年以内ならダッシュボードで再開できると確認した（重大な問題なし）。ただし、再開するまでは同期できないため、アプリは停止を検出したら「Supabaseの再開が必要」と知らせて、未送信の変更を保持する。
+2. videoAliasesは自端末間の同期経由に限り確認済みとして受け入れる。ZIP・他者の共有ファイルには適用しない。
+3. Tombstoneの保持期間は90日。
+4. iPhoneの画面・UIは、計画どおりユーザーのUI案を受けてStep15で決める。それまでは仮の最小画面のみ。
+
 ## v0.6.7開発中：共通識別と端末処理の境界
 
 `media-identity.cjs` はURL正規化、動画・パートの識別、確認済みav/BV対応、動画/音声の保存識別を扱う純粋な処理です。依存先は同じく端末非依存の `urls.cjs` のみです。ファイル・通信・Electron・時計・乱数には依存しません。識別規約のバージョンは `IDENTITY_VERSION = 1` です。これは保存JSONのversionやアプリのバージョンとは別です。
@@ -335,3 +524,25 @@ Rootsは子として参照されるリストを最上位表示から除き、保
 保存開始は見積もり完了を必須にしない。未完了の事前確認を中止し、最大3ワーカーの配信情報をLiveEstimateへ渡す。確認済みの容量と長さから残りを推計し、全件確認で取得を待たせない。完了済みデータは今後必要な空き容量から除き、各曲の保存前にも空き容量を確認する。
 
 更新画面はHTTPSのGoogle Drive URLを保存して開く。旧GitHub設定を残すがアプリの更新確認では使用しない。新しい共有方式とGitHub公開は保留する。
+
+## iPhone版のBilibili・保存・オンライン再生（v0.7.0 Step12・13）
+
+- 個人利用専用。DRM・保護・アクセス制限・Bilibiliの拒否応答（HTTP 401・412・429、コード -101・-352・-412・-509）を回避する処理は実装しない。拒否・制限は、再試行・別候補・次の曲への連続要求をせず、止めて理由を知らせる。
+- 規則は共通JS（`src/core/bilibili-resolve.cjs`）。iPhoneは `bilibili-runtime.cjs` をJavaScriptCoreで実行し、通信はSwiftのhost（`api.bilibili.com` のみ、GET、リダイレクト追従なし）が行う。Windows版のダウンロードも同じ解決規則を使う。
+- 認証情報：公式のログインページ（WKWebView、非永続の保存領域）。許可したCookie（SESSDATA・bili_jct・DedeUserID・DedeUserID__ckMd5・sid）だけをKeychainへ。`api.bilibili.com` 宛てにだけ付け、配信先・サムネイルには付けない。ログ・同期・コミットに含めない。消すのは未ログイン（-101）のときと、ユーザーのログアウトのみ。
+- 保存の同一性は同期用メディアキー（`bili:<BV>:p<part>` ＋種別）。ファイルパスは使わない。保存物と記録（`downloads.json`）は端末内のみで、同期しない。保存先はバックアップ対象外。記録の版が未知・破損のときは、読み込めるまで書き込まず、元のファイルを上書きしない。他の記録が参照するファイルは削除しない。
+- 配信先は許可リスト（bilivideo.com・.cn・.net、hdslb.com、akamaized.net）。リダイレクト先も再検査し、ステータスは200・206のみ、サイズを確認する。保護された動画・試聴用は扱わない。
+- 保存の状態：未保存・準備・保存中・処理中・検証中・完了・失敗・取り消し。動画は、再エンコードしない結合（passthrough）の後に検証（再生可能・トラック・長さ）。結合に失敗しても音声だけの保存は残す。途中の記録は、再起動後に「失敗」にする。空き容量を確認してから保存する。
+- オンライン再生：保存済みならそのファイル、なければ一時ファイルへ取得して再生（`Caches/online`、500MB LRU）。取得中に別の曲を選ばれたら古い結果を捨てる。
+- 公開リポジトリの期間中は、実在のURL・BV番号・アカウント・Cookieをテストデータ・ログ・コミットへ含めない（テストは合成データ）。
+
+## iPhone版の背面の保存と画面（v0.7.0 Step14・15）
+
+- 背面の保存：取得だけをbackgroundのURLSessionに任せ、配信先の決定（共通JS）と仕上げ（結合・検証）は、アプリが動いている間に行う。ジョブ（`download-jobs/`）は署名つきURLを含むため、バックアップ対象外・初回ロック解除までの保護で、保存記録（`downloads.json`）とは分ける。取得の結果は作業フォルダのファイル（成功・失敗）として残し、再起動後は、実際のファイルと通信中のタスクから状態を決める（取得中の記録を、再起動だけで失敗にしない）。拒否（401・403・412・429）は止め、別候補を試さない。アプリを上へスワイプして終了すると、iOSの仕様で取得は止まる（不具合ではない）。
+- 画面：ライブラリ／保存／設定の3タブ、ミニプレイヤー、再生画面。表示・編集の規則は持たず、操作は `LibraryStore.perform`（共通JS）へ渡す。サムネイルは配信先の取得時に1回だけ（hdslb.com・Cookieなし・2MB以下）。曲ごとの通信はしない。
+
+## 取り込みの重複判定・サムネイル・保存済みメディアの取り込み（v0.7.0 追加）
+
+- 取り込み（共通JS `library-transfer.cjs`）：`IdenticalIds(library, plan)` は、候補のリストごとに「名前・曲の並び（メディアキー）・子のリスト（再帰）」の署名を作り、端末のリストの署名と一致するものを返す。`Import` の `skipIdentical: true`（iPhone版だけが指定）は、選択から、同じ構成のものを除く（残りがなければ、取り込まずにエラー）。既定（Windows版）は変えない。
+- サムネイル：動画の特定の場面を使う（PC版 `thumbnail.cjs` と同じ規則）。`FrameTarget(duration)`＝60秒付近（短い動画は長さの30%、1秒以上）。オンラインは `ShotCell(shot, target, duration)` が、公式のプレビュー画像（videoshot）から最も近い1コマを選ぶ（共通JS。画像の配信先は hdslb.com のhttpsだけ）。ファイルは `AVAssetImageGenerator`。場面が得られない動画だけ、表紙で代用する。
+- ZIPの保存済みメディア：Windows版の `downloads/catalog.json`（version 1）を検証して読み、ライブラリにある曲の分だけを、端末で再生できることを確かめてから `DeviceMedia` の保存済みとして取り込む。ファイルの場所・名前は同期・識別に使わない。

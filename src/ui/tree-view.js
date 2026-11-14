@@ -43,7 +43,6 @@
         if (options.checkboxes) { name.disabled = row.querySelector('input').disabled; name.onclick = () => { const input = row.querySelector('input'); if (input.disabled) return; input.checked = !input.checked; input.onchange(); }; }
         row.append(name);
         if (name.disabled) row.append(node('span', 'selection-unavailable', '選択不可'));
-        if (options.icons && p.icon) { const icon = node('img', 'playlist-icon'); icon.src = p.icon; icon.alt = ''; icon.draggable = false; row.append(icon); }
         row.append(node('span', 'count', options.count ? options.count(p) : tree.Entries(data, id).length));
         const children = tree.Ordered(data, p.childIds || []), open = query ? !searchCollapsed.has(path) : expanded.has(path), arrow = button(open ? '⌄' : '›', 'tree-expand', () => {
           if (query) open ? searchCollapsed.add(path) : searchCollapsed.delete(path);

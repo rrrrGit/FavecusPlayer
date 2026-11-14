@@ -284,7 +284,7 @@ async function Install(options) {
   if (renamed) {
     if (await NoLink(root)) throw new Error('同じ場所にFavecusPlayerフォルダーがあります。既存データを上書きせず更新を中断しました。');
     try { await fsp.rename(previousRoot, root); }
-    catch { throw new Error('旧名フォルダーを変更できません。アプリを終了し、Patch.exeを更新先フォルダーの外に置いて再実行してください。'); }
+    catch { throw new Error('旧名フォルダーを変更できません。アプリを終了し（×ボタンでは通知領域に残ります。通知領域のアイコンを右クリックして「終了」を選びます）、Patch.exeを更新先フォルダーの外に置いて再実行してください。'); }
   }
   try {
     const result = await InstallCurrent({ ...options, root, dependencies: { ...options.dependencies, previousRoot: renamed ? previousRoot : null } });

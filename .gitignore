@@ -6,3 +6,12 @@ __pycache__/
 .env
 .env.*
 !.env.example
+
+# iOS（XcodeGenの生成物・ビルド出力）
+ios/*.xcodeproj/
+ios/build/
+ios/Config/
+*.ipa
+
+# 共通JSのバンドル（生成物）
+shared/dist/

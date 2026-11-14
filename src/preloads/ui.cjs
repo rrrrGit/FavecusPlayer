@@ -6,7 +6,7 @@ const invoke = channel => (...args) => ipcRenderer.invoke(channel, ...args).then
 });
 contextBridge.exposeInMainWorld('favecusApp', {
   state: invoke('app:state'), action: invoke('library:action'), addFiles: invoke('library:files'),
-  entryThumbnail: invoke('library:thumbnail'), choosePlaylistIcon: invoke('library:choose-icon'), resetPlayCounts: invoke('player:reset-counts'),
+  entryThumbnail: invoke('library:thumbnail'), videoFullscreen: invoke('player:fullscreen'), resetPlayCounts: invoke('player:reset-counts'),
   openRelease: invoke('app:release-open'), downloads: invoke('downloads:state'), estimateDownload: invoke('downloads:estimate'), cancelDownloadEstimate: invoke('downloads:estimate-cancel'), downloadPlaylist: invoke('downloads:start'), cancelDownload: invoke('downloads:cancel'), downloadDirectory: invoke('downloads:directory'), openDownloads: invoke('downloads:open'), preferSaved: invoke('downloads:prefer'),
   importLibrary: invoke('library:import'), exportLibrary: invoke('library:export'),
   resolveURL: invoke('bilibili:resolve'), entryDuration: invoke('library:duration'), playEverything: invoke('player:all'),
@@ -19,7 +19,7 @@ contextBridge.exposeInMainWorld('favecusApp', {
   discordGuide: invoke('app:discord-guide'), discordImage: invoke('app:discord-image'),
   taskbarLog: invoke('app:taskbar-log'),
   taskbarGuide: invoke('app:taskbar-guide'),
-  accounts: invoke('account:status'), login: invoke('account:open'),
+  accounts: invoke('account:status'), login: invoke('account:open'), sync: invoke('sync:run'),
   browseBilibili: invoke('bilibili:browse'),
   favoriteFolders: invoke('account:folders'), favoriteVideos: invoke('account:videos'),
   playlistSources: invoke('bilibili:lists'), playlistVideos: invoke('bilibili:list-videos'), playlistParts: invoke('bilibili:parts'),

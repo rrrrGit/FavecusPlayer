@@ -20,6 +20,9 @@ const durationQueue = new Map(), durationFailures = new Set();
 const listArtwork = window.FavecusListArtwork && api?.entryThumbnail && typeof IntersectionObserver !== 'undefined' ? new window.FavecusListArtwork.ListArtwork({
   root: $('entries'), load: (playlistId, entryId) => api.entryThumbnail(playlistId, entryId, ViewScope()), observe: (callback, options) => new IntersectionObserver(callback, options)
 }) : null;
+const homeArtwork = window.FavecusListArtwork && api?.entryThumbnail && typeof IntersectionObserver !== 'undefined' ? new window.FavecusListArtwork.ListArtwork({
+  root: $('home'), load: (playlistId, entryId) => api.entryThumbnail(playlistId, entryId, '*', 'cover'), observe: (callback, options) => new IntersectionObserver(callback, options)
+}) : null;
 const searchArtwork = window.FavecusListArtwork && api?.entryThumbnail && typeof IntersectionObserver !== 'undefined' ? new window.FavecusListArtwork.ListArtwork({
   root: $('home'), load: (playlistId, entryId) => api.entryThumbnail(playlistId, entryId, '*'), observe: (callback, options) => new IntersectionObserver(callback, options)
 }) : null;
@@ -278,13 +281,10 @@ function SortLists() {
   $('playlist-sort').value = state.settings.playlistSort || 'manual';
 }
 function ListMenu() {
-  const p = List(); let iconDraft = p.icon || '';
-  OpenModal('プレイリストを編集', '<label class="field">名前<input id="name-input" maxlength="60" required></label><label class="check-row"><input id="include-in-all" type="checkbox">全体再生・全体シャッフルに含める</label><p class="form-note">オフにするとこのリストと配下を全体再生から外します。個別に選んだリストは再生できます。</p><div class="playlist-icon-editor"><img id="playlist-icon-preview" alt="プレイリストの画像"><button id="playlist-icon-choose" type="button" class="button secondary">画像を選択</button><button id="playlist-icon-clear" type="button" class="button secondary">画像を外す</button></div><p class="form-note">画像は左側の一覧だけに表示します。</p><div id="list-delete-area"></div>', () => Action({ type: 'playlist-properties', playlistId: p.id, name: $('name-input').value, includeInAll: $('include-in-all').checked, icon: iconDraft }));
+  const p = List();
+  OpenModal('プレイリストを編集', '<label class="field">名前<input id="name-input" maxlength="60" required></label><label class="check-row"><input id="include-in-all" type="checkbox">全体再生・全体シャッフルに含める</label><p class="form-note">オフにするとこのリストと配下を全体再生から外します。個別に選んだリストは再生できます。</p><div id="list-delete-area"></div>', () => Action({ type: 'playlist-properties', playlistId: p.id, name: $('name-input').value, includeInAll: $('include-in-all').checked }));
   $('name-input').value = p.name;
   $('include-in-all').checked = p.includeInAll !== false;
-  const iconEpoch = modalEpoch, paintIcon = () => { $('playlist-icon-preview').src = iconDraft || 'music.png'; $('playlist-icon-preview').classList.toggle('hidden', !iconDraft); $('playlist-icon-clear').disabled = !iconDraft; };
-  $('playlist-icon-choose').onclick = () => Run(async () => { const chosen = await api.choosePlaylistIcon(); if (modalEpoch === iconEpoch && chosen !== null) { iconDraft = chosen; paintIcon(); } });
-  $('playlist-icon-clear').onclick = () => { iconDraft = ''; paintIcon(); }; paintIcon();
   $('list-delete-area').append(Button('プレイリストを移動', 'button secondary', () => MovePlaylist(p.id)));
   $('list-delete-area').append(Button('このプレイリストの動画・音声を保存', 'button secondary', DownloadsDialog));
   if (state.playlists.length > 1) $('list-delete-area').append(Button('このプレイリストを削除', 'button secondary danger', () => {
@@ -491,7 +491,7 @@ function Settings() {
     </section>
     <nav id="settings-sections" class="settings-sections" aria-label="設定項目"></nav>`, null);
   // 新しい設定カテゴリはこの配列の末尾へ追加する。
-  for (const [name, open] of [['プレイリストの出力', Transfer], ['使い方', () => api.help()], ['自動消去単語設定', TitleWordsSettings], ['Discordアクティビティ', DiscordSettings], ['ミニプレイヤー、タスクバー', TaskbarSettings], ['再生・表示', PlaybackSettings], ['キーコンフィグ', KeySettings], ['シャッフルの再生回数', ShuffleSettings], ['バージョン更新', ReleaseSettings]]) {
+  for (const [name, open] of [['プレイリストの出力', Transfer], ['使い方', () => api.help()], ['自動消去単語設定', TitleWordsSettings], ['Discordアクティビティ', DiscordSettings], ['ミニプレイヤー、タスクバー', TaskbarSettings], ['再生・表示', PlaybackSettings], ['キーコンフィグ', KeySettings], ['シャッフルの再生回数', ShuffleSettings], ['バージョン更新', ReleaseSettings], ['プレイリストの同期', SyncSettings]]) {
     const button = Button(name, 'settings-category', open); button.append(Element('span', '', '›')); $('settings-sections').append(button);
   }
   SyncVolume(state.settings.volume); $('master-volume').oninput = () => VolumeInput($('master-volume'));
@@ -505,6 +505,63 @@ async function SaveSettingsSection(settings, expectedEpoch = modalEpoch) {
   const epoch = modalEpoch;
   await Action({ type: 'settings', settings });
   if (epoch === modalEpoch && $('modal').open) { Settings(); Toast('設定を保存しました。'); }
+}
+// ---- プレイリストの同期（設定）。接続先・サインイン・有効化。状態はmainからの 'sync' イベントで更新する。
+let syncStatus = null;
+function SyncLabel(status) {
+  if (!status) return '確認しています…';
+  const when = status.lastSyncAt ? new Date(status.lastSyncAt).toLocaleString('ja-JP') : '未同期';
+  const extra = (status.pending ? `・未送信 ${status.pending}件` : '') + (status.conflicts ? `・保留した変更 ${status.conflicts}件` : '');
+  if (status.state === 'blocked') return `同期を停止しています：${status.error}`;
+  if (!status.enabled) return `同期：オフ${status.signedIn ? `（サインイン済み：${status.email}）` : ''}`;
+  if (status.state === 'syncing') return '同期しています…';
+  if (status.state === 'error') return `同期に失敗しました：${status.error}（変更は保持しています。つながると自動で再試行します）${extra}`;
+  return `同期：オン・最終 ${when}${extra}`;
+}
+function PaintSync(status) {
+  syncStatus = status;
+  if (!$('sync-state') || !$('modal').open) return;
+  $('sync-state').textContent = SyncLabel(status);
+  const on = !!status?.enabled, ready = !!status?.configured, signed = !!status?.signedIn;
+  $('sync-url').disabled = $('sync-key').disabled = $('sync-save').disabled = on;
+  $('sync-send').disabled = !ready || !status?.encryption; $('sync-verify').disabled = !ready; $('sync-signout').disabled = !signed || on;
+  $('sync-enable').disabled = on || !signed; $('sync-disable').disabled = !on; $('sync-reset').disabled = on; $('sync-now').disabled = !on || status?.state === 'syncing';
+  $('sync-encryption').classList.toggle('hidden', !status || status.encryption);
+  $('sync-blocked').classList.toggle('hidden', !(status && status.enabled && status.state === 'blocked' && status.canUnblock));
+}
+function SyncSettings() {
+  OpenModal('プレイリストの同期', `
+    <p class="form-note">自分のSupabaseプロジェクトを使って、プレイリストの構成と曲の登録情報をWindows版・iPhone版で同期します。曲のファイル・保存したメディア・ログイン情報は同期しません。既定はオフです。</p>
+    <p id="sync-state" class="status-detail" role="status" aria-live="polite"></p>
+    <p id="sync-encryption" class="status-detail hidden">この環境ではサインイン情報を安全に保存できないため、同期を使えません。</p>
+    <section class="settings-block"><h3>1. 接続先</h3>
+      <label class="field">Project URL<input id="sync-url" maxlength="100" placeholder="https://xxxx.supabase.co" autocomplete="off" spellcheck="false"></label>
+      <label class="field">anon（publishable）キー<input id="sync-key" maxlength="4096" autocomplete="off" spellcheck="false"><small>公開してよいキーだけを入力します。service_role・secretキーは使えません。</small></label>
+      <div class="settings-actions"><button id="sync-save" type="button" class="button secondary">接続先を保存</button></div>
+    </section>
+    <section class="settings-block"><h3>2. サインイン（メールのワンタイムコード）</h3>
+      <label class="field">メールアドレス<input id="sync-email" type="email" maxlength="200" autocomplete="email"></label>
+      <div class="settings-actions"><button id="sync-send" type="button" class="button secondary">コードを送る</button></div>
+      <label class="field">届いたコード<input id="sync-code" inputmode="numeric" maxlength="10" autocomplete="one-time-code"></label>
+      <div class="settings-actions"><button id="sync-verify" type="button" class="button secondary">サインイン</button><button id="sync-signout" type="button" class="button secondary">サインアウト</button></div>
+    </section>
+    <section class="settings-block"><h3>3. 同期</h3>
+      <div class="settings-actions"><button id="sync-enable" type="button" class="button primary">同期を有効にする</button><button id="sync-now" type="button" class="button secondary">今すぐ同期</button><button id="sync-disable" type="button" class="button secondary">同期を止める</button><button id="sync-reset" type="button" class="button secondary">接続を初期化</button></div>
+      <div id="sync-blocked" class="settings-actions hidden"><button id="sync-restore" type="button" class="button primary">サーバーの内容で復元</button><button id="sync-keep" type="button" class="button secondary">この端末の内容を正とする</button></div>
+      <p class="form-note">有効にする前に、現在のlibrary.jsonのバックアップをデータフォルダーへ残します。止めても、プレイリストや同期データは消えません。Supabaseの無料枠は、1週間ほど使われないと一時停止します（ダッシュボードで再開でき、データは残ります）。</p>
+    </section>`, null, '保存', Settings);
+  const call = (command, message) => Run(async () => { const status = await api.sync(command); PaintSync(status); if (message) Toast(message); });
+  $('sync-save').onclick = () => call({ action: 'configure', url: $('sync-url').value, anonKey: $('sync-key').value }, '接続先を保存しました。');
+  $('sync-send').onclick = () => call({ action: 'send-code', email: $('sync-email').value }, 'コードをメールで送りました。届いた数字を入力してください。');
+  $('sync-verify').onclick = () => call({ action: 'verify', email: $('sync-email').value, code: $('sync-code').value }, 'サインインしました。');
+  $('sync-signout').onclick = () => call({ action: 'sign-out' }, 'サインアウトしました。');
+  $('sync-enable').onclick = () => call({ action: 'enable' }, '同期を有効にしました。');
+  $('sync-disable').onclick = () => call({ action: 'disable' }, '同期を止めました。');
+  $('sync-restore').onclick = () => call({ action: 'unblock', mode: 'restore' }, '同期した内容で復元しました。');
+  $('sync-keep').onclick = () => { if (confirm('この端末の内容を正として同期します。サーバーと他の端末にある、この端末にない内容は削除されます。よろしいですか？')) call({ action: 'unblock', mode: 'keep' }, '同期しました。'); };
+  $('sync-reset').onclick = () => { if (confirm('別のプロジェクト・アカウントへ切り替えるため、同期の紐付けを初期化します。手元のプレイリストは変わりません。よろしいですか？')) call({ action: 'reset' }, '初期化しました。'); };
+  $('sync-now').onclick = () => call({ action: 'now' }, '同期しました。');
+  Run(async () => { const status = await api.sync({ action: 'status' }); PaintSync(status); $('sync-email').value = status.email || ''; $('sync-url').value = status.url || ''; });
 }
 function KeySettings() {
   const keys = window.FavecusKeys, draft = { ...keys.Validate(state.settings.keybindings) }, inputs = new Map();
@@ -560,7 +617,7 @@ function TitleWordsSettings() {
 }
 function ReleaseSettings() {
   const save = () => SaveSettingsSection({ releaseDriveURL: $('release-drive-url').value.trim() });
-  OpenModal('バージョン更新', '<label class="field">Google Driveの配布先<input id="release-drive-url" placeholder="https://drive.google.com/drive/folders/..."><small>配信元から案内されたフォルダーURLを指定してください。未設定の場合はマイドライブを開きます。</small></label><div class="settings-actions"><button id="release-open" type="button" class="button primary">Google Driveを開く ↗</button></div><p class="form-note">配布先のファイル名でバージョンを確認し、Patchを取得してください。アプリを終了してから、既存のFavecusPlayerフォルダーへ適用します。</p>', save, '保存して戻る', save);
+  OpenModal('バージョン更新', '<label class="field">Google Driveの配布先<input id="release-drive-url" placeholder="https://drive.google.com/drive/folders/..."><small>配信元から案内されたフォルダーURLを指定してください。未設定の場合はマイドライブを開きます。</small></label><div class="settings-actions"><button id="release-open" type="button" class="button primary">Google Driveを開く ↗</button></div><p class="form-note">配布先のファイル名でバージョンを確認し、Patchを取得してください。アプリを終了（×ボタンでは通知領域に残るため、通知領域のアイコンを右クリックして「終了」）してから、既存のFavecusPlayerフォルダーへ適用します。</p>', save, '保存して戻る', save);
   $('release-drive-url').value = state.settings.releaseDriveURL || '';
   $('release-open').onclick = () => Run(async () => { await Action({ type: 'settings', settings: { releaseDriveURL: $('release-drive-url').value.trim() } }); await api.openRelease(); });
 }
@@ -924,7 +981,7 @@ async function OpenPlaylist(id) {
   state = result; allListsView = false; $('filter').value = ''; tree.ExpandTo(state, id, expandedLists); Render();
 }
 function RenderHome() {
-  searchArtwork?.Reset(); searchArtwork?.SetEnabled(false); homeSearchBadges.clear();
+  searchArtwork?.Reset(); searchArtwork?.SetEnabled(false); homeArtwork?.Reset(); homeArtwork?.SetEnabled(false); homeSearchBadges.clear();
   if (!allListsView) return;
   const searching = !!$('home-query').value.trim(); $('home-search-clear').disabled = !$('home-query').value;
   if (searching && !homeSearchActive) homeScrollTop = $('home').scrollTop;
@@ -933,11 +990,15 @@ function RenderHome() {
   const view = window.FavecusHome.Render($('home'), state, {
     path: homePath, page: homePage,
     onNavigate: (path, page) => { homePath = path; homePage = page; RenderHome(); $('home').scrollTop = 0; $('home').querySelector('h1')?.focus(); },
+    artwork: homeArtwork,
     onOpen: id => Run(() => OpenPlaylist(id)), onPlay: id => PlaybackAction(() => api.play(id)),
+    // シャッフル再生：既存のシャッフルと同じく、全体のシャッフル設定をオンにして、このリストをシャッフルで再生する
+    onShuffle: id => PlaybackAction(() => api.shufflePlay(id)),
     onSort: SortLists, onCreate: NewList,
     onInclude: (id, value) => Run(async () => { try { await Action({ type: 'playlist-properties', playlistId: id, includeInAll: value }); } finally { RenderHome(); } })
   });
   homePath = view.path.map(p => p.id); homePage = view.page;
+  homeArtwork?.SetEnabled(foreground && !$('modal').open);
   if (restore) $('home').scrollTop = homeScrollTop;
 }
 function RenderHomeSearch() {
@@ -972,7 +1033,7 @@ function RenderHomeSearch() {
 function Render() {
   if (!state) return;
   document.body.style.setProperty('--sidebar-width', `${state.settings.sidebarWidth || 218}px`);
-  window.FavecusTreeView($('playlists'), state, { icons: true, expanded: expandedLists, activeId: allListsView ? null : state.activePlaylistId, drag: playlistDrag, onSelect: id => { allListsView = false; return Run(() => Action({ type: 'select', playlistId: id })); }, onDrop: !state.settings.playlistSort || state.settings.playlistSort === 'manual' ? DropPlaylist : null });
+  window.FavecusTreeView($('playlists'), state, { expanded: expandedLists, activeId: allListsView ? null : state.activePlaylistId, drag: playlistDrag, onSelect: id => { allListsView = false; return Run(() => Action({ type: 'select', playlistId: id })); }, onDrop: !state.settings.playlistSort || state.settings.playlistSort === 'manual' ? DropPlaylist : null });
   $('all-count').textContent = `${state.playlists.reduce((n, p) => n + p.entries.length, 0)}曲`;
   $('all-count').title = `${state.playlists.length}リストの登録曲数（重複登録を含む）`;
   $('all-lists').setAttribute('aria-pressed', String(allListsView));
@@ -1093,6 +1154,7 @@ function BackgroundInteractive(enabled) {
   for (const node of document.querySelectorAll('.sidebar, main, .transport, .titlebar')) node.inert = blocked;
   enabled = enabled && foreground && !blocked;
   searchArtwork?.SetEnabled(enabled && allListsView && homeSearchActive);
+  homeArtwork?.SetEnabled(enabled && allListsView && !homeSearchActive);
   for (const node of document.querySelectorAll(enabled ? '[data-saved-title]' : '.sidebar [title], main [title], .transport [title]')) {
     if (enabled) { node.title = node.dataset.savedTitle; delete node.dataset.savedTitle; }
     else { node.dataset.savedTitle = node.title; node.removeAttribute('title'); }
@@ -1149,6 +1211,7 @@ $('add-files').onclick = AddLocalFiles;
 $('mini-player').onclick = () => Run(() => api.mini());
 $('transport-volume').oninput = () => VolumeInput($('transport-volume'));
 $('mute').onclick = () => Run(() => api.volume(state.settings.volume > 0 ? 0 : lastVolume));
+$('video-fullscreen').onclick = () => Run(async () => { if (!(await api.videoFullscreen())) Toast('動画を表示しているときに、画面全体へ拡大できます。'); });
 $('filter').addEventListener('input', () => { queueFollower?.Interact(); RenderEntries(); });
 $('entries').addEventListener('wheel', event => { queueFollower?.Interact(); queueDrag?.Wheel(event); }, { passive: false });
 $('entries').addEventListener('touchmove', () => queueFollower?.Interact(), { passive: true });
@@ -1183,9 +1246,19 @@ if (api) {
     else if (event.type === 'status') { statuses = event.value; UpdateStatus(); }
     else if (event.type === 'loaded') { loaded = true; RenderPlayer(); }
     else if (event.type === 'notice') Toast(event.value);
+    else if (event.type === 'sync') PaintSync(event.value);
     else if (event.type === 'accounts') { accounts = event.value; UpdateAccounts(); }
     else if (event.type === 'queue') { queueInfo = event.value; RenderNext(); if (state) UpdateTransport(); }
     else if (event.type === 'foreground') { const changed = foreground !== (event.value === true); foreground = event.value === true; listArtwork?.SetEnabled(foreground); BackgroundInteractive(foreground); if (!foreground) { queueDrag?.Cancel(); queueFollower?.Release(); } if (foreground) { if (changed) queueFollower?.Request(); PumpDurations(); } }
+    else if (event.type === 'change-quality') {
+      // ローカル再生画面の「別の画質で保存し直す」。既存の1曲の保存画面を開く（切り替えは再保存。新しい画質は次の再生から使う）。
+      const target = event.value;
+      if ($('modal').open) Toast('開いている画面を閉じてから、もう一度画質の変更を押してください。');
+      else {
+        const found = target && state.playlists.find(p => p.id === target.playlistId)?.entries.find(e => e.id === target.entryId && e.type === 'bilibili');
+        if (found) DownloadsDialog({ playlistId: target.playlistId, entryId: target.entryId, entryURL: found.url });
+      }
+    }
     else if (event.type === 'add-url') { if (!$('modal').open) AddURL(event.value); else Toast('追加画面が開いています。閉じてから検索画面の追加ボタンを押してください。'); }
   });
   new ResizeObserver(SendBounds).observe($('player-slot'));

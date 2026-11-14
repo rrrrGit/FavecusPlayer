@@ -6,6 +6,29 @@ const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
 const { EventEmitter } = require('node:events');
+const { fileURLToPath } = require('node:url');
+
+test('067 application protocol serves every local HTML dependency including home and search', async t => {
+  const h = await MainHarness(t, { netFetch: async url => new Response(fs.readFileSync(fileURLToPath(url))) });
+  const handler = h.protocols.get('favecus');
+  for (const page of ['index.html', 'mini.html', 'local.html', 'browse.html']) {
+    const html = fs.readFileSync(path.join(__dirname, '../src/ui', page), 'utf8');
+    const names = new Set([page, ...[...html.matchAll(/(?:src|href)="([^"#]+)"/g)].map(match => match[1].split('#')[0])]);
+    for (const name of names) {
+      const response = await handler(new Request(`favecus://app/${name}`));
+      assert.equal(response.status, 200, `${page} requires ${name}`);
+      const expected = path.join(__dirname, ['icon.png', 'music.png'].includes(name) ? '../build' : '../src/ui', name);
+      assert.deepEqual(Buffer.from(await response.arrayBuffer()), fs.readFileSync(expected));
+    }
+  }
+});
+
+test('067 application protocol rejects private source files and unknown hosts', async t => {
+  const h = await MainHarness(t, { netFetch: async () => assert.fail('Rejected paths must not reach net.fetch') });
+  for (const url of ['favecus://app/main.cjs', 'favecus://app/../core/store.cjs', 'favecus://other/home-view.js', 'favecus://app/missing.js']) {
+    assert.equal((await h.protocols.get('favecus')(new Request(url))).status, 404, url);
+  }
+});
 async function FlushPlayer() { await new Promise(setImmediate); await new Promise(setImmediate); }
 function SavedTrack(h, entry, content = 'media', height = 720) {
   const file = `media/${entry.videoId}-p${entry.part}/video-${require('node:crypto').randomUUID()}.mp4`, token = require('../src/core/offline-library.cjs').Key(entry.url, 'video') + '.mp4';
@@ -13,8 +36,9 @@ function SavedTrack(h, entry, content = 'media', height = 720) {
   const record = { token, kind: 'video', url: entry.url, aliases: [entry.url], file, bytes: Buffer.byteLength(content), height, layout: 4 }; h.offline.CommitRecord(record); return record;
 }
 function SavedURL(view) {
-  const video = { addEventListener() {} };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/ui/local.js'), 'utf8'), { URL, location: { href: view.webContents.getURL() }, document: { getElementById: () => video } });
+  // local.js は画面の操作部品も扱うため、最小限のDOM代用品を渡す（ここで確認するのは動画の読み込み元だけ）。
+  const video = { addEventListener() {}, querySelectorAll: () => [], classList: { toggle() {}, add() {}, remove() {} }, setAttribute() {}, contains: () => false, blur() {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/ui/local.js'), 'utf8'), { URL, location: { href: view.webContents.getURL() }, window: {}, setTimeout, clearTimeout, document: { getElementById: () => video, body: video, addEventListener() {} } });
   return video.src;
 }
 for (const [mode, extension] of [['information', 'json'], ['information', 'zip'], ['media', 'zip']]) test(`067 main exports ${mode} as ${extension} and imports a selected child under its destination`, async t => {
@@ -145,6 +169,7 @@ test('067 startup removes known orphan downloads while retaining referenced and 
   } });
   assert.ok(h.offline.File(kept.token)); assert.equal(h.offline.File(orphan.token), null); assert.equal(fs.existsSync(h.offline.ResolvePath(orphan.file)), false); assert.equal(fs.readFileSync(path.join(h.offline.directory, 'unmanaged.bin'), 'utf8'), 'keep');
 });
+const improveCalls = [];
 async function MainHarness(t, options = {}) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'favecus-main-040-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   const protocols=new Map(), handlers=new Map(), views=[], windows=[], messages=[], activities=[], previewCalls=[], connections=[], crashStarts=[], switches=new Map(), paths=new Map();const saveDialogs = []; let savePath = null; let ready, thumbnailDone, filePaths = [], loggedIn = false, activeOffline, activeStore;
@@ -161,6 +186,7 @@ async function MainHarness(t, options = {}) {
     constructor(){super();this.frame={url:''};this.sent=[];this.muteHistory=[];}
     get mainFrame(){options.onFrameAccess?.(this);return this.frame;}
     set mainFrame(frame){this.frame=frame;}
+    focus(){this.focused=true;} executeJavaScript(code){(this.scripts=this.scripts||[]).push(code);return Promise.resolve();}
     setWindowOpenHandler(fn){this.openHandler=fn;} isDestroyed(){return !!this.closed;}close(){if(this.closed)return;if(options.delayPlayerClose&&views.some(v=>v.webContents===this)&&!this.allowClose){this.closing=true;return;}options.onNative?.('close');this.closed=true;const view=views.find(v=>v.webContents===this);if(view&&options.releaseContents)view.webContents=undefined;this.emit('destroyed');options.onClose?.(this,{windows,ipcMain});}setAudioMuted(value){this.muted=value;this.muteHistory.push(value);}getURL(){return this.frame.url;}getTitle(){return '動画名 - bilibili';}
     async loadURL(url){
       options.onNative?.('load');this.loads=(this.loads || 0)+1;this.loading=true;
@@ -176,6 +202,7 @@ async function MainHarness(t, options = {}) {
   }
   class Window extends EventEmitter {
     constructor(){super();this.webContents=new Contents();this.children=[];this.contentView={addChildView:v=>this.children.push(v),removeChildView:v=>{options.onNative?.('detach');this.children=this.children.filter(x=>x!==v);}};windows.push(this);}
+    isFullScreen(){return !!this.fullscreen;}setFullScreen(value){this.fullscreen=!!value;this.emit(value?'enter-full-screen':'leave-full-screen');}
     isMinimized(){return !!this.minimized;}isMaximized(){return false;}show(){this.visible=true;}hide(){this.visible=false;this.emit('hide');}focus(){this.emit('focus');}close(){this.closed=true;this.emit('closed');}restore(){this.minimized=false;}
     isDestroyed(){return !!this.closed;}getContentSize(){return [1440,900];}async loadURL(url){await this.webContents.loadURL(url);}
     isFocused(){return this.focused !== false;}isVisible(){return this.visible !== false;}
@@ -185,14 +212,15 @@ async function MainHarness(t, options = {}) {
     setVisible(value){this.visible=value;}setBounds(value){this.bounds=value;}
   }
   class Presence {Configure(){}SetActivity(value){activities.push(value);}Stop(){}}
-  class Mini {Update(){}Destroy(){}Restore(){windows[0].show();windows[0].focus();}}
-  class Thumbnails {Get(){return new Promise(resolve=>thumbnailDone=resolve);}async GetPreview(entry,active){previewCalls.push(entry);return active()?'data:image/png;base64,aWNvbg==':null;}}
+  class Mini {Update(){}Destroy(){}Restore(){windows[0].show();windows[0].focus();}CanHideToTray(){return options.tray===true;}}
+  class Thumbnails {Get(){return new Promise(resolve=>thumbnailDone=resolve);}async Improve(entry,image,file){improveCalls.push({entry,file});return options.improved||image;}async GetPreview(entry,active){previewCalls.push(entry);return active()?'data:image/png;base64,aWNvbg==':null;}}
   const app=new EventEmitter();Object.assign(app,{setName(){},setPath:(key,value)=>paths.set(key,value),commandLine:{appendSwitch:(key,value)=>switches.set(key,value)},requestSingleInstanceLock:()=>true,quit(){},getPath:()=>path.join(root,'data'),getVersion:()=> '0.6.4',getAppPath:()=>path.resolve(__dirname,'..'),whenReady:()=>({then:fn=>{ready=fn();return ready;}})});
   const ipcMain=new EventEmitter();ipcMain.handle=(key,fn)=>handlers.set(key,fn);
   const session=new EventEmitter();session.setPermissionRequestHandler=()=>{};session.setPermissionCheckHandler=()=>{};
   session.preconnect = value => { connections.push(value); if (options.failPreconnect) throw new Error('offline'); };
   session.fetch = async url => options.fetch ? options.fetch(url) : new Response(JSON.stringify({ code: 0, data: new URL(url).pathname.endsWith('/nav') ? { isLogin: loggedIn, mid: 1234, uname: 'user' } : options.details || { title: '動画全体', pages: [{ page: 1, part: '第1曲' }, { page: 2, part: '第2曲' }] } }));
   const electron={app,BrowserWindow:Window,WebContentsView:View,ipcMain,dialog:{showErrorBox:(_title,error)=>assert.fail(error),showOpenDialog:async()=>({canceled:!filePaths.length,filePaths}),showSaveDialog:async(_win,settings)=>{saveDialogs.push(settings);return options.saveDialog?options.saveDialog(settings):{canceled:!savePath,filePath:savePath};}},shell:{},session:{defaultSession:session,fromPartition:()=>session},protocol:{registerSchemesAsPrivileged(){},handle(name,handler){protocols.set(name,handler);}},nativeImage:{createFromDataURL:data=>({isEmpty:()=>false,getSize:()=>({width:1,height:1}),resize:()=>({toPNG:()=>Buffer.from(data.split(',')[1],'base64')})})},net:{},Menu:{setApplicationMenu(){}}};
+  electron.net.fetch = options.netFetch;
   electron.crashReporter={start:settings=>{assert.equal(windows.length,0);assert.equal(views.length,0);crashStarts.push(settings);},addExtraParameter(){}};
   const storeModule = require('../src/core/store.cjs'), offlineModule = require('../src/core/offline-library.cjs');
   class TestStore extends storeModule.Store { constructor(...args) { super(...args); activeStore = this; options.setupStore?.(this); } }
@@ -368,6 +396,40 @@ test('official page mode is explicit and reload preserves it until the player bu
   h.advance(60000); await FlushPlayer(); assert.equal(h.views.length, 3);
   await h.invoke('player:command', 'page-mode'); await h.invoke('player:command', 'reload');
   assert.equal((await h.invoke('app:state')).current.pageMode, false); assert.equal(new URL(h.views.at(-1).webContents.getURL()).hostname, 'player.bilibili.com');
+});
+async function EmbeddedPlayer(t, probe) {
+  const h = await MainHarness(t, { testRecovery: true }), id = h.store.data.activePlaylistId, probes = [];
+  const state = await h.invoke('library:action', { type: 'add', playlistId: id, urls: 'av123\nav456' }), entry = state.playlists[0].entries[0];
+  await h.invoke('player:play', id, entry.id); const view = h.views.at(-1); view.navigationReady = true;
+  h.ipcMain.emit('view:bounds', h.event, { x: 100, y: 100, width: 500, height: 300, visible: true });
+  view.webContents.executeJavaScript = async code => { if (/requestVideoFrameCallback/.test(code)) { probes.push(code); return probe(); } return undefined; };
+  h.ipcMain.emit('media:health', { sender: view.webContents, senderFrame: view.webContents.mainFrame }, { url: entry.url, ready: true, position: 5, paused: false, ended: false });
+  return { h, id, entry, view, probes };
+}
+// 映像停止の確認は、mainの実際のタイマー（2.5秒後）で動く。
+const Delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+test('067 audio-only playback after returning to video mode (frozen picture) switches to the official player at the same position', async t => {
+  const { h, view, probes } = await EmbeddedPlayer(t, () => false), count = h.views.length;
+  await h.invoke('library:action', { type: 'settings', settings: { thumbnailMode: true } }); await h.invoke('library:action', { type: 'settings', settings: { thumbnailMode: false } });
+  view.navigationReady = true; h.main.emit('show');
+  await Delay(1000); assert.equal(probes.length, 0, '戻した直後ではなく、少し待ってから確認する');
+  await Delay(2000); await FlushPlayer(); assert.equal(probes.length, 1, '2.5秒後に最初の確認をする');
+  await Delay(1800); await FlushPlayer(); assert.equal(probes.length, 2, '止まっていたら間をおいてもう一度確認する（誤検知で復旧を使い切らない）');
+  await FlushPlayer();
+  assert.ok(h.views.length > count, '映像が止まっていれば、公式プレイヤーで作り直す'); assert.ok(h.views.at(-1).options.webPreferences.additionalArguments.includes('--favecus-official-player'));
+});
+test('067 a moving picture, a hidden window, thumbnail mode and a replaced view never start a frame-stall recovery', async t => {
+  const running = await EmbeddedPlayer(t, () => true), hidden = await EmbeddedPlayer(t, () => false), thumbnail = await EmbeddedPlayer(t, () => false), replaced = await EmbeddedPlayer(t, () => false);
+  const counts = [running, hidden, thumbnail, replaced].map(x => x.h.views.length);
+  for (const x of [running, hidden, thumbnail, replaced]) { x.view.navigationReady = true; x.h.main.emit('show'); }
+  hidden.h.main.visible = false;
+  await thumbnail.h.invoke('library:action', { type: 'settings', settings: { thumbnailMode: true } });
+  await replaced.h.invoke('player:command', 'stop');
+  await Delay(2800); await FlushPlayer(); await FlushPlayer();
+  assert.equal(running.probes.length, 1, '映像が進んでいれば確認だけで何もしない'); assert.equal(running.h.views.length, counts[0]);
+  assert.equal(hidden.probes.length, 0, 'ウィンドウが隠れているときは確認しない（描画が止まるのが正常）'); assert.equal(hidden.h.views.length, counts[1]);
+  assert.equal(thumbnail.probes.length, 0, '曲モードでは確認しない'); assert.equal(thumbnail.h.views.length, counts[2]);
+  assert.equal(replaced.probes.length, 0, '再生が止まった・入れ替わった後は確認しない');
 });
 test('manual reload allows a bounded fresh recovery sequence and retains the internal official player', async t => {
   const h = await MainHarness(t, { testRecovery: true }); let state = (await h.invoke('app:state')).state; const id = state.activePlaylistId;
@@ -584,6 +646,99 @@ test('062 local track changes reuse the player and retirement closes outside the
   assert.ok(h.messages.some(m => m.value?.type === 'notice' && /FP-PLAYER-RENDERER-EXITED/.test(m.value.value)));
 });
 
+function CloseWindow(main) { const event = { prevented: false, preventDefault() { this.prevented = true; } }; main.emit('close', event); return event; }
+test('067 the close button hides the window to the tray, keeps playback state and restores through a second launch', async t => {
+  const h = await MainHarness(t, { tray: true }), main = h.main;
+  const first = CloseWindow(main); assert.equal(first.prevented, true); assert.equal(main.visible, false); assert.ok(!main.closed, 'ウィンドウは破棄しない');
+  assert.equal(CloseWindow(main).prevented, true, '繰り返しても同じ');
+  h.app.emit('second-instance'); assert.equal(main.visible, true);
+});
+test('067 closing is allowed while quitting from the tray', async t => {
+  const h = await MainHarness(t, { tray: true }); h.app.emit('before-quit'); assert.equal(CloseWindow(h.main).prevented, false);
+});
+test('067 Windows shutdown, logoff and installer close requests are never blocked by the tray hiding', async t => {
+  for (const name of ['query-session-end', 'session-end']) {
+    const h = await MainHarness(t, { tray: true }); h.main.emit(name, { reasons: ['close-app'], preventDefault() { assert.fail('終了要求を遅らせない'); } });
+    assert.equal(CloseWindow(h.main).prevented, false, name);
+  }
+});
+test('067 the window closes normally when no tray icon could be created, so it can never become unreachable', async t => {
+  const h = await MainHarness(t); assert.equal(CloseWindow(h.main).prevented, false); assert.notEqual(h.main.visible, false);
+});
+async function PlayingView(t, options = {}) {
+  const h = await MainHarness(t, options), id = h.store.data.activePlaylistId;
+  const state = await h.invoke('library:action', { type: 'add', playlistId: id, urls: 'av123\nav456' }), entry = state.playlists[0].entries[0];
+  await h.invoke('player:play', id, entry.id); const view = h.views.at(-1);
+  h.ipcMain.emit('view:bounds', h.event, { x: 100, y: 100, width: 500, height: 300, visible: true });
+  return { h, id, entry, view, slot: { x: 100, y: 100, width: 500, height: 300 } };
+}
+const EscapeKey = () => ({ stopped: false, preventDefault() { this.stopped = true; } });
+test('067 the transport button enlarges the video to the whole window, and Esc (in the video or the main window) restores the slot', async t => {
+  const { h, view, slot } = await PlayingView(t);
+  assert.equal(await h.invoke('player:fullscreen'), true); assert.equal(h.main.fullscreen, true); assert.deepEqual({ ...view.bounds }, { x: 0, y: 0, width: 1440, height: 900 }); assert.equal(view.visible, true);
+  const inView = EscapeKey(); view.webContents.emit('before-input-event', inView, { type: 'keyDown', key: 'Escape' });
+  assert.equal(inView.stopped, true); assert.equal(h.main.fullscreen, false); assert.deepEqual({ ...view.bounds }, slot);
+  assert.equal(await h.invoke('player:fullscreen'), true); const inMain = EscapeKey(); h.main.webContents.emit('before-input-event', inMain, { type: 'keyDown', key: 'Escape' });
+  assert.equal(inMain.stopped, true); assert.equal(h.main.fullscreen, false); assert.deepEqual({ ...view.bounds }, slot);
+  const other = EscapeKey(); view.webContents.emit('before-input-event', other, { type: 'keyDown', key: 'Escape' }); assert.equal(other.stopped, false, '拡大中でなければEscを奪わない');
+  assert.equal(await h.invoke('player:fullscreen'), true); assert.equal(await h.invoke('player:fullscreen'), false, 'もう一度押すと戻る'); assert.equal(h.main.fullscreen, false);
+});
+test('067 enlarging is refused while the video is not visible, and a stale enlarged state never survives a modal, thumbnail mode, stop or hiding', async t => {
+  const h = await MainHarness(t), id = h.store.data.activePlaylistId;
+  const state = await h.invoke('library:action', { type: 'add', playlistId: id, urls: 'av123' }), entry = state.playlists[0].entries[0];
+  assert.equal(await h.invoke('player:fullscreen'), false); assert.ok(!h.main.fullscreen, '再生がないときは入らない');
+  await h.invoke('player:play', id, entry.id); const view = h.views.at(-1);
+  assert.equal(await h.invoke('player:fullscreen'), false, '動画が表示されていない（画面側の枠がない）ときは入らない'); assert.ok(!h.main.fullscreen);
+  const bounds = value => h.ipcMain.emit('view:bounds', h.event, { x: 100, y: 100, width: 500, height: 300, visible: true, ...value });
+  bounds({}); assert.equal(await h.invoke('player:fullscreen'), true);
+  bounds({ modalOpen: true, visible: false }); assert.equal(h.main.fullscreen, false, 'モーダルを開く（画面側が動画を表示しない）と解除'); assert.equal(view.visible, false);
+  bounds({}); assert.equal(await h.invoke('player:fullscreen'), true);
+  h.ipcMain.emit('view:bounds', h.event, { x: 100, y: 100, width: 500, height: 300, visible: true, modalOpen: true }); assert.equal(h.main.fullscreen, false, 'モーダルが開いているという報告だけでも解除');
+  bounds({}); assert.equal(await h.invoke('player:fullscreen'), true);
+  await h.invoke('library:action', { type: 'settings', settings: { thumbnailMode: true } }); assert.equal(h.main.fullscreen, false, '曲モードで解除'); await h.invoke('library:action', { type: 'settings', settings: { thumbnailMode: false } });
+  assert.equal(await h.invoke('player:fullscreen'), true); h.main.emit('hide'); assert.equal(h.main.fullscreen, false, 'ウィンドウを隠すと解除');
+  assert.equal(await h.invoke('player:fullscreen'), true); h.main.fullscreen = false; h.main.emit('leave-full-screen'); assert.deepEqual({ ...view.bounds }, { x: 100, y: 100, width: 500, height: 300 }, 'OS側で全画面が解除されたら枠へ戻る');
+  assert.equal(await h.invoke('player:fullscreen'), true); await h.invoke('player:command', 'stop'); assert.equal(h.main.fullscreen, false, '停止で解除');
+});
+test('067 the same enlarged state follows the next track and ends when the player view is stopped', async t => {
+  const { h, view } = await PlayingView(t);
+  assert.equal(await h.invoke('player:fullscreen'), true);
+  await h.invoke('player:command', 'next'); assert.equal(h.views.at(-1), view, '同じ再生画面のまま'); assert.equal(h.main.fullscreen, true); assert.deepEqual({ ...view.bounds }, { x: 0, y: 0, width: 1440, height: 900 });
+  await h.invoke('player:command', 'stop'); assert.equal(h.main.fullscreen, false);
+});
+test('067 Bilibili own fullscreen button enters and leaves the same state; a hidden video leaves HTML fullscreen', async t => {
+  const { h, view, slot } = await PlayingView(t);
+  view.webContents.emit('enter-html-full-screen'); assert.deepEqual({ ...view.bounds }, { x: 0, y: 0, width: 1440, height: 900 }); assert.ok(!h.main.fullscreen, '窓の全画面はElectronのHTML全画面が行う（アプリは重ねて切り替えない）');
+  view.webContents.emit('leave-html-full-screen'); assert.deepEqual({ ...view.bounds }, slot);
+  assert.ok(!(view.webContents.scripts || []).some(code => /exitFullscreen/.test(code)), 'ページ側から先に解除された場合は重ねて解除しない');
+  view.webContents.emit('enter-html-full-screen'); const esc = EscapeKey(); view.webContents.emit('before-input-event', esc, { type: 'keyDown', key: 'Escape' });
+  assert.equal(esc.stopped, true); assert.deepEqual({ ...view.bounds }, slot); assert.ok(view.webContents.scripts.some(code => /exitFullscreen/.test(code)), 'Escを横取りするため、ページのHTML全画面も解除する');
+  view.webContents.scripts.length = 0; view.webContents.emit('enter-html-full-screen'); h.main.emit('hide'); assert.ok(view.webContents.scripts.some(code => /exitFullscreen/.test(code)), '隠したときもHTML全画面を解除する');
+  h.ipcMain.emit('view:bounds', h.event, { x: 100, y: 100, width: 500, height: 300, visible: false });
+  view.webContents.emit('enter-html-full-screen'); assert.ok(view.webContents.scripts.some(code => /exitFullscreen/.test(code)), '見えていない動画ではHTML全画面を解除する'); assert.equal(view.visible, false);
+});
+test('067 only the local player page may request enlarging or a quality change, and only for the current saved video', async t => {
+  const { h, view } = await PlayingView(t);
+  const events = () => h.messages.filter(m => m.type === 'app:event' && m.value.type === 'change-quality'), send = (channel, sender = view.webContents) => h.ipcMain.emit(channel, { sender, senderFrame: sender.mainFrame });
+  view.navigationReady = true;
+  send('media:fullscreen'); assert.ok(!h.main.fullscreen, '公式プレイヤー（player.bilibili.com）の画面からは受け付けない'); send('media:quality'); assert.equal(events().length, 0);
+  view.webContents.frame.url = 'favecus://app/local.html?media=00000000-0000-4000-8000-000000000001.mp3';
+  send('media:fullscreen', h.main.webContents); assert.ok(!h.main.fullscreen, '再生画面以外の送信元は受け付けない');
+  send('media:fullscreen'); assert.equal(h.main.fullscreen, true, 'ローカル再生画面からは受け付ける'); send('media:fullscreen'); assert.equal(h.main.fullscreen, false);
+  send('media:fullscreen'); h.main.emit('leave-full-screen'); assert.equal(h.main.fullscreen, true, '遅れて届いた古い全画面解除の通知では、再度入った拡大を解除しない'); h.main.fullscreen = false; h.main.emit('leave-full-screen'); assert.equal(h.main.fullscreen, false);
+  send('media:quality'); assert.equal(events().length, 0, '保存済みの動画でないとき（オンライン再生・ローカルファイル）は画質の要求を受け付けない');
+});
+test('067 a saved video passes its saved height to the local page; the quality request carries no page arguments and leaves enlargement first', async t => {
+  const h = await MainHarness(t), id = h.store.data.activePlaylistId;
+  const state = await h.invoke('library:action', { type: 'add', playlistId: id, urls: 'av123' }), entry = state.playlists[0].entries[0]; SavedTrack(h, entry, 'media', 1080);
+  await h.invoke('player:play', id, entry.id); const view = h.views.at(-1); assert.match(view.webContents.getURL(), /favecus:\/\/app\/local\.html\?offline=[a-f0-9]{64}\.mp4&playback=[a-f0-9-]{36}&kind=video&height=1080$/);
+  h.ipcMain.emit('view:bounds', h.event, { x: 100, y: 100, width: 500, height: 300, visible: true }); view.navigationReady = true;
+  const events = () => h.messages.filter(m => m.type === 'app:event' && m.value.type === 'change-quality');
+  assert.equal(await h.invoke('player:fullscreen'), true);
+  h.ipcMain.emit('media:quality', { sender: view.webContents, senderFrame: view.webContents.mainFrame }, { playlistId: 'attacker', entryId: 'x' });
+  assert.equal(events().length, 1); assert.deepEqual({ ...events()[0].value.value }, { playlistId: id, entryId: entry.id }, 'ページの引数ではなくmainの現在の曲を使う');
+  assert.equal(h.main.fullscreen, false, '保存画面を開く前に拡大を解除する');
+});
 test('063 contents released during close never get dereferenced again and views are detached once', async t => {
   let closes = 0, detaches = 0;
   const h = await MainHarness(t, { releaseContents: true, onNative(action) { if (action === 'close') closes++; if (action === 'detach') detaches++; } });

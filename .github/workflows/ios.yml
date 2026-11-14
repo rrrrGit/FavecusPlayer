@@ -1,0 +1,232 @@
+name: iOS build
+
+# macOSランナーは消費が大きいため、iOS関連の変更があるときだけ実行する。
+on:
+  push:
+    branches: ["release/v0.7.0"]
+    paths:
+      - "ios/**"
+      - "shared/**"
+      - "scripts/build-shared-bundle.cjs"
+      - "scripts/make-test-archive.cjs"
+      - "scripts/fake-supabase-server.cjs"
+      - "scripts/cross-device-driver.cjs"
+      - "test/fake-supabase.cjs"
+      - "scripts/verify-ios-export.cjs"
+      - "scripts/demo-library.cjs"
+      # Windows版のZIP処理（iPhone版の取り込みを、実際のZIPで確認するため）
+      - "src/core/library-archive.cjs"
+      - "src/core/zip.cjs"
+      - "src/core/store.cjs"
+      - ".github/workflows/ios.yml"
+      # 共通JSの正本（変更するとiOSの検証が必要）
+      - "src/core/library-data.cjs"
+      - "src/core/library-identity.cjs"
+      - "src/core/device-media.cjs"
+      - "src/core/library-actions.cjs"
+      - "src/core/urls.cjs"
+      - "src/core/library-app.cjs"
+      - "src/core/library-transfer.cjs"
+      - "src/core/library-json.cjs"
+      - "src/core/sync-clock.cjs"
+      - "src/core/sync-order.cjs"
+      - "src/core/sync-state.cjs"
+      - "src/core/sync-library.cjs"
+      - "src/core/sync-engine.cjs"
+      - "src/core/sync-supabase.cjs"
+      - "src/core/sync-statefile.cjs"
+      - "src/core/sync-session.cjs"
+      - "src/core/sync-merge.cjs"
+      - "src/core/sync-runtime.cjs"
+      - "src/core/media-identity.cjs"
+      - "src/core/bilibili-resolve.cjs"
+      - "src/core/bilibili-runtime.cjs"
+      - "src/core/bilibili-download.cjs"
+      - "src/core/thumbnail.cjs"
+      - "src/core/library-share.cjs"
+      - "src/core/import-identity.cjs"
+      - "src/core/playlist-icon-data.cjs"
+      - "src/core/queue.cjs"
+      - "src/ui/library-tree.js"
+      - "src/ui/library-search.js"
+  workflow_dispatch:
+    inputs:
+      screenshot:
+        description: "シミュレーターのスクリーンショットも取得する（時間がかかる）"
+        type: boolean
+        default: false
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Record start time
+        run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+        working-directory: .
+
+      - name: Tool versions
+        run: |
+          xcodebuild -version
+          swift --version
+          sw_vers
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build shared JS bundle
+        run: node scripts/build-shared-bundle.cjs
+        working-directory: .
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Pick simulator
+        run: |
+          UDID=$(xcrun simctl list devices available iPhone | grep -m1 -oE '[0-9A-F]{8}-([0-9A-F]{4}-){3}[0-9A-F]{12}')
+          echo "Simulator: $UDID"
+          test -n "$UDID"
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+
+      - name: Build and test (simulator)
+        run: |
+          set -o pipefail
+          mkdir -p build
+          # Windows版の出力処理で、取り込みテスト用のZIPを作る（TEST_RUNNER_ 付きの環境変数が、テストの中へ渡る）。
+          node ../scripts/make-test-archive.cjs "$RUNNER_TEMP/transfer"
+          export TEST_RUNNER_FAVECUS_TRANSFER_DIR="$RUNNER_TEMP/transfer"
+          export TEST_RUNNER_FAVECUS_TRANSFER_OUT="$RUNNER_TEMP/transfer-ios"
+          # Windows版（Node）とiPhone版（シミュレーター）の端末間同期の確認：偽のSupabaseをHTTPで立て、Windows側の手順を並行して動かす。
+          CROSS="$RUNNER_TEMP/cross"
+          rm -rf "$CROSS"; mkdir -p "$CROSS"
+          node ../scripts/fake-supabase-server.cjs 18765 "$CROSS/port" > "$CROSS/server.log" 2>&1 &
+          SERVER_PID=$!
+          for i in $(seq 1 50); do [ -f "$CROSS/port" ] && break; sleep 0.2; done
+          test -f "$CROSS/port"
+          node ../scripts/cross-device-driver.cjs "$CROSS" http://127.0.0.1:18765 > "$CROSS/driver.log" 2>&1 &
+          DRIVER_PID=$!
+          export TEST_RUNNER_FAVECUS_SYNC_SERVER="http://127.0.0.1:18765"
+          export TEST_RUNNER_FAVECUS_SYNC_KEY="$(node -e "console.log(require('../test/fake-supabase.cjs').KEY)")"
+          export TEST_RUNNER_FAVECUS_CROSS_DIR="$CROSS"
+          set +e
+          xcodebuild test \
+            -project FavecusPlayer.xcodeproj \
+            -scheme FavecusPlayer \
+            -destination "id=$SIM_UDID" \
+            -derivedDataPath build/sim \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES 2>&1 | tee build/test.log
+          XC=${PIPESTATUS[0]}
+          if [ "$XC" -ne 0 ]; then kill $DRIVER_PID 2>/dev/null; fi
+          wait $DRIVER_PID; DRV=$?
+          kill $SERVER_PID 2>/dev/null
+          echo "--- cross-device driver (exit $DRV) ---"; cat "$CROSS/driver.log"
+          {
+            echo '### iOSシミュレーターでの共通処理の結果'
+            { grep -E 'FAVECUS_(FIXTURES|BENCH)' build/test.log || true; } | sort -u | sed 's/^/- /'
+            echo '### Windows版とiPhone版の端末間同期'
+            sed 's/^/- /' "$CROSS/driver.log"
+          } >> "$GITHUB_STEP_SUMMARY"
+          # xcodebuild が失敗しても終了コード0を返すことがあったため、ログの失敗表示でも落とす
+          if grep -qE "TEST FAILED|Test Case .* failed|: error: " build/test.log; then echo "テストの失敗がログにあります"; grep -E "Test Case .* failed|: error: " build/test.log | head -20; exit 1; fi
+          test "$XC" -eq 0
+          test "$DRV" -eq 0
+
+      - name: Check the built Info.plist (document types)
+        run: |
+          APP=$(find build/sim -name FavecusPlayer.app -path "*iphonesimulator*" | head -1)
+          plutil -p "$APP/Info.plist" | tee build/plist.txt
+          grep -q CFBundleDocumentTypes build/plist.txt
+          grep -q public.zip-archive build/plist.txt
+          grep -q CFBundleDisplayName build/plist.txt
+          plutil -extract UIBackgroundModes xml1 -o - "$APP/Info.plist" | grep -q "<string>audio</string>"
+
+      - name: Verify the iPhone export with the Windows importer
+        run: node ../scripts/verify-ios-export.cjs "$RUNNER_TEMP/transfer-ios"
+
+      - name: Screenshot
+        if: github.event_name == 'workflow_dispatch' && inputs.screenshot
+        run: |
+          APP=$(find build/sim -name FavecusPlayer.app -path "*iphonesimulator*" | head -1)
+          xcrun simctl boot "$SIM_UDID" || true
+          xcrun simctl bootstatus "$SIM_UDID" -b
+          xcrun simctl install "$SIM_UDID" "$APP"
+          mkdir -p out
+          # 模擬ライブラリ（実データなし）を保存場所へ置き、階層ごとに起動して撮影する。
+          xcrun simctl launch "$SIM_UDID" dev.favecus.player && sleep 3 && xcrun simctl terminate "$SIM_UDID" dev.favecus.player
+          DATA=$(xcrun simctl get_app_container "$SIM_UDID" dev.favecus.player data)
+          DIR="$DATA/Library/Application Support/FavecusPlayer"
+          mkdir -p "$DIR"
+          node ../scripts/demo-library.cjs "$DIR/library.json" "$DIR/downloads.json" "$DIR/thumbnails"
+          mkdir -p "$DIR/downloads"; : > "$DIR/downloads/demo-audio-1.m4a"; : > "$DIR/downloads/demo-video-2.mp4"
+          shot() { # 名前 起動引数...
+            NAME=$1; shift
+            xcrun simctl launch "$SIM_UDID" dev.favecus.player "$@" > /dev/null
+            sleep 4
+            xcrun simctl io "$SIM_UDID" screenshot "out/$NAME.png"
+            xcrun simctl terminate "$SIM_UDID" dev.favecus.player
+          }
+          P1=00000001-0000-4000-8000-000000000001
+          P2=00000001-0000-4000-8000-000000000002
+          shot 1-root
+          shot 2-parent -FavecusDemoPath $P1
+          shot 3-child -FavecusDemoPath $P1,$P2
+          shot 4-downloads -FavecusDemoTab 1
+          shot 5-settings -FavecusDemoTab 2
+          shot 6-player -FavecusDemoPlayer YES
+          shot 7-menu -FavecusDemoPath $P1 -FavecusDemoMenu YES
+          shot 8-edit -FavecusDemoPath $P1 -FavecusDemoEdit YES
+          shot 9-add -FavecusDemoPath $P1 -FavecusDemoAdd YES
+          shot 12-save -FavecusDemoPath $P1 -FavecusDemoSave YES
+          shot 13-playing -FavecusDemoPath $P1 -FavecusDemoMini YES
+          shot 14-search -FavecusDemoSearch Lo-fi
+          shot 10-home-edit -FavecusDemoHomeEdit YES
+          shot 11-sync -FavecusDemoSync YES
+          ls -l out
+
+      - name: Build unsigned IPA
+        run: |
+          xcodebuild build \
+            -project FavecusPlayer.xcodeproj \
+            -scheme FavecusPlayer \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath build/device \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+          APP=$(find build/device -name FavecusPlayer.app -path "*Release-iphoneos*" | head -1)
+          rm -rf Payload
+          mkdir Payload
+          cp -R "$APP" Payload/
+          mkdir -p out
+          zip -qry out/FavecusPlayer-unsigned.ipa Payload
+          ls -l out
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-outputs
+          path: |
+            ios/out/*.png
+            ios/out/FavecusPlayer-unsigned.ipa
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Record duration
+        if: always()
+        working-directory: .
+        run: |
+          END=$(date +%s)
+          MIN=$(( (END - JOB_START + 59) / 60 ))
+          echo "macOS runner time: about ${MIN} min (billed per minute, rounded up)" >> "$GITHUB_STEP_SUMMARY"

@@ -1,16 +1,18 @@
 'use strict';
-const { app, BrowserWindow, WebContentsView, ipcMain, dialog, shell, session, protocol, net, Menu, nativeImage, crashReporter } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, dialog, shell, session, protocol, net, Menu, nativeImage, crashReporter, safeStorage } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs');
 const { randomUUID, randomInt } = require('node:crypto');
-const { Store, MEDIA_NAME } = require('./core/store.cjs');
+const { Store, MEDIA_NAME, ValidateLibrary } = require('./core/store.cjs');
+const { LibraryMediaKey } = require('./core/library-identity.cjs');
+const { SyncService, StoreAdapter } = require('./core/sync-service.cjs');
+const { SessionVault } = require('./core/sync-storage.cjs');
 const { LocalDuration } = require('./core/media-duration.cjs');
 const { LibraryArchive } = require('./core/library-archive.cjs');
 const { ShareMode } = require('./core/library-share.cjs');
 const { Queue } = require('./core/queue.cjs');
 const { PlayCounts } = require('./core/play-counts.cjs');
-const { ReadIcon } = require('./core/playlist-icon.cjs');
 const Keys = require('./ui/keybindings.js');
 const { DriveURL } = require('./core/releases.cjs');
 const { OfflineLibrary } = require('./core/offline-library.cjs');
@@ -29,7 +31,7 @@ const { MiniPlayer } = require('./core/mini-player.cjs');
 const { MediaResponse } = require('./core/files.cjs');
 const { ConvertWma } = require('./core/audio-import.cjs');
 const { BilibiliAccount } = require('./core/bilibili.cjs');
-const { Thumbnails, SmallImage } = require('./core/thumbnail.cjs');
+const { Thumbnails, SmallImage, CoverImage, FlatImage, ImageData } = require('./core/thumbnail.cjs');
 const { APP_ID, ConfigureTaskbar, PreviousInstallRoots } = require('./core/windows-identity.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'favecus', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
@@ -38,7 +40,7 @@ const isSmoke = process.argv.includes('--smoke-test');
 const dataDirectory = isSmoke && process.env.FAVECUS_TEST_DIRECTORY ? process.env.FAVECUS_TEST_DIRECTORY : require('./core/data-migration.cjs').PrepareDataDirectory(app.getPath('appData'));
 app.setPath('userData', dataDirectory);
 app.setPath('sessionData', dataDirectory);
-let win, store, presence, remoteView, mini, volumeSaveTimer, backgroundMode;
+let win, store, presence, remoteView, mini, volumeSaveTimer, backgroundMode, sync;
 let viewVisible = false;
 let current = null, playback = null;
 let thumbnails, thumbnail = null;
@@ -120,7 +122,9 @@ function Status(kind, code, text) { statuses[kind] = { code, text }; Emit('statu
 function ViewBounds() {
   if (!LivePlayer() || !win || win.isDestroyed()) return;
   const [width, height] = win.getContentSize();
-  const b = visibleBounds;
+  // 拡大中でも、モーダル・曲モード・音声のみ・再生なしのときは拡大を解除する（古い拡大状態を残さない）。
+  if (videoFullscreen && (visibleBounds.modalOpen || store?.data.settings.thumbnailMode || current?.offline?.kind === 'audio' || !current)) ExitVideoFullscreen();
+  const b = videoFullscreen ? { x: 0, y: 0, width, height, visible: true } : visibleBounds;
   const x = Math.min(width, Math.max(0, Math.ceil(b.x))), y = Math.min(height, Math.max(0, Math.ceil(b.y)));
   const bounds = { x, y, width: Math.max(0, Math.min(width, Math.floor(b.x + b.width)) - x), height: Math.max(0, Math.min(height, Math.floor(b.y + b.height)) - y) };
   const visible = !!b.visible && !store?.data.settings.thumbnailMode && current?.offline?.kind !== 'audio' && bounds.width > 0 && bounds.height > 0;
@@ -128,12 +132,62 @@ function ViewBounds() {
   if (visible && !viewVisible) RefreshVideo();
   viewVisible = visible;
 }
-function RefreshVideo() {
-  const wc = remoteView?.webContents;
-  if (!remoteView?.navigationReady || !wc || wc.isDestroyed() || store?.data.settings.thumbnailMode) return;
-  wc.invalidate?.(); SendToPlayer('media:command', { type: 'refresh-display' });
+// 動画の拡大（画面全体）。状態はmainだけが持つ。HTMLの全画面（Bilibili自身のボタン）・アプリ内の拡大ボタン・ローカル再生画面の拡大ボタンのどれからでも同じ状態へ入り、
+// Esc・動画の入れ替え・モーダル・曲モード・ウィンドウの非表示/全画面解除で必ず解除する。
+function EnterVideoFullscreen(byApp) {
+  const wc = LivePlayer();
+  if (videoFullscreen) return true;
+  if (!wc || !win || win.isDestroyed() || !viewVisible || visibleBounds.modalOpen || store?.data.settings.thumbnailMode || current?.offline?.kind === 'audio') return false;
+  videoFullscreen = true; fullscreenHtml = byApp ? null : wc;
+  if (byApp && !win.isFullScreen()) { fullscreenByApp = true; win.setFullScreen(true); }
+  ViewBounds(); try { wc.focus(); } catch {}
+  return true;
 }
-const retiredPlayers = new Map(), playbackRoutes = new Map(); let quitting = false;
+function ExitVideoFullscreen() {
+  if (!videoFullscreen) return;
+  videoFullscreen = false;
+  // Bilibili自身のHTML全画面で入っていた場合は、ページ側の全画面（とElectronが行ったウィンドウの全画面）も解除する。Escを横取りしているため、ここで解除しないと残る。
+  const html = fullscreenHtml; fullscreenHtml = null;
+  if (html && !html.isDestroyed()) html.executeJavaScript('document.fullscreenElement && document.exitFullscreen()').catch(() => {});
+  if (fullscreenByApp) { fullscreenByApp = false; if (win && !win.isDestroyed() && win.isFullScreen()) win.setFullScreen(false); }
+  ViewBounds();
+}
+const ToggleVideoFullscreen = () => { if (videoFullscreen) ExitVideoFullscreen(); else EnterVideoFullscreen(true); return videoFullscreen; };
+// 曲モード・非表示から動画モードへ戻したあと、音は進むのに映像だけが止まる状態が稀に起きる（実ElectronのBilibili再生で確認。再現は不安定）。
+// 戻した少し後に、映像のフレームが進んでいるかを再生ビュー内で数え、止まっていれば既存の復旧（公式プレイヤーへ切り替えて同じ位置から再開）へつなぐ。
+const FRAME_PROBE = `new Promise(resolve => { const v = document.querySelector('video'); if (!v || v.paused || v.ended || typeof v.requestVideoFrameCallback !== 'function') { resolve(true); return; }
+  let frames = 0, running = true; const tick = () => { if (!running) return; frames++; v.requestVideoFrameCallback(tick); }; v.requestVideoFrameCallback(tick); const start = v.currentTime;
+  setTimeout(() => { running = false; resolve(frames >= 4 || v.currentTime - start < .5); }, 1500); })`;
+const frameChecks = new WeakMap();
+function VerifyVideoFrames(view) {
+  const wc = view?.webContents;
+  if (!wc || wc.isDestroyed() || current?.source !== 'bilibili' || current.pageMode) return;
+  clearTimeout(frameChecks.get(view)); // 連続した復帰（表示・フォーカス・曲モード解除）では、最後の復帰から数える
+  const timer = setTimeout(async () => {
+    frameChecks.delete(view);
+    const live = () => remoteView === view && viewVisible && !store?.data.settings.thumbnailMode && !wc.isDestroyed() && win && !win.isDestroyed() && win.isVisible() && !win.isMinimized();
+    const token = generation;
+    // 復旧は一度しか使えないため、誤検知で使い切らないよう、間をおいて2回続けて止まっているときだけ復旧する。
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (!live() || token !== generation) return;
+      let ok = true;
+      try { ok = await wc.executeJavaScript(FRAME_PROBE); } catch { return; }
+      if (ok !== false) return;
+      if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+    if (!live() || token !== generation) return;
+    PlayerDiagnostic('frame-stall'); recovery?.Trigger(token, 'frame-stall');
+  }, 2500);
+  timer.unref?.(); frameChecks.set(view, timer);
+}
+function RefreshVideo() {
+  const view = remoteView, wc = view?.webContents;
+  if (!view?.navigationReady || !wc || wc.isDestroyed() || store?.data.settings.thumbnailMode) return;
+  wc.invalidate?.(); SendToPlayer('media:command', { type: 'refresh-display' });
+  VerifyVideoFrames(view);
+}
+const retiredPlayers = new Map(), playbackRoutes = new Map(); let quitting = false, sessionEnding = false, sessionTimer = null;
+let videoFullscreen = false, fullscreenByApp = false, fullscreenHtml = null;
 function DisposePlayer(view) {
   const retired = retiredPlayers.get(view);
   if (!retired || retired.closing) return;
@@ -146,6 +200,7 @@ function DisposePlayer(view) {
   if (!wc || wc.isDestroyed()) { view.releaseOffline?.(); retiredPlayers.delete(view); }
 }
 function CloseView() {
+  ExitVideoFullscreen();
   generation++; viewVisible = false; recovery?.Cancel();
   const old = remoteView; remoteView = null;
   if (!old) return;
@@ -290,6 +345,10 @@ function MakeView(source, forceNew = false, officialPlayer = false) {
     else { StopPlayer(); Notify('[FP-PLAYER-VIEW-DESTROYED] 再生画面が閉じられました。曲を選び直して再生できます。'); }
   });
   wc.on('focus', () => { if (remoteView === view) UpdateForeground(); });
+  // Bilibili自身の全画面ボタン（HTMLの全画面）も、同じ拡大状態へ入る。入れないとき（動画が見えていない等）はHTML側を解除する。
+  wc.on('enter-html-full-screen', () => { if (remoteView !== view) return; if (!EnterVideoFullscreen(false)) wc.executeJavaScript('document.fullscreenElement && document.exitFullscreen()').catch(() => {}); });
+  wc.on('leave-html-full-screen', () => { if (remoteView !== view) return; fullscreenHtml = null; ExitVideoFullscreen(); });
+  wc.on('before-input-event', (event, input) => { if (remoteView === view && videoFullscreen && input.type === 'keyDown' && input.key === 'Escape') { event.preventDefault(); ExitVideoFullscreen(); } });
   wc.setAudioMuted(true);
   wc.setWindowOpenHandler(({ url }) => {
     if (IsAllowedRemote(url, source)) {
@@ -374,7 +433,7 @@ async function LoadEntry(playlistId, entryId, pageMode = false, { allowRecovery 
   PlayerDiagnostic('track-change', { source, saved: !!saved });
   playback = null; thumbnail = null; UpdatePresence(); UpdateForeground(); Emit('current', current); void LoadThumbnail(); backgroundMode?.Refresh();
   recovery?.Begin(gen, source === 'bilibili' && !pageMode && allowRecovery);
-  const url = saved ? `favecus://app/local.html?offline=${saved.token}&playback=${view.offlineRoute}` : entry.type === 'local' ? `favecus://app/local.html?media=${entry.fileName}` : pageMode ? entry.url : officialPlayer ? `${entry.url}${entry.url.includes('?') ? '&' : '?'}autoplay=1` : PlayerURL(entry, details);
+  const url = saved ? `favecus://app/local.html?offline=${saved.token}&playback=${view.offlineRoute}&kind=${saved.kind === 'audio' ? 'audio' : 'video'}${Number.isInteger(saved.height) && saved.height > 0 && saved.height < 10000 ? `&height=${saved.height}` : ''}` : entry.type === 'local' ? `favecus://app/local.html?media=${entry.fileName}` : pageMode ? entry.url : officialPlayer ? `${entry.url}${entry.url.includes('?') ? '&' : '?'}autoplay=1` : PlayerURL(entry, details);
   view.requestedURL = url;
   if (source === 'bilibili') { void WarmMetadata(entry); const upcoming = queue.Timeline(store.data.settings.repeat).upcoming.slice(0, 2); for (const id of upcoming) void WarmMetadata(queue.catalog.get(id)); }
   PlayerDiagnostic('navigation-start'); nativeDiagnostics?.Annotate({ operation: 'load-url' });
@@ -482,7 +541,15 @@ async function Command(command, value) {
 
 async function Start() {
   const ffmpeg = process.env.FAVECUS_INSTALL_ROOT ? path.join(process.env.FAVECUS_INSTALL_ROOT, 'runtime', 'ffmpeg', 'ffmpeg.exe') : app.isPackaged ? path.join(process.resourcesPath, 'ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg') : path.join(app.getAppPath(), 'runtime', 'ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
-  store = new Store(app.getPath('userData'), { committed: () => offline?.ScheduleCleanup(), convertWma: (source, destination) => ConvertWma(ffmpeg, source, destination) });
+  store = new Store(app.getPath('userData'), { committed: () => { offline?.ScheduleCleanup(); sync?.Changed(); }, convertWma: (source, destination) => ConvertWma(ffmpeg, source, destination) });
+
+  // プレイリストの同期（既定はオフ。利用者が設定で有効にしたときだけ動く）。library.jsonが正本で、同期の状態はuserData/sync/にある。
+  const syncDirectory = path.join(app.getPath('userData'), 'sync');
+  sync = new SyncService({
+    directory: syncDirectory, adapter: StoreAdapter(store, { validateLibrary: input => ValidateLibrary(input), mediaKey: LibraryMediaKey }), vault: new SessionVault(syncDirectory, safeStorage),
+    request: async (method, url, { headers, body }) => { const response = await net.fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(30000) }); return { status: response.status, json: await response.json().catch(() => null) }; },
+    onStatus: status => Emit('sync', status), onApplied: () => { if (current?.playlistId) SyncPlayingQueue(); Emit('state', store.Snapshot()); }
+  });
 
   protocol.handle('favecus', async request => {
     const url = new URL(request.url);
@@ -495,7 +562,7 @@ async function Start() {
       if (!MEDIA_NAME.test(name) || !store.data.playlists.some(p => p.entries.some(e => e.type === 'local' && e.fileName === name))) return new Response(null, { status: 403 });
       return MediaResponse(request, path.join(store.media, name));
     }
-    const names = new Set(['keybindings.js', 'library-tree.js', 'tree-view.js', 'parent-picker.js', 'index.html', 'app.js', 'style.css', 'local.html', 'local.js', 'preview.js', 'transport-model.js', 'playlist-reader.js', 'queue-follow.js', 'queue-drag.js', 'list-artwork.js', 'browse.html', 'browse.js', 'browse.css', 'mini.html', 'mini.js', 'mini.css', 'icons.svg', 'icon.png', 'music.png']);
+    const names = new Set(['keybindings.js', 'library-tree.js', 'home-view.js', 'library-search.js', 'tree-view.js', 'parent-picker.js', 'index.html', 'app.js', 'style.css', 'local.html', 'local.js', 'preview.js', 'transport-model.js', 'playlist-reader.js', 'queue-follow.js', 'queue-drag.js', 'list-artwork.js', 'browse.html', 'browse.js', 'browse.css', 'mini.html', 'mini.js', 'mini.css', 'icons.svg', 'icon.png', 'music.png']);
     const name = url.pathname.slice(1);
     if (url.host !== 'app' || !names.has(name)) return new Response(null, { status: 404 });
     return net.fetch(pathToFileURL(['icon.png', 'music.png'].includes(name) ? path.join(__dirname, '../build', name) : path.join(__dirname, 'ui', name)).href);
@@ -515,7 +582,7 @@ async function Start() {
     const page = data?.pages?.find(p => p.page === entry.part) || data?.pages?.[entry.part - 1];
     return data?.pages?.length > 1 ? page?.part || data?.title : data?.title;
   } });
-  thumbnails = new Thumbnails(biliAccount, (...args) => net.fetch(...args), ffmpeg, store.media, { resize: data => SmallImage(data, nativeImage) });
+  thumbnails = new Thumbnails(biliAccount, (...args) => net.fetch(...args), ffmpeg, store.media, { resize: data => SmallImage(data, nativeImage), resizeCover: data => CoverImage(data, nativeImage), flat: data => FlatImage(data, nativeImage), crop: (data, rect) => ImageData(nativeImage.createFromDataURL(data).crop(rect).toPNG()) });
   session.defaultSession.setPermissionRequestHandler((_c, permission, callback) => callback(permission === 'fullscreen'));
   session.defaultSession.setPermissionCheckHandler((_c, permission) => permission === 'fullscreen');
   Menu.setApplicationMenu(null);
@@ -548,6 +615,21 @@ async function Start() {
   win.on('focus', () => { UpdateForeground(); RefreshVideo(); void Accounts(false); });
   win.webContents.on('focus', () => UpdateForeground());
   for (const event of ['show', 'restore']) win.on(event, () => { UpdateForeground(); RefreshVideo(); });
+  // ×ボタンは通知領域（トレイ）へ格納する。通知は出さない。終了はトレイの「終了」から行う。
+  // 終了中・OSのシャットダウン/ログオフ/更新ツールの終了要求・トレイのアイコンが無いとき（再表示できなくなるため）は、通常どおり閉じる。
+  // 拡大中にウィンドウが隠れる・全画面が解除される・メイン画面側でEscが押されたときも解除する。
+  for (const event of ['hide', 'minimize', 'leave-full-screen']) win.on(event, () => {
+    // leave-full-screen は非同期に届く。すぐ再度拡大した後に遅れて届いた古い通知では解除しない（まだ全画面なら無視）。
+    if (event === 'leave-full-screen') { if (win?.isFullScreen()) return; fullscreenByApp = false; fullscreenHtml = null; }
+    ExitVideoFullscreen();
+  });
+  win.webContents.on('before-input-event', (event, input) => { if (videoFullscreen && input.type === 'keyDown' && input.key === 'Escape') { event.preventDefault(); ExitVideoFullscreen(); } });
+  win.on('close', event => {
+    if (quitting || sessionEnding || !mini?.CanHideToTray?.()) return;
+    event.preventDefault(); win.hide();
+  });
+  win.on('query-session-end', () => { sessionEnding = true; clearTimeout(sessionTimer); sessionTimer = setTimeout(() => { sessionEnding = false; }, 30000); sessionTimer.unref?.(); });
+  win.on('session-end', () => { clearTimeout(sessionTimer); sessionEnding = true; });
   win.on('closed', () => { offline?.Cancel(); biliBrowser?.Destroy(); backgroundMode?.Dispose(); mini?.Destroy(); mini = null; StopPlayer(); win = null; presence?.Stop(); app.quit(); });
   presence = new DiscordPresence((code, text) => Status('discord', code, text));
   mini = new MiniPlayer(win, MiniState, Command, ChangeVolume, Notify, { settings: () => store.data.settings, status: (code, text) => Status('taskbar', code, text) });
@@ -559,8 +641,22 @@ async function Start() {
       biliBrowser.Hide(); mini.Restore(); Emit('add-url', entry);
     }
   });
+  Handle('sync:run', async command => {
+    const kind = command?.action;
+    if (kind === 'status') return sync.Status();
+    if (kind === 'configure') sync.Configure({ url: command.url, anonKey: command.anonKey });
+    else if (kind === 'send-code') await sync.SendCode(command.email);
+    else if (kind === 'verify') await sync.VerifyCode(command.email, command.code);
+    else if (kind === 'enable') { const result = await sync.Enable(); if (!result.ok) throw new Error(result.error); }
+    else if (kind === 'disable') sync.Disable();
+    else if (kind === 'now') { const result = await sync.SyncNow(); if (!result.ok) throw new Error(result.error); }
+    else if (kind === 'sign-out') sync.SignOut();
+    else if (kind === 'reset') sync.ResetLink();
+    else if (kind === 'unblock') { const result = await sync.Unblock(command.mode); if (!result.ok) throw new Error(result.error); }
+    else throw new Error('対応していない操作です。');
+    return sync.Status();
+  });
   Handle('app:state', () => ({ state: store.Snapshot(), statuses, current, playback, thumbnail, queue: QueueState(), downloads: offline.Snapshot(), foreground: Foreground(), accounts: accountStatus, version: app.getVersion(), platform: process.platform }));
-  Handle('library:choose-icon', async () => { const result = await dialog.showOpenDialog(win, { title: 'プレイリストの画像を選択', properties: ['openFile'], filters: [{ name: '画像', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] }); return result.canceled ? null : ReadIcon(result.filePaths[0], nativeImage); });
   Handle('player:reset-counts', () => { playCounts.Reset(); return true; });
   Handle('downloads:state', () => offline.Snapshot());
   const downloadTarget = options => {
@@ -581,11 +677,17 @@ async function Start() {
   Handle('downloads:prefer', value => offline.PreferSaved(value));
   Handle('downloads:directory', async () => { if (offline.controller) throw new Error('保存中は保存先を変更できません。'); const result = await dialog.showOpenDialog(win, { title: '動画・音声の保存先', defaultPath: offline.directory, properties: ['openDirectory', 'createDirectory'] }); return result.canceled ? offline.Snapshot() : offline.SetDirectory(result.filePaths[0]); });
   Handle('downloads:open', async () => { fs.mkdirSync(offline.directory, { recursive: true }); if (await shell.openPath(offline.directory)) throw new Error('保存先を開けませんでした。'); return true; });
-  Handle('library:thumbnail', (playlistId, entryId, scope = store.data.activePlaylistId) => {
-    const entry = structuredClone(store.Entry(playlistId, entryId));
-    if (offline.Find(entry)) { const cover = offline.Cover(entry); return cover ? SmallImage(cover, nativeImage) : null; }
+  Handle('library:thumbnail', async (playlistId, entryId, scope = store.data.activePlaylistId, variant = 'small') => {
+    const entry = structuredClone(store.Entry(playlistId, entryId)); variant = variant === 'cover' ? 'cover' : 'small';
+    const saved = offline.Find(entry);
+    if (saved) {
+      let cover = offline.Cover(entry);
+      // 保存済みのサムネイルが一色に近い場合は、保存済みの動画（なければオンライン）の60秒付近の場面に置き換えて表示する（保存データは変えない）。
+      if (cover) cover = await thumbnails.Improve(entry, cover, saved.kind === 'video' ? saved.path : '');
+      return cover ? (variant === 'cover' ? CoverImage : SmallImage)(cover, nativeImage) : null;
+    }
     const active = () => !!win && !win.isDestroyed() && (scope === '*' || scope === store.data.activePlaylistId && store.Entries(scope).some(e => e.id === entryId)) && !!store.data.playlists.find(p => p.id === playlistId)?.entries.some(e => e.id === entryId);
-    return thumbnails.GetPreview(entry, active);
+    return thumbnails.GetPreview(entry, active, variant);
   });
   Handle('library:action', async action => {
     const state = store.Apply(action);
@@ -672,6 +774,7 @@ async function Start() {
   });
   Handle('player:play', Play);
   Handle('player:shuffle', ShufflePlay);
+  Handle('player:fullscreen', () => ToggleVideoFullscreen());
   Handle('player:all', AllPlay);
   Handle('player:command', Command);
   Handle('player:shortcut', Shortcut);
@@ -701,7 +804,16 @@ async function Start() {
   });
   ipcMain.on('view:bounds', (event, bounds) => {
     if (!SecureIPC(event) || !bounds || !['x', 'y', 'width', 'height'].every(k => Number.isFinite(bounds[k]) && Math.abs(bounds[k]) < 20000)) return;
+    // 画面側が動画を表示しないと報告したとき（モーダル・ホーム・曲モード等）は、拡大を残さない。
+    if (videoFullscreen && !bounds.visible) ExitVideoFullscreen();
     visibleBounds = bounds; ViewBounds(); SyncShortcuts();
+  });
+  // ローカル再生画面（favecus://app/local.html）の拡大・画質ボタン。Bilibiliなど外部ページには公開しない（preload側でも同じ条件）。引数は受け取らず、mainの現在の曲を使う。
+  const TrustedLocalPlayer = event => TrustedMediaEvent(event) && /^favecus:\/\/app\/local\.html(?:\?|$)/.test(String(event.senderFrame?.url || ''));
+  ipcMain.on('media:fullscreen', event => { if (TrustedLocalPlayer(event)) ToggleVideoFullscreen(); });
+  ipcMain.on('media:quality', event => {
+    if (!TrustedLocalPlayer(event) || current?.offline?.kind !== 'video' || !current.playlistId || !current.entryId) return;
+    ExitVideoFullscreen(); Emit('change-quality', { playlistId: current.playlistId, entryId: current.entryId });
   });
   ipcMain.on('media:shortcut', (event, input) => {
     if (TrustedMediaEvent(event)) void Shortcut(input).catch(error => Notify(error.message));
@@ -736,6 +848,7 @@ async function Start() {
     }
   });
   await win.loadURL('favecus://app/index.html'); await Configure();
+  sync.Start();
   if (store.warning) Notify(store.warning);
   if (taskbarWarning) Notify(taskbarWarning);
   const timer = setInterval(UpdatePresence, 5000); timer.unref();
@@ -751,7 +864,7 @@ else {
 app.on('child-process-gone', (_event, details = {}) => PlayerDiagnostic('child-process-exited', { processType: details.type, exitReason: details.reason, exitCode: details.exitCode }));
 process.on?.('uncaughtExceptionMonitor', (error, origin) => PlayerDiagnostic('uncaught-exception', { origin, name: error.name, code: error.code, message: String(error.message).slice(0, 240), stack: String(error.stack || '').split('\n').slice(0, 8).join('\n').slice(0, 3000) }));
 app.on('before-quit', () => {
-  quitting = true; loadRequest++; offline?.CancelEstimate();
+  quitting = true; loadRequest++; sync?.Dispose(); offline?.CancelEstimate();
   offline?.Cancel();
   if (volumeSaveTimer) { clearTimeout(volumeSaveTimer); volumeSaveTimer = null; try { store?.Save(); } catch {} }
   biliBrowser?.Destroy(); backgroundMode?.Dispose(); mini?.Destroy(); mini = null; presence?.Stop(); CloseView(); for (const view of retiredPlayers.keys()) DisposePlayer(view); offline?.cleanup.Dispose();

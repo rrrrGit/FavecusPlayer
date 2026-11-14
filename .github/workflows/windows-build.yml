@@ -1,0 +1,81 @@
+name: Windows build
+
+# Windows版（Setup.exe / Patch.exe）の生成と検証をLinuxランナーで行う（docs/BUILD.md の手順。Windowsのコマンドだけでは作れないため）。
+# 手動実行のみ。作業用ファイルはリポジトリの外（RUNNER_TEMP）に置く（package-release.py は、Gitの作業ツリーがきれいなことを確認するため）。
+on:
+  workflow_dispatch:
+  # このワークフロー自身を変更したときだけ実行（手動実行は、デフォルトブランチにない新しいワークフローではpushからの実行が必要なため）
+  push:
+    branches: ["release/v0.7.0"]
+    paths:
+      - ".github/workflows/windows-build.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.20.0"
+
+      - name: Install tools (GCC, GNU ld, libarchive, FFmpeg)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc binutils libarchive13t64 ffmpeg python3
+          ld --version | head -1
+          ld -V | grep -q i386pep
+
+      - name: Extract Node.js (from the official MSI; verified by SHA-256 inside the script)
+        run: |
+          mkdir -p "$RUNNER_TEMP/work" "$RUNNER_TEMP/verify" "$RUNNER_TEMP/out"
+          curl -fsSL -o "$RUNNER_TEMP/work/node.msi" https://nodejs.org/dist/v24.20.0/node-v24.20.0-x64.msi
+          python3 scripts/extract-node-msi.py "$RUNNER_TEMP/work/node.msi" "$RUNNER_TEMP/work/node.exe"
+
+      - name: Syntax check and Node tests
+        run: |
+          set -o pipefail
+          V="$RUNNER_TEMP/verify"
+          node scripts/check.cjs | tee "$V/syntax.txt"
+          node --test --test-isolation=none --test-reporter=spec test/*.test.cjs 2>&1 | tee "$V/node-tests.txt" | tail -25
+          python3 scripts/audit-release.py --output "$V/ui-resource-audit.json"
+
+      - name: Build the Windows executables
+        run: |
+          python3 scripts/build-windows.py --node "$RUNNER_TEMP/work/node.exe" --node-license docs/NODE-LICENSE.txt --output "$RUNNER_TEMP/windows"
+          ls -l "$RUNNER_TEMP/windows"
+
+      - name: Verify the executables
+        run: |
+          set -o pipefail
+          V="$RUNNER_TEMP/verify"
+          python3 scripts/verify-windows.py "$RUNNER_TEMP/windows" | tee "$V/pe-verification.json"
+          python3 scripts/test-windows-startup.py "$RUNNER_TEMP/windows" | tee "$V/windows-entry-test.txt"
+          python3 scripts/test-taskbar-native.py | tee "$V/native-tests.txt"
+          # このランナーでビルドしても、Gitの作業ツリーが変わっていないこと
+          test -z "$(git status --porcelain --untracked-files=all)"
+
+      - name: Package (Patch only, and the full set)
+        run: |
+          python3 scripts/package-release.py --windows "$RUNNER_TEMP/windows" --verification "$RUNNER_TEMP/verify" --output "$RUNNER_TEMP/out/patch" --profile patch
+          python3 scripts/package-release.py --windows "$RUNNER_TEMP/windows" --verification "$RUNNER_TEMP/verify" --output "$RUNNER_TEMP/out/full" --profile full
+          cd "$RUNNER_TEMP/out" && find . -type f -exec sha256sum {} \; | tee SHA256SUMS-all.txt
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            ${{ runner.temp }}/out
+            ${{ runner.temp }}/verify
+          if-no-files-found: error
+          retention-days: 14

@@ -60,6 +60,6 @@ test('drag handle distinguishes sibling ordering from child-drop and blocks desc
   d.events.dragover(event(1)); assert.ok(d.classes.has('drop-before')); d.events.drop(event(1)); assert.equal(calls[0][2], 'before');
   b.children[0].events.dragstart(event(20)); d.events.drop(event(20)); assert.equal(calls[1][2], 'child'); assert.equal(calls[1][0].id, 'b');
 });
-test('060 playlist art appears immediately before the count only when sidebar icons are enabled',()=>{
- const h=Harness();h.data.playlists[0].icon='data:image/png;base64,example';h.render({icons:true});const row=h.box.children[0],image=row.querySelector('img');assert.equal(image.src,h.data.playlists[0].icon);assert.equal(row.children[row.children.indexOf(image)+1].className,'count');assert.equal(h.box.children[1].querySelector('img'),undefined);h.render({checkboxes:true});assert.equal(h.box.querySelectorAll('img').length,0);
+test('060 stored playlist icons are never drawn in the tree (the custom image feature was removed in v0.7.0)',()=>{
+ const h=Harness();h.data.playlists[0].icon='data:image/png;base64,example';h.render({icons:true});assert.equal(h.box.querySelectorAll('img').length,0);h.render({checkboxes:true});assert.equal(h.box.querySelectorAll('img').length,0);assert.equal(h.data.playlists[0].icon,'data:image/png;base64,example','保存済みのiconデータは変更しない');
 });

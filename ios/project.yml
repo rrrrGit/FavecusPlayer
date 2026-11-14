@@ -1,0 +1,67 @@
+name: FavecusPlayer
+options:
+  bundleIdPrefix: dev.favecus
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.7.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  FavecusPlayer:
+    type: application
+    platform: iOS
+    sources:
+      - FavecusPlayer
+      # 端末共通JS（node scripts/build-shared-bundle.cjs で生成。Gitには含めない）
+      - path: ../shared/dist/favecus-core.js
+        buildPhase: resources
+    # ファイルアプリ・共有シートの「このアプリで開く」にZIPを出すための宣言（App拡張は作らない：AltStoreのApp ID上限のため）。
+    # 生成するplistは、GENERATE_INFOPLIST_FILE の項目と統合される。
+    info:
+      path: Config/Info.plist
+      properties:
+        LSSupportsOpeningDocumentsInPlace: true
+        # 画面を閉じた・ロックした状態でも音声の再生を続ける
+        UIBackgroundModes:
+          - audio
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: FavecusPlayerアーカイブ
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.zip-archive
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.favecus.player
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: FavecusPlayer
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
+        TARGETED_DEVICE_FAMILY: "1"
+  FavecusPlayerTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - FavecusPlayerTests
+      # Windows版（Node）と共有するテストデータ
+      - path: ../shared/fixtures/cases.json
+        buildPhase: resources
+    dependencies:
+      - target: FavecusPlayer
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.favecus.player.tests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  FavecusPlayer:
+    build:
+      targets:
+        FavecusPlayer: all
+        FavecusPlayerTests: [test]
+    test:
+      targets:
+        - FavecusPlayerTests

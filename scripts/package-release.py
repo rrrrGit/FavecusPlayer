@@ -129,7 +129,7 @@ def main():
 生成元コミット：{source_commit or 'Git情報なし（ソースアーカイブからの生成）'}
 生成元ツリー：{source_tree or 'Git情報なし'}
 
-更新方法：アプリを終了し、Patch.exeを更新先の外から実行して、FavecusPlayer.exe・app・runtimeがある最上位フォルダーを選びます。
+更新方法：アプリを終了し（×ボタンでは通知領域に残ります。通知領域のアイコンを右クリックして「終了」を選びます）、Patch.exeを更新先の外から実行して、FavecusPlayer.exe・app・runtimeがある最上位フォルダーを選びます。
 設定・プレイリスト・DLデータは保持し、旧保存配置の移行は更新後のアプリが管理情報を確認して行います。
 
 検証：Nodeテスト {tests['pass']}/{tests['tests']} 成功、失敗 {tests['fail']}、スキップ {tests['skipped']}。{syntax}
