@@ -10,7 +10,7 @@ final class ErrorTextTests: XCTestCase {
     }
 
     func testNetworkErrorsKeepTheCodeButNotTheFailingUrl() {
-        let underlying = NSError(domain: NSURLErrorDomain, code: -1005, userInfo: [NSURLErrorFailingURLStringKey: "https://upos.example.net/a.m4s?sig=secret", NSLocalizedDescriptionKey: "The network connection was lost."])
+        let underlying = NSError(domain: NSURLErrorDomain, code: -1005, userInfo: ["NSErrorFailingURLStringKey": "https://upos.example.net/a.m4s?sig=secret", NSLocalizedDescriptionKey: "The network connection was lost."])
         let text = ErrorText.safe(underlying)
         XCTAssertTrue(text.contains("-1005"))
         XCTAssertFalse(text.contains("secret"))
