@@ -3,6 +3,11 @@ import UIKit
 
 /// 背面で終わった保存の通信を、再起動されたときに受け取る（BackgroundTransfers が同じ識別子のセッションを作り直して続きを受け取る）。
 final class AppDelegate: NSObject, UIApplicationDelegate {
+    /// 画面の向きの制限：通常は縦のみ。動画の最大化の間だけ、OrientationLock が横を許す。
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        OrientationLock.mask
+    }
+
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
         BackgroundTransfers.register(identifier: identifier, completion: completionHandler)
     }

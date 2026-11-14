@@ -49,6 +49,10 @@ struct MiniPlayerBar: View {
                 .onTapGesture { showPlayer = true }
             }
         }
+        .fullScreenCover(isPresented: $maximized) {
+            FullscreenVideoView(player: player, isPresented: $maximized).preferredColorScheme(.dark)
+        }
+        .onChange(of: player.videoMode) { on in if !on { maximized = false } } // 動画でなくなったら（曲が変わった・失敗した）、最大化を閉じる
         .alert("お知らせ", isPresented: Binding(get: { player.message != nil }, set: { if !$0 { player.message = nil } })) {
             Button("コピー") { Clipboard.copy(player.message ?? ""); player.message = nil }
             Button("閉じる", role: .cancel) { player.message = nil }
@@ -60,6 +64,79 @@ struct MiniPlayerBar: View {
     private func image(for current: PlaybackEngine.NowPlaying) -> UIImage? {
         _ = artwork.revision
         return artwork.image(for: services.downloads?.entryKeys[current.entryId])
+    }
+}
+
+/// 画面の向きの制限（動画の最大化の間だけ横を許す）。AppDelegate が、この値を返す。
+enum OrientationLock {
+    nonisolated(unsafe) static var mask: UIInterfaceOrientationMask = .portrait
+
+    /// 向きを切り替える（landscape＝最大化、portrait＝元に戻す）。許す向きを更新してから、その向きへ回す。
+    @MainActor
+    static func set(_ next: UIInterfaceOrientationMask) {
+        mask = next
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return }
+        var top = scene.keyWindow?.rootViewController
+        while let presented = top?.presentedViewController { top = presented }
+        top?.setNeedsUpdateOfSupportedInterfaceOrientations()
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: next)) { _ in }
+    }
+}
+
+/// 動画の最大化（横画面）：映像だけを大きく映す。タップで操作の表示を切り替え、画面を上から下へスワイプする（または左上の ✕）と、元の大きさへ戻る。
+/// 向きは、出ている間だけ横。ステータスバーとホームバーは隠す。
+struct FullscreenVideoView: View {
+    @ObservedObject var player: PlaybackEngine
+    @Binding var isPresented: Bool
+    @State private var controlsVisible = true
+    @State private var dragOffset: CGFloat = 0
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            VideoSurface(player: player.videoPlayer).ignoresSafeArea()
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture { withAnimation { controlsVisible.toggle() } }
+            if controlsVisible {
+                VStack {
+                    HStack {
+                        Button { isPresented = false } label: {
+                            Image(systemName: "xmark").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
+                                .frame(width: 44, height: 44).background(Circle().fill(Color.black.opacity(0.55)))
+                        }
+                        .accessibilityLabel("最大化を終わる")
+                        Spacer()
+                    }
+                    Spacer()
+                    Button { player.toggle() } label: {
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 28)).foregroundStyle(.white)
+                            .frame(width: 64, height: 64).background(Circle().fill(Color.black.opacity(0.55)))
+                    }
+                    .accessibilityLabel(player.isPlaying ? "一時停止" : "再生")
+                    Spacer()
+                    Text("画面を上から下へスワイプすると、元に戻ります").font(.system(size: 11)).foregroundStyle(.white.opacity(0.7))
+                }
+                .padding(16)
+                .transition(.opacity)
+            }
+        }
+        .offset(y: dragOffset)
+        .gesture(
+            DragGesture(minimumDistance: 20)
+                .onChanged { value in
+                    // 縦の動きが主のときだけ、下へ引く動きに追従する
+                    if abs(value.translation.height) > abs(value.translation.width) { dragOffset = max(0, value.translation.height) }
+                }
+                .onEnded { value in
+                    let vertical = abs(value.translation.height) > abs(value.translation.width)
+                    if vertical && value.translation.height > 100 { isPresented = false } else { withAnimation { dragOffset = 0 } }
+                }
+        )
+        .statusBarHidden(true)
+        .persistentSystemOverlays(.hidden)
+        .onAppear { OrientationLock.set(.landscape) }
+        .onDisappear { OrientationLock.set(.portrait) }
     }
 }
 
@@ -103,6 +180,7 @@ struct FullPlayerView: View {
     @State private var scrubbing: Double?
     @State private var hint: String?
     @State private var location: [PlaybackEngine.LocationItem] = []
+    @State private var maximized = false
     /// 所在の名前・曲名を押したとき：プレイリストの階層（ホームから）と、曲のID（曲の位置まで移動するとき）。再生画面を閉じて、ライブラリで表示する。
     let reveal: (_ chain: [String], _ entryId: String?) -> Void
 
@@ -235,6 +313,18 @@ struct FullPlayerView: View {
             Color.black
             if player.videoMode {
                 VideoSurface(player: player.videoPlayer)
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button { maximized = true } label: {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
+                                .frame(width: 44, height: 44).background(Circle().fill(Color.black.opacity(0.55)))
+                        }
+                        .accessibilityLabel("動画を最大化")
+                    }
+                }
+                .padding(6)
             } else if let image {
                 Image(uiImage: image).resizable().scaledToFit()
             } else {
