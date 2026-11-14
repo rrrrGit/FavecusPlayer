@@ -532,8 +532,8 @@ final class DownloadTests: XCTestCase {
         let (service, _) = try environment(Fixture(audio: audio))
         await service.start()
         let key = try await requireKey(service)
-        service.save(entry: entry, kind: "audio", height: 360)
-        _ = try await wait(service, key: key, [.completed, .failed])
+        service.save(entry: entry, kind: "video", height: 360) // 映像の配信がない合成データなので失敗するが、要求は送られる
+        _ = try await wait(service, key: key, kind: "video", [.completed, .failed])
         let play = StubProtocol.requests.first { $0.url?.path.hasSuffix("/playurl") == true }
         let query = URLComponents(url: try XCTUnwrap(play?.url), resolvingAgainstBaseURL: false)?.queryItems ?? []
         XCTAssertEqual(query.first { $0.name == "qn" }?.value, "16", "360p は qn=16")

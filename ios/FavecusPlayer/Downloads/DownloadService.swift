@@ -28,6 +28,7 @@ final class DownloadService: ObservableObject, MediaProvider {
     private var finishing: Set<String> = []       // 仕上げ中のジョブID（重ねて仕上げない）
     private var cancelRequested: Set<String> = [] // 仕上げ中に取り消された記録ID
     private var reconciling = false
+    private var removingAll = false
     private var started = false                  // 記録を読み込み終えるまで、取得の結果を処理しない（読み込み前に仕上げて、記録を失わないため）
     private var jobRecords: [String: String] = [:] // ジョブID → 記録ID（進み具合の表示用）
     private var fetching: [String: Task<URL, Error>] = [:]
@@ -110,7 +111,9 @@ final class DownloadService: ObservableObject, MediaProvider {
     /// 保存中のものがあるときは何もしない（nil）。削除するのは、保存の記録が指すファイルだけ（アプリが管理していないファイルには触れない）。
     /// ファイルを先に消し、消せなかったものの記録は残す。戻り値：削除した件数と容量。
     func removeAllOffline() async -> (count: Int, bytes: Int64)? {
-        guard started, !records.values.contains(where: { $0.state.inProgress }) else { return nil }
+        guard started, !removingAll, !records.values.contains(where: { $0.state.inProgress }) else { return nil }
+        removingAll = true // 削除の間に、同じ曲の保存を始めない
+        defer { removingAll = false }
         var removedIds: [String] = []
         var bytes: Int64 = 0
         for record in records.values where record.state == .completed {
@@ -358,7 +361,8 @@ final class DownloadService: ObservableObject, MediaProvider {
 
     /// kind：audio（既定）または video。同じキー・形式が進行中なら、重ねて始めない。
     func save(entry: EntryItem, kind: String = "audio", height: Int = DownloadService.preferredHeight) {
-        guard entry.type == "bilibili", let url = entry.url else { return }
+        guard entry.type == "bilibili", let url = entry.url, !removingAll else { return }
+        let height = kind == "video" ? height : 720 // 音声には画質を使わない
         let previous = chain
         let task = Task { [weak self] in
             await previous?.value
