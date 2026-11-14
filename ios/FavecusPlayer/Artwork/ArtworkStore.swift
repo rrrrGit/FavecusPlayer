@@ -72,8 +72,8 @@ final class ArtworkStore: ObservableObject {
         if !force, knownWithoutFrame(key) { return false }
         guard let image = await Self.frame(from: file, duration: duration) else {
             // 映像のないファイルなら、記録する（映像がありそうでも、取り出せなかっただけなら、記録しない）
-            let tracks = (try? await AVURLAsset(url: file).loadTracks(withMediaType: .video)) ?? []
-            if tracks.isEmpty { markNoFrame(key) }
+            // 読み込みそのものに失敗したとき（一時的な失敗）は、記録しない。読み込めて、映像のトラックがないときだけ記録する
+            if let tracks = try? await AVURLAsset(url: file).loadTracks(withMediaType: .video), tracks.isEmpty { markNoFrame(key) }
             return false
         }
         return store(frame: image, key: key)

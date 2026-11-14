@@ -193,13 +193,13 @@ private struct LibraryTab: View {
     private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     /// 検索の結果：曲名・リスト名・動画ID・URLに含まれる曲（所属ごとに1行。上限100件）。再生は、その行のリストの範囲で行う。
-    private var results: [(entry: EntryItem, list: PlaylistItem)] {
+    private var results: [(entry: EntryItem, list: PlaylistItem, key: String)] {
         guard !trimmedQuery.isEmpty else { return [] }
-        var found: [(EntryItem, PlaylistItem)] = []
+        var found: [(EntryItem, PlaylistItem, String)] = []
         for list in document?.playlists ?? [] {
             let listMatches = list.name.localizedStandardContains(trimmedQuery)
             for entry in list.entries where listMatches || entry.title.localizedStandardContains(trimmedQuery) || (entry.videoId ?? "").localizedCaseInsensitiveContains(trimmedQuery) || (entry.url ?? "").localizedCaseInsensitiveContains(trimmedQuery) {
-                found.append((entry, list))
+                found.append((entry, list, list.id + "/" + entry.id))
                 if found.count >= 100 { return found }
             }
         }
@@ -249,13 +249,13 @@ private struct LibraryTab: View {
                 } else {
                     HStack(spacing: 8) {
                         SectionLabel(text: "検索結果")
-                        Text("\(results.count)件").font(.system(size: 12)).foregroundStyle(Theme.mint)
+                        Text(results.count >= 100 ? "100件まで表示" : "\(results.count)件").font(.system(size: 12)).foregroundStyle(Theme.mint)
                     }
                     .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 0, trailing: 16))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Theme.background)
                     if results.isEmpty { Text("見つかりませんでした").font(.system(size: 13)).foregroundStyle(Theme.muted).listRowBackground(Theme.background) }
-                    ForEach(results, id: \.entry.id) { item in
+                    ForEach(results, id: \.key) { item in
                         SongRow(entry: item.entry, scope: item.list.id, services: services, context: item.list.name)
                     }
                     Color.clear.frame(height: 80).listRowBackground(Theme.background).listRowSeparator(.hidden)
@@ -265,6 +265,7 @@ private struct LibraryTab: View {
             .scrollContentBackground(.hidden)
             .scrollDismissesKeyboard(.interactively)
             .background(Theme.background)
+            .onDrop(of: [.text], delegate: ClearDrag(dragging: $dragging))
             .navigationTitle("マイライブラリ")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .navigationBarTrailing) { EditToggle(editing: $editing) } }
@@ -276,22 +277,16 @@ private struct LibraryTab: View {
                 Button("作成") { store.perform(["type": "create", "name": newName, "select": false]) }
                 Button("キャンセル", role: .cancel) {}
             }
-            .alert("名前を変更", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            .alert("名前を変更", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } }), presenting: renaming) { item in
                 TextField("名前", text: $renameText)
-                Button("変更") {
-                    if let renaming { store.perform(["type": "rename", "playlistId": renaming.id, "name": renameText]) }
-                    renaming = nil
-                }
-                Button("キャンセル", role: .cancel) { renaming = nil }
+                Button("変更") { store.perform(["type": "rename", "playlistId": item.id, "name": renameText]) }
+                Button("キャンセル", role: .cancel) {}
             }
-            .confirmationDialog("プレイリストを削除", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), titleVisibility: .visible) {
-                Button("削除", role: .destructive) {
-                    if let pendingDelete { store.perform(["type": "delete", "playlistId": pendingDelete.id]) }
-                    pendingDelete = nil
-                }
-                Button("キャンセル", role: .cancel) { pendingDelete = nil }
-            } message: {
-                Text("「\(pendingDelete?.name ?? "")」を削除します。曲はこのリストから消え、子のプレイリストは1つ上へ移ります。")
+            .confirmationDialog("プレイリストを削除", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), titleVisibility: .visible, presenting: pendingDelete) { item in
+                Button("削除", role: .destructive) { store.perform(["type": "delete", "playlistId": item.id]) }
+                Button("キャンセル", role: .cancel) {}
+            } message: { item in
+                Text("「\(item.name)」を削除します。曲はこのリストから消え、子のプレイリストは1つ上へ移ります。")
             }
         }
         .miniPlayer(services, showPlayer: $showPlayer)
@@ -392,7 +387,7 @@ struct PlaylistReorderDrop: DropDelegate {
     @Binding var dragging: String?
     let move: (_ id: String, _ target: String, _ after: Bool) -> Void
 
-    func validateDrop(info: DropInfo) -> Bool { dragging != nil }
+    func validateDrop(info: DropInfo) -> Bool { dragging != nil && info.hasItemsConforming(to: [.text]) }
     func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
     func performDrop(info: DropInfo) -> Bool {
         defer { dragging = nil }
@@ -400,6 +395,12 @@ struct PlaylistReorderDrop: DropDelegate {
         move(id, target, from < to)
         return true
     }
+}
+
+/// カード以外の場所で離した（またはやめた）ときも、「つかんでいる」状態を戻す。
+private struct ClearDrag: DropDelegate {
+    @Binding var dragging: String?
+    func performDrop(info: DropInfo) -> Bool { dragging = nil; return false }
 }
 
 // MARK: プレイリストのページ
@@ -461,6 +462,7 @@ private struct PlaylistDetail: View {
         .scrollContentBackground(.hidden)
         .background(Theme.background)
         .ignoresSafeArea(edges: .top)
+        .onDrop(of: [.text], delegate: ClearDrag(dragging: $dragging))
         .environment(\.editMode, $editMode)
         .toolbar(.hidden, for: .navigationBar)
         .background(SwipeBackEnabler()) // ナビゲーションバーを隠しても、画面の端からのスワイプで戻れるようにする
@@ -627,11 +629,19 @@ private struct PlaylistDetail: View {
 
 /// ナビゲーションバーを隠したページでも、画面の左端からのスワイプで前のページへ戻れるようにする。
 private struct SwipeBackEnabler: UIViewControllerRepresentable {
+    /// 戻るスワイプを始めてよいのは、ページが2枚以上あるときだけ（ホームで始めると、画面が固まるため）。
+    final class PopDelegate: NSObject, UIGestureRecognizerDelegate {
+        static let shared = PopDelegate()
+        weak var navigationController: UINavigationController?
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool { (navigationController?.viewControllers.count ?? 0) > 1 }
+    }
+
     final class Holder: UIViewController {
         override func viewDidAppear(_ animated: Bool) {
             super.viewDidAppear(animated)
+            PopDelegate.shared.navigationController = navigationController
+            navigationController?.interactivePopGestureRecognizer?.delegate = PopDelegate.shared
             navigationController?.interactivePopGestureRecognizer?.isEnabled = true
-            navigationController?.interactivePopGestureRecognizer?.delegate = nil
         }
     }
 

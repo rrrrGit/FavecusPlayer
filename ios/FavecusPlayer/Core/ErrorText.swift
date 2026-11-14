@@ -44,8 +44,8 @@ enum Clipboard {
     }
 }
 
-/// 動画配信先へ送る共通の見出し。Bilibiliの公式ページ（WebView）と同じ、iPhoneのSafariの表記で名乗る。
-/// 保護・制限の回避ではなく、通常のWebと同じ方法で取得するための表記（Cookieは付けない）。
+/// 動画配信先へ送る共通の見出し。Windows版（ブラウザの User-Agent と Referer を付けて取得）と同じ考えで、iPhoneのSafariの標準的な表記（OSの版は固定の値）で名乗る。
+/// 最初の要求から固定で送り、拒否されたあとに表記を変えない。保護・制限の回避ではなく、通常のWebと同じ方法で取得するための表記（Cookieは付けない）。
 enum MediaHeaders {
     static let userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
     static let referer = "https://www.bilibili.com/"

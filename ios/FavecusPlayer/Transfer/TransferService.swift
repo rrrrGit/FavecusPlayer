@@ -139,7 +139,7 @@ final class TransferService: @unchecked Sendable {
             let available = zip.names.filter { $0.hasPrefix("media/") }.map { String($0.dropFirst(6)) }
             let idCount = plan.lists.reduce(0) { $0 + $1.count } * 3 + plan.lists.count * 3 + 64
             var request: [String: Any] = ["text": libraryText, "plan": plan.plan, "ids": ids, "available": available,
-                                          "newIds": (0..<idCount).map { _ in UUID().uuidString.lowercased() }, "now": LibraryStore.now(), "skipIdentical": true]
+                                          "newIds": (0..<idCount).map { _ in UUID().uuidString.lowercased() }, "now": LibraryStore.now()]
             if let parentId { request["parentId"] = parentId }
             let response = try core.call("TransferImport", try TransferService.json(request))
             let decoded = try JSONDecoder().decode(ImportResponse.self, from: Data(response.utf8))

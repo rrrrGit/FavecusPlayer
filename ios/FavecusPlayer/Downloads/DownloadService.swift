@@ -32,6 +32,11 @@ final class DownloadService: ObservableObject, MediaProvider {
     private var fetching: [String: Task<URL, Error>] = [:]
     private var batchTask: Task<Void, Never>?
     private var localFrameTask: Task<Void, Never>?
+    private var framesTask: Task<Void, Never>?
+    private var frameFailures: [String: Date] = [:]
+    private var batchID = 0
+    private var batchTargets: [EntryItem] = []
+    private var batchKind = "audio"
     private var batchStopped = false
     /// プレイリスト単位の保存の進み具合（保存を始めた曲数／全体）。実行していなければnil。
     @Published private(set) var batch: (done: Int, total: Int)?
@@ -125,6 +130,8 @@ final class DownloadService: ObservableObject, MediaProvider {
     @discardableResult
     func ensureFrame(key: String, url: String, coverURL: String?) async -> Bool {
         guard let artwork, !artwork.hasFrame(for: key) else { return false }
+        // 場面が得られなかった動画は、60秒のあいだ、同じ要求を繰り返さない
+        if let failedAt = frameFailures[key], Date().timeIntervalSince(failedAt) < 60 { return false }
         if let file = savedFile(key: key, kind: "video"), await artwork.makeFrame(fromFile: file, key: key) { return false }
         do {
             let cell = try await bilibili.shotCell(url: url)
@@ -133,12 +140,15 @@ final class DownloadService: ObservableObject, MediaProvider {
             if (error as? BilibiliError)?.stopBatch == true { return true }
         }
         await artwork.fetch(key: key, urlString: coverURL)
+        if !artwork.hasImage(for: key) { frameFailures[key] = Date() }
         return false
     }
 
     /// このリストの曲のサムネイルを、順に取得する（1秒ずつ間隔をあけ、制限が出たら止める。利用者が押したときだけ）。
     func ensureFrames(entries: [EntryItem]) async {
-        guard artwork != nil else { return }
+        guard artwork != nil, framesTask == nil else { return } // 実行中は、重ねて始めない
+        framesTask = Task {}
+        defer { framesTask = nil }
         for entry in entries where entry.type == "bilibili" {
             guard let url = entry.url, let key = entryKeys[entry.id], artwork?.hasFrame(for: key) == false else { continue }
             if await ensureFrame(key: key, url: url, coverURL: nil) {
@@ -199,6 +209,7 @@ final class DownloadService: ObservableObject, MediaProvider {
             defer { try? FileManager.default.removeItem(at: staging) }
             do {
                 try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+                try Self.ensureSpace(for: record.bytes, at: directory)
                 let name = UUID().uuidString.lowercased() + (record.kind == "video" ? ".mp4" : ".m4a")
                 let staged = staging.appendingPathComponent(name)
                 let media = record.media
@@ -207,6 +218,8 @@ final class DownloadService: ObservableObject, MediaProvider {
                     try zip.extract(media, to: staged)
                 }.value
                 let duration = try await MediaProcessor.validate(file: staged, needsVideo: record.kind == "video", expectedDuration: record.duration)
+                // 取り出している間に、同じ曲の保存が始まった・終わった場合は、重ねて記録しない
+                if savedFile(key: key, kind: record.kind) != nil || self.record(key: key, kind: record.kind)?.state.inProgress == true { continue }
                 let destination = directory.appendingPathComponent(name)
                 try FileManager.default.moveItem(at: staged, to: destination)
                 var saved = DeviceMediaRecord(key: key, kind: record.kind, state: .completed)
@@ -274,6 +287,10 @@ final class DownloadService: ObservableObject, MediaProvider {
         let targets = entries.filter { $0.type == "bilibili" && $0.url != nil }
         guard !targets.isEmpty else { return }
         batchStopped = false
+        batchID += 1
+        let mine = batchID
+        batchTargets = targets
+        batchKind = kind
         batch = (0, targets.count)
         batchTask = Task { [weak self] in
             guard let self else { return }
@@ -286,17 +303,18 @@ final class DownloadService: ObservableObject, MediaProvider {
                 await self.chain?.value
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
-            self.batch = nil
+            if self.batchID == mine { self.batch = nil } // 新しいまとめての保存が始まっていたら、その表示を消さない
         }
     }
 
     /// まとめての保存を止め、取得中のものも取り消す（entries：対象の曲）。
-    func cancelAll(entries: [EntryItem], kind: String) {
+    func cancelAll() {
         batchTask?.cancel()
         batch = nil
-        for entry in entries where entry.type == "bilibili" {
-            guard let key = entryKeys[entry.id], record(key: key, kind: kind)?.state.inProgress == true else { continue }
-            cancel(key: key, kind: kind)
+        // 始めたときの対象・形式で取り消す（画面の選択が変わっていても、別の曲・別の形式を取り消さない）
+        for entry in batchTargets where entry.type == "bilibili" {
+            guard let key = entryKeys[entry.id], record(key: key, kind: batchKind)?.state.inProgress == true else { continue }
+            cancel(key: key, kind: batchKind)
         }
     }
 
@@ -351,7 +369,7 @@ final class DownloadService: ObservableObject, MediaProvider {
         do {
             let media = try await bilibili.resolve(url: url, kind: kind)
             try Task.checkCancellation()
-            Task { await self.ensureFrame(key: key, url: url, coverURL: media.thumbnailURL) }
+            Task { if await self.ensureFrame(key: key, url: url, coverURL: media.thumbnailURL) { self.batchStopped = true } }
             guard media.layout == "dash" || media.layout == "muxed" else { throw DownloadError.message("この形式（分割された配信）は、保存に対応していません。") }
             let expected = media.streams.reduce(0) { $0 + $1.size }
             try Self.ensureSpace(for: Int64(expected), at: directory)
@@ -390,8 +408,10 @@ final class DownloadService: ObservableObject, MediaProvider {
     private func evaluate(_ id: String, live: Set<String>? = nil) async {
         guard started, !finishing.contains(id), let job = transfers.job(id) else { return }
         let statuses = transfers.status(of: job)
-        if let failed = statuses.compactMap({ status -> String? in if case .failed(let text, _) = status { return text } else { return nil } }).first {
-            await abort(job, message: failed, state: .failed)
+        if let failed = statuses.compactMap({ status -> (String, Bool)? in if case .failed(let text, let refused) = status { return (text, refused) } else { return nil } }).first {
+            // 配信先の拒否（401・403・412・429）は、まとめての保存を止める（続けて次の曲を要求しない）
+            if failed.1 { batchStopped = true; message = "まとめての保存を止めました：" + failed.0 }
+            await abort(job, message: failed.0, state: .failed)
             return
         }
         if statuses.allSatisfy({ if case .done = $0 { return true } else { return false } }) {
@@ -539,7 +559,7 @@ final class DownloadService: ObservableObject, MediaProvider {
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: staging) }
         let media = try await bilibili.resolve(url: url, kind: "audio")
-        Task { await self.ensureFrame(key: key, url: url, coverURL: media.thumbnailURL) }
+        Task { if await self.ensureFrame(key: key, url: url, coverURL: media.thumbnailURL) { self.batchStopped = true } }
         try Self.ensureSpace(for: Int64(media.streams.reduce(0) { $0 + $1.size }), at: cacheDirectory)
         let files = try await downloader.download(streams: media.streams, into: staging) { _ in }
         guard let first = files.first else { throw DownloadError.message("配信先から取得できません。") }

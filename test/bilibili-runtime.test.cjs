@@ -22,7 +22,7 @@ test('resolve asks only api.bilibili.com with a Referer, sends no cookies from J
 });
 
 test('HTTP 412, 429 and 401 stop immediately without retrying in another way', async () => {
-  for (const status of [412, 429, 401]) {
+  for (const status of [412, 429, 401, 403]) {
     const calls = Host(() => ({ status, json: null }));
     const result = await Bili.Resolve({ url: 'https://www.bilibili.com/video/BV1aaaaaaaaa/', kind: 'audio' });
     assert.equal(result.stopBatch, true, String(status)); assert.equal(result.httpStatus, status); assert.equal(calls.length, 1);
@@ -69,4 +69,18 @@ test('info returns the title and length from the view API only (part title for l
   const refused = await Bili.Info({ url: 'BV1aaaaaaaaa' });
   assert.ok(refused.error); assert.equal(refused.stopBatch, true);
   assert.ok((await Bili.Info({ url: 'https://example.com/x' })).error);
+});
+
+test('shots picks the preview cell near 60 seconds using only view and videoshot, and stops on a refusal', async () => {
+  const shot = { index: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90], image: ['//i0.hdslb.com/bfs/videoshot/a.jpg'], img_x_len: 5, img_y_len: 2, img_x_size: 160, img_y_size: 90 };
+  const calls = Host(url => ({ status: 200, json: url.pathname === '/x/web-interface/view' ? { code: 0, data: { bvid: 'BV1aaaaaaaaa', aid: 1, duration: 400, pages: [{ page: 1, cid: 7, duration: 400 }] } } : { code: 0, data: shot } }));
+  const result = await Bili.Shots({ url: 'https://www.bilibili.com/video/BV1aaaaaaaaa/' });
+  assert.deepEqual(result.cell, { sheet: 'https://i0.hdslb.com/bfs/videoshot/a.jpg', x: 160, y: 90, width: 160, height: 90, time: 60 });
+  assert.deepEqual(calls.map(c => new URL(c.url).pathname), ['/x/web-interface/view', '/x/player/videoshot']);
+  assert.ok(calls.every(c => new URL(c.url).host === 'api.bilibili.com'));
+  Host(() => ({ status: 403, json: {} }));
+  const refused = await Bili.Shots({ url: 'BV1aaaaaaaaa' });
+  assert.ok(refused.error); assert.equal(refused.stopBatch, true);
+  Host(url => ({ status: 200, json: url.pathname === '/x/web-interface/view' ? { code: 0, data: { bvid: 'BV1aaaaaaaaa', aid: 1, duration: 400, pages: [{ page: 1, cid: 7 }] } } : { code: 0, data: { index: [], image: [] } } }));
+  assert.match((await Bili.Shots({ url: 'BV1aaaaaaaaa' })).error, /プレビュー画像がありません/);
 });

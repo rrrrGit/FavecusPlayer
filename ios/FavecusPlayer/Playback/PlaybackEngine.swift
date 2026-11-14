@@ -59,6 +59,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     /// ロック画面に出す、曲のサムネイル（アプリが設定する）。
     var artworkProvider: ((EntryItem) -> UIImage?)?
     private var artworkCache: (id: String, image: UIImage)?
+    private var lastArtworkLookup = Date.distantPast
+    private var lastArtworkEntry: String?
     private var audioFile: URL?
     private var videoFile: URL?
     private var loadedFile: URL?
@@ -355,6 +357,10 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     private func currentArtwork() -> UIImage? {
         guard let current else { artworkCache = nil; return nil }
         if let artworkCache, artworkCache.id == current.entryId { return artworkCache.image }
+        // 画像が見つかるまでの探索は、1.5秒に1回まで（毎回の更新で、曲の検索と画像の読み込みをしない）
+        guard lastArtworkEntry != current.entryId || Date().timeIntervalSince(lastArtworkLookup) > 1.5 else { return nil }
+        lastArtworkEntry = current.entryId
+        lastArtworkLookup = Date()
         guard let entry = entry(current.entryId), let image = artworkProvider?(entry) else { return nil }
         artworkCache = (current.entryId, image)
         return image

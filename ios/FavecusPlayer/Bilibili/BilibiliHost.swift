@@ -24,7 +24,7 @@ final class BiliCore: @unchecked Sendable {
                         let value = try await host.request(method: method, url: url, json: json)
                         queue.async { _ = resolve?.call(withArguments: [value]) }
                     } catch {
-                        let message = (error as? CustomStringConvertible)?.description ?? error.localizedDescription
+                        let message = ErrorText.safe(error)
                         queue.async { _ = reject?.call(withArguments: [message]) }
                     }
                 }

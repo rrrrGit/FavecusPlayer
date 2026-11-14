@@ -34,8 +34,11 @@ struct MiniPlayerBar: View {
                     Button { player.toggle() } label: {
                         Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 16)).foregroundStyle(Theme.accentText)
                             .frame(width: 38, height: 38).background(Circle().fill(Theme.mainControl))
+                            .frame(width: 44, height: 44)
                     }
-                    Button { player.next() } label: { Image(systemName: "forward.fill").font(.title3).foregroundStyle(Theme.muted).frame(width: 36, height: 44) }
+                    .accessibilityLabel(player.isPlaying ? "一時停止" : "再生")
+                    Button { player.next() } label: { Image(systemName: "forward.fill").font(.title3).foregroundStyle(Theme.muted).frame(width: 44, height: 44) }
+                        .accessibilityLabel("次の曲")
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 16)
@@ -65,6 +68,8 @@ struct VideoSurface: UIViewRepresentable {
     let player: AVPlayer?
 
     final class LayerView: UIView {
+        var observers: [NSObjectProtocol] = []
+        deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
         override class var layerClass: AnyClass { AVPlayerLayer.self }
         var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer } // swiftlint:disable:this force_cast
     }
@@ -74,6 +79,12 @@ struct VideoSurface: UIViewRepresentable {
         view.backgroundColor = .black
         view.playerLayer.videoGravity = .resizeAspect
         view.playerLayer.player = player
+        // 画面が見えなくなる間（ロック・ホームへ戻る）は、映像の層をプレイヤーから外す。つないだままだと、iOSが映像の再生を止めるため。
+        let center = NotificationCenter.default
+        view.observers = [
+            center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak view] _ in view?.playerLayer.player = nil },
+            center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak view] _ in view?.playerLayer.player = player }
+        ]
         return view
     }
 
@@ -138,11 +149,18 @@ struct FullPlayerView: View {
         .background(
             LinearGradient(colors: [Color(hex: 0x241F3D), Theme.background], startPoint: .top, endPoint: .center).ignoresSafeArea()
         )
+        .alert("お知らせ", isPresented: Binding(get: { player.message != nil }, set: { if !$0 { player.message = nil } })) {
+            Button("コピー") { Clipboard.copy(player.message ?? ""); player.message = nil }
+            Button("閉じる", role: .cancel) { player.message = nil }
+        } message: {
+            Text(player.message ?? "")
+        }
     }
 
     private var topBar: some View {
         HStack {
             Button { isPresented = false } label: { Image(systemName: "chevron.down").font(.title3.weight(.semibold)).frame(width: 44, height: 44) }
+                .accessibilityLabel("閉じる")
             Spacer()
             modeSwitch
             Spacer()
@@ -195,16 +213,20 @@ struct FullPlayerView: View {
 
     private var controls: some View {
         HStack(spacing: 28) {
-            Button { player.shuffle.toggle() } label: { Image(systemName: "shuffle").foregroundStyle(player.shuffle ? Theme.accent : Theme.muted) }
-            Button { player.previous() } label: { Image(systemName: "backward.end.fill").font(.title) }
+            Button { player.shuffle.toggle() } label: { Image(systemName: "shuffle").foregroundStyle(player.shuffle ? Theme.accent : Theme.muted).frame(width: 44, height: 44) }
+                .accessibilityLabel(player.shuffle ? "シャッフル（オン）" : "シャッフル（オフ）")
+            Button { player.previous() } label: { Image(systemName: "backward.end.fill").font(.title).frame(width: 44, height: 44) }
+                .accessibilityLabel("前の曲")
             Button { player.toggle() } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 30)).foregroundStyle(Theme.accentText)
                     .frame(width: 72, height: 72).background(Circle().fill(Theme.mainControl))
             }
-            Button { player.next() } label: { Image(systemName: "forward.end.fill").font(.title) }
+            Button { player.next() } label: { Image(systemName: "forward.end.fill").font(.title).frame(width: 44, height: 44) }
+                .accessibilityLabel("次の曲")
             Button { cycleRepeat() } label: {
-                Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").foregroundStyle(player.repeatMode == .off ? Theme.muted : Theme.accent)
+                Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").foregroundStyle(player.repeatMode == .off ? Theme.muted : Theme.accent).frame(width: 44, height: 44)
             }
+            .accessibilityLabel(player.repeatMode == .off ? "リピート（オフ）" : player.repeatMode == .all ? "リピート（全曲）" : "リピート（1曲）")
         }
         .font(.title3)
         .foregroundStyle(Theme.text)

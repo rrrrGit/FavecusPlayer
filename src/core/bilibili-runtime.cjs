@@ -16,7 +16,7 @@ function Requester() {
   return async (endpoint, query) => {
     const response = JSON.parse(await host.request('GET', `https://api.bilibili.com${endpoint}?${Encode(query)}`, JSON.stringify({ headers: { Referer: 'https://www.bilibili.com/' }, body: null })));
     if (response.status < 200 || response.status >= 300) {
-      throw Object.assign(new Error(`Bilibiliから情報を取得できません（HTTP ${response.status}）。ログイン状態を確認し、時間を置いて再実行してください。`), { httpStatus: response.status, stopBatch: [401, 412, 429].includes(response.status) });
+      throw Object.assign(new Error(`Bilibiliから情報を取得できません（HTTP ${response.status}）。ログイン状態を確認し、時間を置いて再実行してください。`), { httpStatus: response.status, stopBatch: [401, 403, 412, 429].includes(response.status) });
     }
     return response.json;
   };

@@ -67,6 +67,16 @@ final class ImportCoordinator: ObservableObject {
         }
     }
 
+    /// リストは取り込まず、同梱の保存済みの動画・音声だけを、この端末のライブラリの曲の分、取り込む（同じ構成のリストがすでにあるときなど）。
+    func importMediaOnly() async {
+        guard case .choosing(let plan) = phase, let importer = downloadImporter, !plan.downloads.isEmpty else { return }
+        phase = .importing
+        let entries = store.document?.playlists.flatMap(\.entries) ?? []
+        let result = await importer(plan.url, plan.downloads, entries)
+        phase = .done(ImportOutcome(imported: 0, downloaded: result.imported, downloadsFailed: result.failed, missing: 0, omitted: 0, copied: 0))
+        endAccess()
+    }
+
     func commit(ids: [String]) async {
         guard case .choosing(let plan) = phase else { return }
         phase = .importing

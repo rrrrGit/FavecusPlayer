@@ -44,6 +44,7 @@ struct PlaylistSaveSheet: View {
                         Text("動画").tag("video")
                     }
                     .pickerStyle(.segmented)
+                    .disabled(downloads.batch != nil) // 実行中は、形式を変えられない（取り消しが別の形式に効かないように）
                     if hasChildren {
                         Toggle("子のプレイリストの曲も含める", isOn: $includeChildren).tint(Theme.accent).foregroundStyle(Theme.text)
                     }
@@ -59,7 +60,7 @@ struct PlaylistSaveSheet: View {
                             ProgressView(value: Double(batch.done), total: Double(max(batch.total, 1))).tint(Theme.accent)
                             Text("\(batch.done)/\(batch.total)曲を開始しました。保存は、画面を閉じても続きます。").font(.system(size: 12)).foregroundStyle(Theme.muted)
                         }
-                        Button("まとめての保存を取り消す") { downloads.cancelAll(entries: all, kind: kind) }.buttonStyle(SecondaryButtonStyle())
+                        Button("まとめての保存を取り消す") { downloads.cancelAll() }.buttonStyle(SecondaryButtonStyle())
                     } else {
                         Button { downloads.saveAll(entries: pending, kind: kind) } label: {
                             Label(kind == "video" ? "動画を保存する（\(pending.count)曲）" : "音声を保存する（\(pending.count)曲）", systemImage: "arrow.down.circle").frame(maxWidth: .infinity)

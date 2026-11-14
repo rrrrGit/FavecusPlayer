@@ -31,6 +31,7 @@ struct ImportSheet: View {
                 }
             }
         }
+        .onDisappear { if !coordinator.isBusy { coordinator.cancel() } } // スワイプで閉じたときも、一時コピーとアクセス権を後始末する
         .interactiveDismissDisabled({ if case .importing = coordinator.phase { return true } else { return false } }())
     }
 
@@ -52,6 +53,13 @@ struct ImportSheet: View {
                             if plan.identicalIds.contains(list.id) { Text("すでにあります（同じ構成）").font(.caption).foregroundStyle(Theme.mint) }
                         }
                     }
+                }
+            }
+            if !plan.downloads.isEmpty {
+                Section {
+                    Button("保存済みの動画・音声だけを取り込む") { Task { await coordinator.importMediaOnly() } }
+                } footer: {
+                    Text("プレイリストは取り込まず、この端末にある曲の分の動画・音声だけを取り込みます。")
                 }
             }
             Section {

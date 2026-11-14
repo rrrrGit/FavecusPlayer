@@ -68,7 +68,8 @@ function TransferPrepare(options) {
     const input = Transfer.BuildShareInput(options.identity === null || options.identity === undefined ? null : JSON.parse(Text(options.identity)), options.records.map(text => JSON.parse(Text(text))));
     const prepared = Transfer.Prepare(input);
     // 端末のライブラリ（options.text）を渡されたら、すでに同じ構成のリストのIDを添える（取り込みの画面で「すでにあります」と示す）
-    if (typeof options.text === 'string') prepared.identicalIds = Transfer.IdenticalIds(JSON.parse(options.text), prepared.plan);
+    // 判定に失敗しても（別表記の対応が食い違うなど）、取り込みの準備そのものは止めない
+    if (typeof options.text === 'string') { try { prepared.identicalIds = Transfer.IdenticalIds(JSON.parse(options.text), prepared.plan); } catch { prepared.identicalIds = []; } }
     Transfer.CheckOuterNames(prepared.plan.share, options.outerNames);
     return prepared;
   } catch (error) { return { error: String(error && error.message || error) }; }

@@ -94,7 +94,7 @@ private struct DownloadsList: View {
         .contextMenu {
             if let text = record.message { Button { Clipboard.copy(text) } label: { Label("エラーの内容をコピー", systemImage: "doc.on.doc") } }
         }
-        .swipeActions(edge: .trailing) {
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if record.state.inProgress {
                 Button("取り消し", role: .destructive) { downloads.cancel(key: item.key, kind: record.kind) }
             } else if record.state == .completed {

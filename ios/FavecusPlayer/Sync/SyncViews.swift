@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// プレイリストの同期の画面：1. 接続先 → 2. サインイン（メールのコード）→ 3. 同期。
-/// どのボタンも、押せる状態のまま、足りない手順があれば理由を表示する（押せないボタンを作らない）。
+/// 手順の前提を満たさないとき（例：サインイン前の「同期を有効にする」）は、押したときに理由を表示する。状態によって意味のないボタン（同期中の「今すぐ同期」など）だけ、薄くして押せなくする。
 /// 「コードを送る」「サインイン」の前に、入力した接続先が未保存なら、自動で保存する。
 struct SyncSheet: View {
     @ObservedObject var sync: SyncCoordinator
@@ -13,8 +13,19 @@ struct SyncSheet: View {
     @State private var message: String?
     @State private var failed = false
     @State private var working = false
+    @State private var pending: Pending?
 
     private var status: SyncStatus { sync.status }
+
+    /// 確認してから行う操作（サーバーや端末の内容を置き換える・接続を消す）。
+    private struct Pending: Identifiable {
+        let id = UUID()
+        let title: String
+        let message: String
+        let run: () -> Void
+    }
+
+    private func ask(_ title: String, _ message: String, _ run: @escaping () -> Void) { pending = Pending(title: title, message: message, run: run) }
 
     var body: some View {
         NavigationStack {
@@ -50,7 +61,7 @@ struct SyncSheet: View {
                             report("サインインしました。次は、3. 同期の「同期を有効にする」を押します。")
                         }
                         if status.signedIn {
-                            action("サインアウト", style: .secondary, disabled: status.enabled) { sync.signOut(); report("サインアウトしました。") }
+                            action("サインアウト", style: .secondary, disabled: status.enabled) { ask("サインアウトしますか？", "このiPhoneのサインイン情報を消します。同期のデータは消えません。") { sync.signOut(); report("サインアウトしました。") } }
                         }
                     }
                     card(number: "3", title: "同期", done: status.enabled) {
@@ -61,10 +72,10 @@ struct SyncSheet: View {
                         }
                         action("今すぐ同期", style: .secondary, disabled: !status.enabled) { _ = await sync.syncNow() }
                         action("同期を止める", style: .secondary, disabled: !status.enabled) { sync.disable(); report("同期を止めました。") }
-                        action("接続を初期化", style: .secondary, disabled: status.enabled) { sync.resetLink(); report("接続を初期化しました。") }
+                        action("接続を初期化", style: .secondary, disabled: status.enabled) { ask("接続を初期化しますか？", "保存した接続先と同期の状態を消します。プレイリストや、サーバーのデータは消えません。") { sync.resetLink(); report("接続を初期化しました。") } }
                         if status.canUnblock {
-                            action("サーバーの内容で復元", style: .primary) { try await sync.unblock(mode: "restore"); report("同期した内容で復元しました。") }
-                            action("この端末の内容を正とする", style: .secondary) { try await sync.unblock(mode: "keep"); report("同期しました。") }
+                            action("サーバーの内容で復元", style: .primary) { ask("サーバーの内容で復元しますか？", "この端末のプレイリストを、サーバーの内容に置き換えます（置き換える前のバックアップを残します）。") { perform { try await sync.unblock(mode: "restore"); report("同期した内容で復元しました。") } } }
+                            action("この端末の内容を正とする", style: .secondary) { ask("この端末の内容を正としますか？", "サーバーと他の端末にある、この端末にない内容を削除します。") { perform { try await sync.unblock(mode: "keep"); report("同期しました。") } } }
                             note("「この端末の内容を正とする」は、サーバーと他の端末にある、この端末にない内容を削除します。")
                         }
                         note("有効にする前に、現在の保存データのバックアップを残します。止めても、プレイリストや同期データは消えません。Supabaseの無料枠は、1週間ほど使われないと一時停止します（ダッシュボードで再開でき、データは残ります）。")
@@ -74,6 +85,12 @@ struct SyncSheet: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .background(Theme.background)
+            .confirmationDialog(pending?.title ?? "", isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }), titleVisibility: .visible, presenting: pending) { item in
+                Button("実行する", role: .destructive) { item.run() }
+                Button("キャンセル", role: .cancel) {}
+            } message: { item in
+                Text(item.message)
+            }
             .navigationTitle("プレイリストの同期")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .navigationBarLeading) { Button("閉じる") { isPresented = false } } }

@@ -42,7 +42,7 @@ final class SyncCore: @unchecked Sendable {
                     let value = try await work()
                     queue.async { _ = resolve?.call(withArguments: [value ?? NSNull()]) }
                 } catch {
-                    let message = (error as? CustomStringConvertible)?.description ?? error.localizedDescription
+                    let message = ErrorText.safe(error)
                     queue.async { _ = reject?.call(withArguments: [message]) }
                 }
             }

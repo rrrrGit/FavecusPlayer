@@ -235,9 +235,10 @@ private struct RowLayout: View {
             .contentShape(Rectangle())
             .onTapGesture(perform: tap)
             Button { showActions = true } label: {
-                Image(systemName: "ellipsis").foregroundStyle(Theme.muted).frame(width: 32, height: 44).contentShape(Rectangle())
+                Image(systemName: "ellipsis").foregroundStyle(Theme.muted).frame(width: 44, height: 44).contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
+            .accessibilityLabel("曲のメニュー")
         }
         .padding(.vertical, 2)
         .listRowBackground(current ? Theme.currentRow : Theme.background)
