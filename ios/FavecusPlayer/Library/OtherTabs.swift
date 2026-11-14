@@ -112,11 +112,12 @@ private struct DownloadsList: View {
         .background(Theme.background)
         .onAppear { free = downloads.freeBytes(); now = Date() }
         .task {
-            // 一定時間を過ぎた失敗の表示を消す
+            // 一定時間を過ぎた失敗の表示を消す。この画面を開いている間は、受信が止まった取得も検知する
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
                 now = Date()
                 free = downloads.freeBytes()
+                await downloads.reconcile()
             }
         }
     }

@@ -487,4 +487,41 @@ final class DownloadTests: XCTestCase {
         XCTAssertNil(service.record(key: "k-failed", kind: "audio"), "更新で、失敗の記録は消える")
         XCTAssertNotNil(service.savedFile(key: "k-saved"), "保存済みは消えない")
     }
+
+    // MARK: 受信が止まった取得の検知（v0.7.1）
+
+    private func stalledJob(urls: [String]) throws -> (BackgroundTransfers, DownloadJob) {
+        let jobs = directory.appendingPathComponent("stall-jobs", isDirectory: true), staging = directory.appendingPathComponent("stall-staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: jobs, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let job = DownloadJob(id: "job-stalled", key: "bili:BV1sssssssss:p1", kind: "audio", title: "曲", quality: 0, duration: 2, layout: "dash", streams: [JobStream(urls: urls, size: 0, ext: "m4a")], createdAt: Date().timeIntervalSince1970)
+        try JSONEncoder().encode(job).write(to: jobs.appendingPathComponent("job-stalled.json"))
+        StubProtocol.install { _ in (404, Data()) }
+        let transfers = BackgroundTransfers(configuration: StubProtocol.session().configuration, jobsDirectory: jobs, stagingRoot: staging)
+        return (transfers, job)
+    }
+
+    func testAStalledTransferMovesToTheNextCandidateUrl() async throws {
+        let (transfers, job) = try stalledJob(urls: ["https://upos.bilivideo.com/a/first", "https://upos.bilivideo.com/a/second"])
+        let handled = await transfers.restartStalled(job.id, idleFor: 0)
+        XCTAssertEqual(handled, 1)
+        XCTAssertEqual(transfers.job(job.id)?.streams.first?.urlIndex, 1, "次の候補のURLで取り直す")
+    }
+
+    func testAStalledTransferWithNoCandidateLeftFailsWithADiagnosticAndNoUrl() async throws {
+        let (transfers, job) = try stalledJob(urls: ["https://upos.bilivideo.com/a/only"])
+        let handled = await transfers.restartStalled(job.id, idleFor: 0)
+        XCTAssertEqual(handled, 1)
+        guard case .failed(let text, let refused) = try XCTUnwrap(transfers.status(of: job).first) else { return XCTFail("失敗として残るはず") }
+        XCTAssertFalse(refused)
+        XCTAssertTrue(text.contains("取得が進みません") && text.contains("候補 1/1"), text)
+        XCTAssertFalse(text.contains("http") || text.contains("bilivideo"), "診断の文にURLを含めない: \(text)")
+    }
+
+    func testATransferThatIsStillMovingIsNotRestarted() async throws {
+        let (transfers, job) = try stalledJob(urls: ["https://upos.bilivideo.com/a/first", "https://upos.bilivideo.com/a/second"])
+        let handled = await transfers.restartStalled(job.id, idleFor: 3600)
+        XCTAssertEqual(handled, 0)
+        XCTAssertEqual(transfers.job(job.id)?.streams.first?.urlIndex, 0)
+    }
 }

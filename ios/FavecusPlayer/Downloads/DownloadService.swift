@@ -92,6 +92,7 @@ final class DownloadService: ObservableObject, MediaProvider {
     func resume() async {
         guard started else { return }
         for job in transfers.jobs() { await evaluate(job.id) }
+        for job in transfers.jobs() { await transfers.restartStalled(job.id, idleFor: 180) }
     }
 
     // MARK: 更新・一覧の表示
@@ -124,11 +125,12 @@ final class DownloadService: ObservableObject, MediaProvider {
         guard started else { return }
         do { try await catalog.removeProblems() } catch { message = "保存の記録を整理できません：\(ErrorText.safe(error))" }
         await publish()
-        await reconcile()
+        await reconcile(idleFor: 45)
     }
 
     /// 保存中の処理の再確認：取得が終わっていれば仕上げ、失敗していれば止め、通信もジョブもないのに途中のまま残った記録は失敗にする。
-    func reconcile() async {
+    /// idleFor：受信がこの秒数まったく進んでいない取得は、次の候補で取り直す（なければ失敗にする）。
+    func reconcile(idleFor: TimeInterval = 180) async {
         guard started else { return }
         let jobs = transfers.jobs()
         let live = await transfers.liveJobIds()
@@ -137,6 +139,7 @@ final class DownloadService: ObservableObject, MediaProvider {
             // 始めたばかりのジョブは、通信の引き継ぎの途中の可能性があるため、通信の有無では判断しない
             await evaluate(job.id, live: now - job.createdAt > 20 ? live : nil)
         }
+        for job in transfers.jobs() { await transfers.restartStalled(job.id, idleFor: idleFor) }
         let remaining = Set(transfers.jobs().map(\.recordId))
         for record in records.values where record.state.inProgress && !remaining.contains(record.id) && running[record.id] == nil {
             var next = record
