@@ -3,7 +3,7 @@ name: iOS build
 # macOSランナーは消費が大きいため、iOS関連の変更があるときだけ実行する。
 on:
   push:
-    branches: ["release/v0.7.0"]
+    branches: ["release/v0.7.0", "release/v0.7.1"]
     paths:
       - "ios/**"
       - "shared/**"
