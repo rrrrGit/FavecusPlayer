@@ -42,10 +42,16 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     @Published private(set) var videoAvailable = false
     /// 再生画面で、サムネイルではなく動画を映している。
     @Published private(set) var videoMode = false
+    /// 利用者が動画を選んでいる（次の曲に動画があれば、続けて動画で映す）。サムネイルを選ぶ・動画の再生に失敗すると解除する。
+    @Published private(set) var prefersVideo = false
     @Published var shuffle = false
     @Published var repeatMode: RepeatMode = .off
     @Published var message: String?
 
+    /// アプリを開いている（前面にある）か。背面では、映像の層が外れるため、動画へ切り替えない（前面へ戻ったとき、切り替える）。テストでは差し替える。
+    var isActive: () -> Bool = { UIApplication.shared.applicationState == .active }
+    /// 再生の範囲（"*" はすべて、または、リストのID）。曲の所在の表示に使う。
+    var playScope: String? { scope }
     private let core: SharedCore
     private let store: LibraryStore
     private let backend: PlayerBackend
@@ -80,6 +86,15 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         libraryObserver = store.$document.dropFirst().sink { [weak self] _ in
             Task { @MainActor in await self?.resync() }
         }
+        _ = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.applyPreferredVideo() }
+        }
+    }
+
+    /// 動画を選んでいて、この曲に動画があり、まだ動画で映していなければ、動画へ切り替える（前面にあるときだけ）。
+    func applyPreferredVideo() {
+        guard prefersVideo, videoAvailable, !videoMode, current != nil, isActive() else { return }
+        switchVideo(true)
     }
 
     var isPlayingNow: Bool { isPlaying }
@@ -272,10 +287,16 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         guard mine == generation else { return }
         videoFile = found
         videoAvailable = found != nil
+        applyPreferredVideo() // 動画で見ていたなら、次の曲も動画で映す
     }
 
-    /// サムネイルと動画を切り替える（同じ位置から続ける）。動画がないときは何もしない。
+    /// サムネイルと動画を切り替える（利用者の操作。選んだ側を、次の曲でも続ける）。動画がないときは何もしない。
     func setVideoMode(_ on: Bool) {
+        prefersVideo = on && (videoAvailable || videoMode)
+        switchVideo(on)
+    }
+
+    private func switchVideo(_ on: Bool) {
         guard current != nil, on != videoMode else { return }
         guard let target = on ? videoFile : audioFile else { return }
         let position = backend.position, playing = backend.isPlaying
@@ -320,6 +341,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             videoMode = false
             videoAvailable = false
             videoFile = nil
+            prefersVideo = false // 動画を再生できなかったので、続けて動画へ切り替えない
             backend.load(url: audio)
             loadedFile = audio
             backend.seek(to: resume)
