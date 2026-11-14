@@ -49,10 +49,6 @@ struct MiniPlayerBar: View {
                 .onTapGesture { showPlayer = true }
             }
         }
-        .fullScreenCover(isPresented: $maximized) {
-            FullscreenVideoView(player: player, isPresented: $maximized).preferredColorScheme(.dark)
-        }
-        .onChange(of: player.videoMode) { on in if !on { maximized = false } } // 動画でなくなったら（曲が変わった・失敗した）、最大化を閉じる
         .alert("お知らせ", isPresented: Binding(get: { player.message != nil }, set: { if !$0 { player.message = nil } })) {
             Button("コピー") { Clipboard.copy(player.message ?? ""); player.message = nil }
             Button("閉じる", role: .cancel) { player.message = nil }
@@ -230,6 +226,10 @@ struct FullPlayerView: View {
         .background(
             LinearGradient(colors: [Color(hex: 0x241F3D), Theme.background], startPoint: .top, endPoint: .center).ignoresSafeArea()
         )
+        .fullScreenCover(isPresented: $maximized) {
+            FullscreenVideoView(player: player, isPresented: $maximized).preferredColorScheme(.dark)
+        }
+        .onChange(of: player.videoMode) { on in if !on { maximized = false } } // 動画でなくなったら（曲が変わった・失敗した）、最大化を閉じる
         .alert("お知らせ", isPresented: Binding(get: { player.message != nil }, set: { if !$0 { player.message = nil } })) {
             Button("コピー") { Clipboard.copy(player.message ?? ""); player.message = nil }
             Button("閉じる", role: .cancel) { player.message = nil }
