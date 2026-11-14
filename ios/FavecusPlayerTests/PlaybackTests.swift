@@ -231,7 +231,7 @@ final class PlaybackTests: XCTestCase {
         let provider = FakeProvider()
         let (store, engine, backend) = try await prepareWithProvider(provider)
         engine.isActive = { true }
-        let withVideo = try entry(store, "曲1"), withoutVideo = try entry(store, "曲2")
+        let withVideo = try entry(store, "曲1"), withoutVideo = try entry(store, "曲4")
         provider.videos["曲1"] = try XCTUnwrap(provider.file)
         let scope = try parentId(store)
         await engine.play(entryId: withVideo.id, scope: scope)
