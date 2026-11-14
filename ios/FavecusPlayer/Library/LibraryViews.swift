@@ -452,6 +452,9 @@ private struct PlaylistDetail: View {
     @Binding var reveal: RevealTarget?
     @State private var editMode: EditMode = .inactive
     @State private var showAdd = false
+    /// 「コピーしたリンクを追加」から開いた（貼り付けたら、そのまま追加する）。クリップボードにリンクらしいものがあるときだけ、ボタンを出す。
+    @State private var addFromClipboard = false
+    @State private var clipboardLink = false
     @State private var showSave = false
     @State private var creatingChild = false
     @State private var childName = ""
@@ -477,6 +480,15 @@ private struct PlaylistDetail: View {
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Theme.background)
+            if clipboardLink && !editing {
+                Button { addFromClipboard = true; showAdd = true } label: {
+                    Label("コピーしたリンクを、このリストへ追加…", systemImage: "doc.on.clipboard").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Theme.background)
+            }
             if editing {
                 EditNotice(text: "編集中です。曲は、右端のつまみ（≡）をドラッグして並べ替えます。曲を外すときは、曲の「…」から「このリストから外す」を選びます。プレイリストは、編集中でなくても、カードを長押ししてつかみ、動かして並べ替えられます。終わったら、右上のチェックを押します。")
                     .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
@@ -509,8 +521,15 @@ private struct PlaylistDetail: View {
         .overlay(alignment: .bottomTrailing) {
             AddSongButton(player: services.player) { showAdd = true }
         }
-        .sheet(isPresented: $showAdd) {
-            AddSongSheet(store: store, downloads: services.downloads, playlistId: parentId, playlistName: parent?.name ?? "", isPresented: $showAdd)
+        .sheet(isPresented: $showAdd, onDismiss: {
+            addFromClipboard = false
+            Task { clipboardLink = await ClipboardLink.pasteboardHasLink() }
+        }) {
+            AddSongSheet(store: store, downloads: services.downloads, playlistId: parentId, playlistName: parent?.name ?? "", isPresented: $showAdd, startWithPaste: addFromClipboard)
+        }
+        .task { clipboardLink = await ClipboardLink.pasteboardHasLink() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            Task { clipboardLink = await ClipboardLink.pasteboardHasLink() }
         }
         .sheet(isPresented: $showSave) {
             if let downloads = services.downloads {

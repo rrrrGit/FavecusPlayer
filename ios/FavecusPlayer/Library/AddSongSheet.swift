@@ -10,6 +10,8 @@ struct AddSongSheet: View {
     let playlistId: String
     let playlistName: String
     @Binding var isPresented: Bool
+    /// 「コピーしたリンクを追加」から開いたとき：貼り付けたリンクが動画ページなら、そのまま追加する。
+    var startWithPaste = false
     @State private var url = ""
     @State private var working = false
     @State private var message: String?
@@ -23,8 +25,16 @@ struct AddSongSheet: View {
                         .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled().submitLabel(.done)
                         .foregroundStyle(Theme.text)
                     // 「貼り付け」の専用ボタン（OSの部品）：押したときだけ読むため、「他のAppからペースト」の許可を求められない
+                    if startWithPaste {
+                        Text("下の「貼り付け」を押すと、コピーしたリンクを、このリストへ追加します。").font(.system(size: 12)).foregroundStyle(Theme.accent)
+                    }
                     PasteButton(payloadType: String.self) { strings in
-                        if let text = strings.first { url = text.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        guard let text = strings.first else { return }
+                        // Bilibiliアプリの「リンクをコピー」は、題名つきの短縮リンク（b23.tv）のことがある：リンクだけを取り出し、短縮なら動画ページへ置き換える
+                        Task {
+                            url = await ClipboardLink.normalized(text)
+                            if startWithPaste, ClipboardLink.firstURL(in: url).map(ClipboardLink.isVideoPage) == true { add() }
+                        }
                     }
                     .labelStyle(.titleAndIcon)
                     .tint(Theme.accent)
