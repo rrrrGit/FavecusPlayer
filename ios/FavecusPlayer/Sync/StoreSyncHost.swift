@@ -6,8 +6,11 @@ final class StoreSyncHost: SyncHost, @unchecked Sendable {
     private let directory: URL
     private let vault: SessionVault
     private let session: URLSession
+    /// 再生回数の台帳（MainActorで使う）。なければ、再生回数の同期はしない。
+    private let counts: PlayCountStore?
 
-    init(store: LibraryStore, directory: URL, vault: SessionVault, session: URLSession = .shared) {
+    init(store: LibraryStore, directory: URL, vault: SessionVault, session: URLSession = .shared, counts: PlayCountStore? = nil) {
+        self.counts = counts
         self.store = store
         self.directory = directory
         self.vault = vault
@@ -77,4 +80,10 @@ final class StoreSyncHost: SyncHost, @unchecked Sendable {
     }
 
     func saveSession(_ json: String) { try? vault.set(json) }
+
+    // MARK: 再生回数・設定（共通JSの sync-counts.cjs が、この3つを呼ぶ）
+
+    func countsRead() async -> String? { await counts?.syncRead() }
+    func countsApply(_ json: String) async { await counts?.syncApply(json) }
+    func countsPushed() async { await counts?.syncPushed() }
 }

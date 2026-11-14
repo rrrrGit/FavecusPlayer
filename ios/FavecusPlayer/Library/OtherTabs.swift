@@ -205,6 +205,8 @@ struct SettingsTab: View {
     let openDiagnostics: () -> Void
     @AppStorage("downloadWiFiOnly") private var wifiOnly = false
     @AppStorage("downloadVideoHeight") private var videoHeight = 720
+    @AppStorage("weightedShuffle") private var weighted = true
+    @State private var confirmResetCounts = false
 
     var body: some View {
         NavigationStack {
@@ -226,6 +228,20 @@ struct SettingsTab: View {
                     Text("保存")
                 } footer: {
                     Text("動画を保存するときの画質です。選んだ画質がない動画は、近い画質で保存します。保存済みの動画の画質は変わりません（変えるときは、保存を削除してから保存し直します）。")
+                }
+                if let counts = services.player?.counts {
+                    Section {
+                        Toggle("再生回数が少ない曲を優先する", isOn: Binding(get: { weighted }, set: { value in weighted = value; counts.setWeighted(value) }))
+                        Button("再生回数をリセット", role: .destructive) { confirmResetCounts = true }
+                    } header: {
+                        Text("シャッフル")
+                    } footer: {
+                        Text("曲ごとの再生回数（実際に3秒以上再生した回数）を数え、回数が多い曲ほど後に出やすくなります。順番は毎回変わります。同じ動画・パートは、別のリストでも共通の回数です。プレイリストの同期を有効にすると、Windows版とも共通になります（ローカルの曲は、この端末だけ）。リセットは、次にシャッフルを始めたときから反映されます。")
+                    }
+                    .confirmationDialog("再生回数をすべて0に戻します。同期している他の端末の回数も、同じように0になります。元に戻せません。", isPresented: $confirmResetCounts, titleVisibility: .visible) {
+                        Button("リセットする", role: .destructive) { Task { await counts.reset() } }
+                        Button("キャンセル", role: .cancel) {}
+                    }
                 }
                 Section("アプリ") {
                     Button { openDiagnostics() } label: { Label("診断", systemImage: "stethoscope") }

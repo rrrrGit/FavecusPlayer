@@ -9,10 +9,13 @@ protocol MediaProvider: AnyObject {
     func playableFile(for entry: EntryItem) async throws -> URL
     /// 保存済みの動画ファイル（なければnil）。再生画面の「動画」表示に使う。
     func savedVideoFile(for entry: EntryItem) async -> URL?
+    /// 曲の同期用メディアキー（Bilibiliの曲。再生回数の台帳のキー）。求められない曲はnil。
+    func syncKeys(for entries: [EntryItem]) async -> [String?]
 }
 
 extension MediaProvider {
     func savedVideoFile(for entry: EntryItem) async -> URL? { nil }
+    func syncKeys(for entries: [EntryItem]) async -> [String?] { entries.map { _ in nil } }
 }
 
 /// iPhone版のローカル再生（音声）。次に何を再生するかは共通JS（FavecusCore.QueueStart / QueueMove。Windows版と同じQueue）が決め、
@@ -48,6 +51,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     @Published var repeatMode: RepeatMode = .off
     @Published var message: String?
 
+    /// 再生回数の台帳（数える・抽選の重み）。なければ、数えず、均等に抽選する。
+    var counts: PlayCountStore?
     /// アプリを開いている（前面にある）か。背面では、映像の層が外れるため、動画へ切り替えない（前面へ戻ったとき、切り替える）。テストでは差し替える。
     var isActive: () -> Bool = { UIApplication.shared.applicationState == .active }
     /// 再生の範囲（"*" はすべて、または、リストのID）。曲の所在の表示に使う。
@@ -126,7 +131,9 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         failureStreak = 0
         generation += 1
         let mine = generation
-        guard let result = await queue("QueueStart", ["text": store.currentText, "scope": scope, "entryId": entryId, "shuffle": shuffle, "playable": playableIds()]),
+        var request: [String: Any] = ["text": store.currentText, "scope": scope, "entryId": entryId, "shuffle": shuffle, "playable": playableIds()]
+        if shuffle, let weights = await shuffleWeights() { request["weights"] = weights } // 再生回数が少ない曲を優先する（設定がオンのとき）
+        guard let result = await queue("QueueStart", request),
               let id = result.id, let playlistId = result.playlistId else {
             if mine == generation { message = "この曲を再生キューに入れられません。" } // 失敗しても、再生中の曲・再生範囲は変えない
             return
@@ -134,6 +141,28 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         guard mine == generation else { return } // 待っている間に、別の曲を選ばれた・止められた
         self.scope = scope
         await load(id: id, playlistId: playlistId)
+    }
+
+    /// 再生回数が少ない曲を優先する：曲のID → 重み（1/(1+回数)）。設定がオフ・台帳がないときは nil（均等）。
+    private func shuffleWeights() async -> [String: Double]? {
+        guard let counts, counts.weighted else { return nil }
+        let entries = (store.document?.playlists ?? []).flatMap(\.entries).filter(canPlay)
+        var seen = Set<String>(), unique: [EntryItem] = []
+        for entry in entries where seen.insert(entry.id).inserted { unique.append(entry) }
+        let keys = await countKeys(for: unique)
+        let weights = await counts.weights(for: keys.compactMap { $0 })
+        var result: [String: Double] = [:]
+        for (entry, key) in zip(unique, keys) { if let key, let weight = weights[key] { result[entry.id] = weight } }
+        return result
+    }
+
+    /// 曲の再生回数のキー：Bilibiliは同期用メディアキー、ローカルは「local:ファイル名」。
+    private func countKeys(for entries: [EntryItem]) async -> [String?] {
+        let online = entries.filter { $0.type == "bilibili" }
+        let keys = await provider?.syncKeys(for: online) ?? online.map { _ in nil }
+        var byId: [String: String] = [:]
+        for (entry, key) in zip(online, keys) { if let key { byId[entry.id] = key } }
+        return entries.map { entry in entry.type == "local" ? entry.fileName.map { "local:" + $0 } : byId[entry.id] }
     }
 
     func next() { Task { await goNext() } }
@@ -171,6 +200,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     func stop() {
         generation += 1
+        if let counts { Task { await counts.stop() } }
         isPreparing = false
         videoMode = false
         videoAvailable = false
@@ -274,6 +304,12 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         videoAvailable = false
         refresh()
         Task { await updateVideoAvailability(for: target, file: file, generation: mine) }
+        Task { // 再生回数：この曲の再生を数え始める（実再生3秒で1回。同期が無効でも数える）
+            guard let counts else { return }
+            let key = await countKeys(for: [target]).first ?? nil
+            guard mine == generation else { return }
+            await counts.begin(key: key)
+        }
     }
 
     private func updateVideoAvailability(for target: EntryItem, file: URL, generation mine: Int) async {
@@ -329,6 +365,10 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     private func ended() {
         guard current != nil else { return }
         failureStreak = 0
+        if let counts { // 短い曲は、終わりまで聞いたときに数える
+            let duration = self.duration
+            Task { await counts.observe(position: duration, duration: duration, paused: false, ended: true) }
+        }
         Task { await advance(direction: 1, automatic: true) }
     }
 
@@ -365,6 +405,10 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     private func tick() {
         refresh()
         if isPlaying && position > 0.5 { failureStreak = 0 } // 実際に再生できたら、失敗の連続を数え直す
+        if let counts, current != nil, !isPreparing {
+            let position = self.position, duration = self.duration, paused = !isPlaying
+            Task { await counts.observe(position: position, duration: duration, paused: paused) }
+        }
     }
 
     /// 曲の所在（ホームから、再生中の曲があるリストまでの階層）。規則は共通JS（Windows版の「再生中」の経路と同じ。再生範囲を通る経路を優先）。見つからなければ空。

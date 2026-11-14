@@ -279,6 +279,12 @@ final class DownloadService: ObservableObject, MediaProvider {
         return savedFile(key: key, kind: "video")
     }
 
+    /// 曲の同期用メディアキー（再生回数の台帳のキー）。MediaProvider。
+    func syncKeys(for entries: [EntryItem]) async -> [String?] {
+        let keys = await mediaKeys(forURLs: entries.map { $0.url ?? "" })
+        return zip(entries, keys).map { entry, key in entry.type == "bilibili" && entry.url != nil ? key : nil }
+    }
+
     /// 動画のURLの一覧に対する同期用メディアキー（共通JS）。求められないURLはnil。
     func mediaKeys(forURLs urls: [String]) async -> [String?] {
         guard !urls.isEmpty else { return [] }
