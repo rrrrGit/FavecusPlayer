@@ -235,66 +235,72 @@ private struct LibraryTab: View {
         return found
     }
 
+    /// HOME：プレイリストのカード（3列）。1枚ずつ長押しでつかめる。
+    private var homeContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 8) {
+                    SectionLabel(text: "HOME")
+                    Text("\(songCount)曲").font(.system(size: 12)).foregroundStyle(Theme.mint)
+                }
+                .padding(.horizontal, 16).padding(.top, 4)
+                if editing {
+                    EditNotice(text: "編集中です。各カードの ✎ で名前を変更、ごみ箱で削除します。並べ替えは、編集中でなくても、カードを長押ししてつかみ、動かしたい場所のカードの上で離します。終わったら、右上のチェックを押します。")
+                        .padding(.horizontal, 16).padding(.vertical, 4)
+                }
+                if roots.isEmpty {
+                    Text("プレイリストはありません。上の「新規プレイリスト」から作れます。").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 16).padding(.vertical, 8)
+                }
+                LazyVGrid(columns: columns, spacing: 10) {
+                    ForEach(Array(roots.enumerated()), id: \.element.id) { index, list in
+                        card(list, index: index)
+                    }
+                }
+                .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 90)
+            }
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .background(Theme.background)
+        .onDrop(of: [.text], delegate: ClearDrag(dragging: $dragging))
+    }
+
+    private var searchResults: some View {
+        List {
+            HStack(spacing: 8) {
+                SectionLabel(text: "検索結果")
+                Text(results.count >= 100 ? "100件まで表示" : "\(results.count)件").font(.system(size: 12)).foregroundStyle(Theme.mint)
+            }
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 0, trailing: 16))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Theme.background)
+            if results.isEmpty { Text("見つかりませんでした").font(.system(size: 13)).foregroundStyle(Theme.muted).listRowBackground(Theme.background) }
+            ForEach(results, id: \.key) { item in
+                SongRow(entry: item.entry, scope: item.list.id, services: services, context: item.list.name)
+            }
+            Color.clear.frame(height: 80).listRowBackground(Theme.background).listRowSeparator(.hidden)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .scrollDismissesKeyboard(.interactively)
+        .background(Theme.background)
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
-            List {
+            // 検索欄と「新規プレイリスト」は固定（入力中に、下の表示が切り替わっても、入力が途切れないように）。
+            // HOMEのカードは、Listの1行にまとめず、ScrollViewへ置く（Listだと、横並びの3枚が1つの行として、まとめて持ち上がってしまう）。検索結果は、行ごとの操作があるためListのまま。
+            VStack(spacing: 0) {
                 SearchField(text: $query)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Theme.background)
+                    .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 4)
                 Button { newName = ""; creating = true } label: {
                     Label("新規プレイリスト", systemImage: "plus").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(SecondaryButtonStyle())
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
-                .listRowSeparator(.hidden)
-                .listRowBackground(Theme.background)
-                if trimmedQuery.isEmpty {
-                    HStack(spacing: 8) {
-                        SectionLabel(text: "HOME")
-                        Text("\(songCount)曲").font(.system(size: 12)).foregroundStyle(Theme.mint)
-                    }
-                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 0, trailing: 16))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Theme.background)
-                    if editing {
-                        EditNotice(text: "編集中です。各カードの ✎ で名前を変更、ごみ箱で削除します。並べ替えは、編集中でなくても、カードを長押ししてつかみ、動かしたい場所のカードの上で離します。終わったら、右上のチェックを押します。")
-                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Theme.background)
-                    }
-                    if roots.isEmpty {
-                        Text("プレイリストはありません。上の「新規プレイリスト」から作れます。").font(.system(size: 13)).foregroundStyle(Theme.muted)
-                            .listRowSeparator(.hidden).listRowBackground(Theme.background)
-                    }
-                    LazyVGrid(columns: columns, spacing: 10) {
-                        ForEach(Array(roots.enumerated()), id: \.element.id) { index, list in
-                            card(list, index: index)
-                        }
-                    }
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 90, trailing: 16))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Theme.background)
-                } else {
-                    HStack(spacing: 8) {
-                        SectionLabel(text: "検索結果")
-                        Text(results.count >= 100 ? "100件まで表示" : "\(results.count)件").font(.system(size: 12)).foregroundStyle(Theme.mint)
-                    }
-                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 0, trailing: 16))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Theme.background)
-                    if results.isEmpty { Text("見つかりませんでした").font(.system(size: 13)).foregroundStyle(Theme.muted).listRowBackground(Theme.background) }
-                    ForEach(results, id: \.key) { item in
-                        SongRow(entry: item.entry, scope: item.list.id, services: services, context: item.list.name)
-                    }
-                    Color.clear.frame(height: 80).listRowBackground(Theme.background).listRowSeparator(.hidden)
-                }
+                .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 8)
+                if trimmedQuery.isEmpty { homeContent } else { searchResults }
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .scrollDismissesKeyboard(.interactively)
             .background(Theme.background)
-            .onDrop(of: [.text], delegate: ClearDrag(dragging: $dragging))
             .navigationTitle("マイライブラリ")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .navigationBarTrailing) { EditToggle(editing: $editing) } }
@@ -348,6 +354,7 @@ private struct LibraryTab: View {
             }
         }
         .opacity(dragging == list.id ? 0.4 : 1)
+        .contentShape(.dragPreview, RoundedRectangle(cornerRadius: 10)) // つかんだときに浮かぶ像は、このカード1枚だけ
         .onDrag {
             dragging = list.id
             return NSItemProvider(object: list.id as NSString)
