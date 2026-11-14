@@ -13,6 +13,7 @@ const { LibraryArchive } = require('./core/library-archive.cjs');
 const { ShareMode } = require('./core/library-share.cjs');
 const { Queue } = require('./core/queue.cjs');
 const { PlayCounts } = require('./core/play-counts.cjs');
+const PlayLedger = require('./core/play-ledger.cjs');
 const Keys = require('./ui/keybindings.js');
 const { DriveURL } = require('./core/releases.cjs');
 const { OfflineLibrary } = require('./core/offline-library.cjs');
@@ -47,7 +48,7 @@ let thumbnails, thumbnail = null;
 let visibleBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 let statuses = { discord: { code: 'off', text: 'Discord連携はオフです' }, taskbar: { code: 'off', text: '下向き矢印を押すと埋め込みを試します' } };
 let playCounts;
-const ShuffleWeight = entry => store?.data.settings.weightedShuffle === false ? 1 : 1 / (1 + (playCounts?.Count(entry) || 0));
+const ShuffleWeight = entry => store?.data.settings.weightedShuffle === false ? 1 : PlayLedger.Weight(playCounts?.Count(entry) || 0);
 let queue = new Queue(null, ShuffleWeight, randomInt);
 const playbackMetadata = new Map(), metadataPending = new Map(), officialPreferred = new Set();
 let generation = 0, loadRequest = 0, lastPlayerCommand = null, nativeDiagnostics;
@@ -575,7 +576,8 @@ async function Start() {
   biliAccount = new BilibiliAccount((...args) => biliSession.fetch(...args));
   offline = new OfflineLibrary({ directory: path.join(process.env.FAVECUS_INSTALL_ROOT || (app.isPackaged ? path.dirname(app.getPath('exe')) : app.getAppPath()), 'downloads'), previousDirectories: process.env.FAVECUS_INSTALL_ROOT ? PreviousInstallRoots(process.env.FAVECUS_INSTALL_ROOT).map(p => path.join(p, 'downloads')) : [], settingsFile: path.join(app.getPath('userData'), 'download-settings.json'), fetch: DownloadFetch(biliSession), ffmpeg, libraryData: () => store.data, referenceData: () => store.SavedData(), identify: RememberVideo, diagnostic: DownloadDiagnosticLog, changed: value => Emit('downloads', value) });
   await offline.Organize(); archive = new LibraryArchive(store, offline);
-  playCounts = new PlayCounts(path.join(app.getPath('userData'), 'play-counts.json'), Notify);
+  // 再生回数：台帳は play-ledger.json。以前の play-counts.json は、変更せずに1回だけ引き継ぐ（同期は、台帳の行だけを送る）
+  playCounts = new PlayCounts(path.join(app.getPath('userData'), 'play-ledger.json'), Notify, { legacyFile: path.join(app.getPath('userData'), 'play-counts.json'), aliases: () => store?.data.videoAliases || [] });
   additionReview = new AdditionReview(store, { resolveTitle: async entry => {
     const data = await biliAccount.Details(entry.videoId);
     RememberVideo(entry, data);
