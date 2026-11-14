@@ -162,7 +162,11 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         let keys = await provider?.syncKeys(for: online) ?? online.map { _ in nil }
         var byId: [String: String] = [:]
         for (entry, key) in zip(online, keys) { if let key { byId[entry.id] = key } }
-        return entries.map { entry in entry.type == "local" ? entry.fileName.map { "local:" + $0 } : byId[entry.id] }
+        return entries.map { entry in
+            guard entry.type == "local" else { return byId[entry.id] }
+            guard let name = entry.fileName, name.range(of: "^[A-Za-z0-9._-]{1,200}$", options: .regularExpression) != nil else { return nil } // 共通の台帳のキーの形に合わない名前は、数えない
+            return "local:" + name
+        }
     }
 
     func next() { Task { await goNext() } }

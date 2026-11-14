@@ -238,10 +238,6 @@ struct SettingsTab: View {
                     } footer: {
                         Text("曲ごとの再生回数（実際に3秒以上再生した回数）を数え、回数が多い曲ほど後に出やすくなります。順番は毎回変わります。同じ動画・パートは、別のリストでも共通の回数です。プレイリストの同期を有効にすると、Windows版とも共通になります（ローカルの曲は、この端末だけ）。リセットは、次にシャッフルを始めたときから反映されます。")
                     }
-                    .confirmationDialog("再生回数をすべて0に戻します。同期している他の端末の回数も、同じように0になります。元に戻せません。", isPresented: $confirmResetCounts, titleVisibility: .visible) {
-                        Button("リセットする", role: .destructive) { Task { await counts.reset() } }
-                        Button("キャンセル", role: .cancel) {}
-                    }
                 }
                 Section("アプリ") {
                     Button { openDiagnostics() } label: { Label("診断", systemImage: "stethoscope") }
@@ -252,6 +248,10 @@ struct SettingsTab: View {
             .scrollContentBackground(.hidden)
             .background(Theme.background)
             .navigationTitle("設定")
+            .confirmationDialog("再生回数をすべて0に戻します。同期している他の端末の回数も、同じように0になります。元に戻せません。", isPresented: $confirmResetCounts, titleVisibility: .visible) {
+                Button("リセットする", role: .destructive) { Task { await services.player?.counts?.reset() } }
+                Button("キャンセル", role: .cancel) {}
+            }
         }
         .miniPlayer(services, showPlayer: $showPlayer)
     }

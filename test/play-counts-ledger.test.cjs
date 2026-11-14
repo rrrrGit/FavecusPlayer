@@ -57,3 +57,21 @@ test('a damaged ledger is kept aside and counting restarts from zero', t => {
   assert.equal(counts.Count(song), 0); assert.equal(warnings.length, 1);
   assert.ok(fs.readdirSync(root).some(name => name.includes('.damaged-')), '元の記録は残す');
 });
+
+test('a play that happens while a sync is in flight keeps its row marked for the next sync', t => {
+  const root = Temp(t), counts = new PlayCounts(path.join(root, 'play-ledger.json'));
+  let now = 0; counts.now = () => now;
+  const play = () => { counts.Begin(song); for (let i = 0; i < 6; i++) { now += 1000; counts.Observe({ position: i, duration: 200, paused: false }); } };
+  play();
+  counts.SyncPushed(); // 起動後の最初の同期が済んだ
+  play(); // 2回目：変わった行
+  const first = counts.SyncRead({ weighted: true, at: 0 });
+  assert.equal(first.rows.length, 1);
+  play(); // 読み取りのあと、通信の待ち時間の間に、同じ行がさらに変わった
+  counts.SyncPushed();
+  const next = counts.SyncRead({ weighted: true, at: 0 });
+  assert.equal(next.rows.length, 1, 'さらに変わった行は、次の同期でもう一度送る');
+  assert.equal(next.rows[0].n, 3);
+  counts.SyncPushed();
+  assert.equal(counts.SyncRead({ weighted: true, at: 0 }).rows.length, 0, '送れた行の印は消える');
+});

@@ -27,6 +27,7 @@ final class ShortLinkStub: URLProtocol {
     static func session() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ShortLinkStub.self]
+        configuration.timeoutIntervalForRequest = 5 // 応答が完結しなくても、テストが止まったままにならない
         return URLSession(configuration: configuration)
     }
 }

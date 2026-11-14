@@ -11,7 +11,11 @@ final class PlayCountStore {
     private var text: String
     /// 起動後に変わった自分の行（同期へ送る）。起動後の最初の同期では、すべての行を送る。
     private var dirty: Set<String> = []
+    private var inFlight: Set<String> = []
+    private var touched: Set<String> = []
     private var pushedOnce = false
+    /// 台帳を書き換える処理は、1つずつ順に行う（await の間に別の処理が割り込んで、古い内容で上書きしないように）。
+    private var tail: Task<Void, Never> = Task {}
     private var observing = false
     /// 台帳を読めず、元のファイルを別名で残して作り直したときの知らせ。
     private(set) var notice: String?
@@ -95,19 +99,36 @@ final class PlayCountStore {
         await increment(key: key)
     }
 
+    private func serialized(_ work: @escaping @MainActor () async -> Void) async {
+        let previous = tail
+        let mine = Task { @MainActor in
+            await previous.value
+            await work()
+        }
+        tail = mine
+        await mine.value
+    }
+
     func increment(key: String) async {
-        guard !text.isEmpty, let result = try? await call("LedgerIncrement", ["text": text, "key": key, "now": Self.nowMs()]),
-              let next = result["text"] as? String else { return }
-        text = next
-        persist()
-        if let row = result["row"] as? [String: Any], let id = row["id"] as? String, key.hasPrefix("bili") { dirty.insert(id) }
+        await serialized { [self] in
+            guard !text.isEmpty, let result = try? await call("LedgerIncrement", ["text": text, "key": key, "now": Self.nowMs()]),
+                  let next = result["text"] as? String else { return }
+            text = next
+            persist()
+            if let row = result["row"] as? [String: Any], let id = row["id"] as? String, key.hasPrefix("bili") {
+                dirty.insert(id)
+                if inFlight.contains(id) { touched.insert(id) } // 今回の同期の読み取りのあとに変わった行：送信後も、印を残す
+            }
+        }
     }
 
     /// リセット：世代を1つ上げる（古い世代の行は、履歴として残る）。他の端末へは、次の同期で届く。
     func reset() async {
-        guard !text.isEmpty, let result = try? await call("LedgerReset", ["text": text]), let next = result["text"] as? String else { return }
-        text = next
-        persist()
+        await serialized { [self] in
+            guard !text.isEmpty, let result = try? await call("LedgerReset", ["text": text]), let next = result["text"] as? String else { return }
+            text = next
+            persist()
+        }
         await stop()
     }
 
@@ -118,6 +139,8 @@ final class PlayCountStore {
         guard !text.isEmpty, var state = try? await call("LedgerSyncState", ["text": text]) else { return nil }
         let rows = (state["rows"] as? [[String: Any]] ?? []).filter { !pushedOnce || dirty.contains($0["id"] as? String ?? "") }
             .map { ["epoch": $0["epoch"] ?? 0, "month": $0["month"] ?? "", "key": $0["key"] ?? "", "n": $0["n"] ?? 1] as [String: Any] }
+        inFlight = Set((state["rows"] as? [[String: Any]] ?? []).filter { !pushedOnce || dirty.contains($0["id"] as? String ?? "") }.compactMap { $0["id"] as? String })
+        touched = []
         state["rows"] = rows
         state["prefs"] = ["weighted": weighted, "at": weightedAt]
         return Self.json(state)
@@ -125,12 +148,15 @@ final class PlayCountStore {
 
     /// 他の端末から受け取った行・世代・読み取り位置・設定を取り込む。
     func syncApply(_ json: String) async {
-        guard !text.isEmpty, let value = try? Self.object(json) else { return }
-        var request: [String: Any] = ["text": text, "rows": value["rows"] ?? [], "cursor": value["cursor"] ?? 0]
-        if let epoch = value["epoch"] { request["epoch"] = epoch }
-        if let merged = try? await call("LedgerMerge", request), let next = merged["text"] as? String, merged["changed"] as? Bool == true {
-            text = next
-            persist()
+        guard let value = try? Self.object(json) else { return }
+        await serialized { [self] in
+            guard !text.isEmpty else { return }
+            var request: [String: Any] = ["text": text, "rows": value["rows"] ?? [], "cursor": value["cursor"] ?? 0]
+            if let epoch = value["epoch"] { request["epoch"] = epoch }
+            if let merged = try? await call("LedgerMerge", request), let next = merged["text"] as? String, merged["changed"] as? Bool == true {
+                text = next
+                persist()
+            }
         }
         if let prefs = value["prefs"] as? [String: Any], let weighted = prefs["weighted"] as? Bool, let at = prefs["at"] as? Double {
             defaults.set(weighted, forKey: Self.weightedKey)
@@ -138,8 +164,11 @@ final class PlayCountStore {
         }
     }
 
+    /// 送れた行の印だけを消す（読み取りのあとにさらに変わった行は、次の同期でもう一度送る）。
     func syncPushed() {
-        dirty.removeAll()
+        for id in inFlight where !touched.contains(id) { dirty.remove(id) }
+        inFlight = []
+        touched = []
         pushedOnce = true
     }
 
