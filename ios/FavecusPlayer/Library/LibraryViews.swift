@@ -340,6 +340,7 @@ private struct PlaylistDetail: View {
     let parentId: String
     @State private var editMode: EditMode = .inactive
     @State private var showAdd = false
+    @State private var showSave = false
     @State private var query = ""
     @State private var dragging: String?
 
@@ -408,8 +409,14 @@ private struct PlaylistDetail: View {
         .sheet(isPresented: $showAdd) {
             AddSongSheet(store: store, downloads: services.downloads, playlistId: parentId, playlistName: parent?.name ?? "", isPresented: $showAdd)
         }
+        .sheet(isPresented: $showSave) {
+            if let downloads = services.downloads {
+                PlaylistSaveSheet(store: store, downloads: downloads, playlistId: parentId, playlistName: parent?.name ?? "", isPresented: $showSave)
+            }
+        }
         .onAppear {
             let defaults = UserDefaults.standard
+            if defaults.bool(forKey: "FavecusDemoSave") { showSave = true }
             if defaults.bool(forKey: "FavecusDemoEdit") { editMode = .active }
             if defaults.bool(forKey: "FavecusDemoAdd") { showAdd = true }
         }
@@ -449,6 +456,11 @@ private struct PlaylistDetail: View {
                 Text("\(allEntries.count)").font(.system(size: 11)).foregroundStyle(Theme.muted)
                     .padding(.horizontal, 8).padding(.vertical, 3).background(Capsule().fill(Theme.control))
                 Spacer()
+                if services.downloads != nil {
+                    Button { showSave = true } label: { Label("保存", systemImage: "arrow.down.circle").font(.system(size: 13, weight: .semibold)) }
+                        .buttonStyle(TintedButtonStyle(color: Theme.mint, fill: Color(hex: 0x1F2C2C)))
+                        .accessibilityLabel("このプレイリストの曲を保存")
+                }
             }
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(Theme.faint)

@@ -30,6 +30,10 @@ final class DownloadService: ObservableObject, MediaProvider {
     private var started = false                  // 記録を読み込み終えるまで、取得の結果を処理しない（読み込み前に仕上げて、記録を失わないため）
     private var jobRecords: [String: String] = [:] // ジョブID → 記録ID（進み具合の表示用）
     private var fetching: [String: Task<URL, Error>] = [:]
+    private var batchTask: Task<Void, Never>?
+    private var batchStopped = false
+    /// プレイリスト単位の保存の進み具合（保存を始めた曲数／全体）。実行していなければnil。
+    @Published private(set) var batch: (done: Int, total: Int)?
     private var served: [URL] = []                // 直近に再生へ渡した一時ファイル（容量の整理で消さない）
     private static let cacheLimit: Int64 = 500 * 1024 * 1024
 
@@ -160,6 +164,39 @@ final class DownloadService: ObservableObject, MediaProvider {
         chain = task
     }
 
+    /// プレイリスト単位の保存：曲を1つずつ、間隔をあけて始める（続けて大量の要求を送らない）。すでに保存済み・保存中の曲は飛ばす。
+    /// 拒否・制限（ログイン要・混雑・配信先の拒否）が出たら、そこで止めて知らせる（回避しない）。
+    func saveAll(entries: [EntryItem], kind: String) {
+        batchTask?.cancel()
+        let targets = entries.filter { $0.type == "bilibili" && $0.url != nil }
+        guard !targets.isEmpty else { return }
+        batchStopped = false
+        batch = (0, targets.count)
+        batchTask = Task { [weak self] in
+            guard let self else { return }
+            for (index, entry) in targets.enumerated() {
+                if Task.isCancelled || self.batchStopped { break }
+                self.batch = (index, targets.count)
+                guard let key = await self.key(for: entry) else { continue }
+                if let existing = self.record(key: key, kind: kind), existing.state.inProgress || (existing.state == .completed && self.savedFile(key: key, kind: kind) != nil) { continue }
+                self.save(entry: entry, kind: kind)
+                await self.chain?.value
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+            self.batch = nil
+        }
+    }
+
+    /// まとめての保存を止め、取得中のものも取り消す（entries：対象の曲）。
+    func cancelAll(entries: [EntryItem], kind: String) {
+        batchTask?.cancel()
+        batch = nil
+        for entry in entries where entry.type == "bilibili" {
+            guard let key = entryKeys[entry.id], record(key: key, kind: kind)?.state.inProgress == true else { continue }
+            cancel(key: key, kind: kind)
+        }
+    }
+
     /// 取り消す。準備中は処理を止め、取得中は通信を止めて作業を消し、仕上げ中は、区切りで止める。
     func cancel(key: String, kind: String = "audio") {
         let id = "\(key)|\(kind)"
@@ -229,6 +266,11 @@ final class DownloadService: ObservableObject, MediaProvider {
         } catch {
             if let job { await transfers.cancel(job.id); transfers.remove(job.id) }
             progress[id] = nil
+            // ログインが必要・リスク制御・混雑・配信先の拒否は、続けて次の曲を要求せず、まとめての保存を止める
+            if (error as? BilibiliError)?.stopBatch == true || (error as? DownloadError)?.isRefusal == true {
+                batchStopped = true
+                message = "まとめての保存を止めました：\(Self.describe(error))"
+            }
             if error is CancellationError || (error as? DownloadError)?.isCancelled == true {
                 record.state = .cancelled
                 record.message = "取り消しました。"
