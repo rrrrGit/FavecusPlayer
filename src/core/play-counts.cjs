@@ -14,6 +14,7 @@ class PlayCounts {
   constructor(file, warn = () => {}, options = {}) {
     this.file = file; this.warn = warn; this.now = () => Date.now(); this.tracker = new Ledger.PlayTracker();
     this.aliases = options.aliases || (() => []); this.onChange = null; this.totals = null;
+    this.dirty = new Set(); this.pushedOnce = false; // 変わった行の印（起動後の最初の同期では、すべての行を送る）
     this.ledger = this.Load(file) || Ledger.NewLedger(randomBytes(8).toString('hex'));
     if (!this.ledger.legacyImported && options.legacyFile) this.ImportLegacy(options.legacyFile);
   }
@@ -50,7 +51,7 @@ class PlayCounts {
   Observe(media) {
     const key = this.tracker.Observe(media, this.now());
     if (!key) return;
-    const row = Ledger.Increment(this.ledger, key, this.now()); this.totals = null;
+    const row = Ledger.Increment(this.ledger, key, this.now()); this.totals = null; this.dirty.add(row.id);
     try { this.Persist(); } catch (error) { this.warn(`再生回数を保存できません: ${error.message}`); }
     this.onChange?.({ rows: Ledger.IsSyncKey(key) ? [row] : [] });
   }
@@ -73,6 +74,20 @@ class PlayCounts {
     this.tracker.Stop();
     this.onChange?.({ epoch });
   }
+  // ---- 同期（sync-counts.cjs のアダプター）。設定（優先する・その変更時刻）は、呼び出し側（ストア）が持つ。
+  SyncRead(prefs) {
+    const rows = Ledger.SyncRows(this.ledger).filter(row => this.pushedOnce ? this.dirty.has(Ledger.RowId(row.device, row.epoch, row.month, row.key)) : true)
+      .map(row => ({ epoch: row.epoch, month: row.month, key: row.key, n: row.n }));
+    return { deviceId: this.ledger.deviceId, epoch: this.ledger.epoch, cursor: this.ledger.syncCursor || 0, rows, prefs };
+  }
+  SyncApply({ rows = [], epoch, cursor }) {
+    const changed = Ledger.MergeRows(this.ledger, rows) + (epoch !== undefined && Ledger.MergeEpoch(this.ledger, epoch) ? 1 : 0);
+    const moved = Number.isSafeInteger(cursor) && cursor > (this.ledger.syncCursor || 0);
+    if (moved) this.ledger.syncCursor = cursor;
+    if (changed || moved) { this.totals = null; try { this.Persist(); } catch (error) { this.warn(`再生回数を保存できません: ${error.message}`); } }
+    return changed;
+  }
+  SyncPushed() { this.dirty.clear(); this.pushedOnce = true; }
   // 同期へ送る行（Bilibiliの曲だけ）と世代。
   SyncState() { return { deviceId: this.ledger.deviceId, epoch: this.ledger.epoch, rows: Ledger.SyncRows(this.ledger) }; }
 }

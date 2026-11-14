@@ -549,6 +549,12 @@ async function Start() {
   sync = new SyncService({
     directory: syncDirectory, adapter: StoreAdapter(store, { validateLibrary: input => ValidateLibrary(input), mediaKey: LibraryMediaKey }), vault: new SessionVault(syncDirectory, safeStorage),
     request: async (method, url, { headers, body }) => { const response = await net.fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(30000) }); return { status: response.status, json: await response.json().catch(() => null) }; },
+    // 再生回数・「再生回数が少ない曲を優先する」設定の同期（ライブラリの同期のあとに行う）
+    extras: () => ({
+      Read: async () => playCounts.SyncRead({ weighted: store.data.settings.weightedShuffle !== false, at: store.data.settings.weightedShuffleAt || 0 }),
+      Apply: async ({ rows, epoch, cursor, prefs }) => { playCounts.SyncApply({ rows, epoch, cursor }); if (prefs) Emit('state', store.Apply({ type: 'settings', settings: { weightedShuffle: prefs.weighted, weightedShuffleAt: prefs.at } })); },
+      Pushed: async () => playCounts.SyncPushed()
+    }),
     onStatus: status => Emit('sync', status), onApplied: () => { if (current?.playlistId) SyncPlayingQueue(); Emit('state', store.Snapshot()); }
   });
 

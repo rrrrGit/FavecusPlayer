@@ -24,12 +24,12 @@ function ParseRowId(id) {
 }
 const NewLedger = deviceId => {
   if (!DEVICE.test(String(deviceId))) throw new Error('端末の識別子が正しくありません。');
-  return { version: 1, deviceId, epoch: 0, legacyImported: false, rows: {} };
+  return { version: 1, deviceId, epoch: 0, legacyImported: false, syncCursor: 0, rows: {} };
 };
 // 保存ファイル・外部から読んだ台帳の検証（不正な行は捨てる。捨てた件数は dropped）。
 function Clean(raw) {
   if (!raw || typeof raw !== 'object' || raw.version !== 1 || !DEVICE.test(String(raw.deviceId)) || !Number.isSafeInteger(raw.epoch) || raw.epoch < 0 || !raw.rows || typeof raw.rows !== 'object' || Array.isArray(raw.rows)) throw new Error('再生回数の形式が正しくありません。');
-  const ledger = { version: 1, deviceId: raw.deviceId, epoch: raw.epoch, legacyImported: raw.legacyImported === true, rows: {} };
+  const ledger = { version: 1, deviceId: raw.deviceId, epoch: raw.epoch, legacyImported: raw.legacyImported === true, syncCursor: Number.isSafeInteger(raw.syncCursor) && raw.syncCursor >= 0 ? raw.syncCursor : 0, rows: {} };
   let dropped = 0;
   for (const [id, n] of Object.entries(raw.rows)) {
     const parsed = ParseRowId(id);
