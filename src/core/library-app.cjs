@@ -7,6 +7,7 @@ const { ValidateLibrary, CleanText } = require('./library-data.cjs');
 const { ValidateIdentityVersion, LibrarySyncKey } = require('./library-identity.cjs');
 const Transfer = require('./library-transfer.cjs');
 const { Queue } = require('./queue.cjs');
+const Ledger = require('./play-ledger.cjs');
 
 const ID = /^[a-f0-9-]{36}$/;
 function Context(options) {
@@ -120,7 +121,9 @@ function QueueSyncState(target, sync) {
 // 再生を始める。entryIdが再生できる曲の中にないとき（メディアがない等）は { id: null }。
 function QueueStart(options) {
   try {
-    const next = new Queue(options.seed === undefined ? null : Rng(options.seed)), result = QueueApply(next, options);
+    // weights：{ 曲のID: 重み }（再生回数が少ない曲を優先するとき。なければ均等）。重みの計算（1/(1+回数)）は、共通の Ledger.Weight
+    const weights = options.weights && typeof options.weights === 'object' ? options.weights : null;
+    const next = new Queue(options.seed === undefined ? null : Rng(options.seed), weights ? entry => weights[entry && entry.id] ?? 1 : null), result = QueueApply(next, options);
     if (result.id !== null) queue = next; // 失敗したときは、再生中の順番を変えない
     return result;
   } catch (error) { return { error: String(error && error.message || error) }; }
@@ -164,6 +167,51 @@ function QueueRun(spec) {
   }
   return { played };
 }
+// ---- 再生回数の台帳（iPhone版）。状態（台帳のJSON文字列）はSwiftが保存し、毎回ここへ渡す。数え方・合計・世代の規則は、Windows版と共通の play-ledger.cjs。
+function LedgerOpen(options) {
+  try {
+    if (options.text) { const { ledger, dropped } = Ledger.Clean(JSON.parse(options.text)); return { text: JSON.stringify(ledger), dropped }; }
+    return { text: JSON.stringify(Ledger.NewLedger(options.deviceId)), dropped: 0 };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+// keys：曲のキーの配列 → { counts: { キー: 回数 } }（現在の世代の合計）と、抽選の重み（weights）
+function LedgerCounts(options) {
+  try {
+    const totals = Ledger.Totals(JSON.parse(options.text)), counts = {}, weights = {};
+    for (const key of options.keys || []) { const n = totals.get(key) || 0; counts[key] = n; weights[key] = Ledger.Weight(n); }
+    return { counts, weights };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+function LedgerIncrement(options) {
+  try { const ledger = JSON.parse(options.text), row = Ledger.Increment(ledger, options.key, options.now); return { text: JSON.stringify(ledger), row }; }
+  catch (error) { return { error: String(error && error.message || error) }; }
+}
+function LedgerReset(options) {
+  try { const ledger = JSON.parse(options.text), epoch = Ledger.Reset(ledger); return { text: JSON.stringify(ledger), epoch }; }
+  catch (error) { return { error: String(error && error.message || error) }; }
+}
+// 同期から受け取った行・世代・読み取り位置を取り込む。changed：台帳が変わったか
+function LedgerMerge(options) {
+  try {
+    const ledger = JSON.parse(options.text);
+    const changed = Ledger.MergeRows(ledger, options.rows || []) + (options.epoch !== undefined && Ledger.MergeEpoch(ledger, options.epoch) ? 1 : 0);
+    let moved = false;
+    if (Number.isSafeInteger(options.cursor) && options.cursor > (ledger.syncCursor || 0)) { ledger.syncCursor = options.cursor; moved = true; }
+    return { text: JSON.stringify(ledger), changed: changed > 0 || moved };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+// 同期へ送る行（Bilibiliの曲だけ）と、世代・読み取り位置・端末の識別子。
+function LedgerSyncState(options) {
+  try {
+    const ledger = JSON.parse(options.text);
+    return { deviceId: ledger.deviceId, epoch: ledger.epoch, cursor: ledger.syncCursor || 0, rows: Ledger.SyncRows(ledger).map(row => ({ id: Ledger.RowId(row.device, row.epoch, row.month, row.key), epoch: row.epoch, month: row.month, key: row.key, n: row.n })) };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+// 再生を数える（実再生3秒で1回など。規則は共通の PlayTracker）。状態はこのモジュールに持つ。
+const tracker = new Ledger.PlayTracker();
+function PlayBegin(options) { tracker.Begin(options.key || '', options.now); return { ok: true }; }
+function PlayObserve(options) { try { return { key: tracker.Observe(options.media, options.now) }; } catch (error) { return { error: String(error && error.message || error) }; } }
+function PlayStop() { tracker.Stop(); return { ok: true }; }
 // 曲の所在（ホームから、そのリストまでの階層）。Windows版の「再生中」「次に再生」の経路と同じ規則（共通のTree.Path：再生範囲を通る経路を優先し、
 // なければ表示順で最初の経路）。options：{ text（ライブラリのJSON）, playlistId, scope（再生範囲のリストID。"*" はすべて） }。戻り値：{ path: [{ id, name }] }（見つからなければ空）。
 function PlaylistPath(options) {
@@ -179,4 +227,4 @@ function MediaKeys(options) {
     return { keys: (options.entries || []).map(entry => { try { return keyOf({ type: 'bilibili', url: entry.url }); } catch { return null; } }) };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
-module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueRun, PlaylistPath };
+module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueRun, PlaylistPath, LedgerOpen, LedgerCounts, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };
