@@ -1211,7 +1211,6 @@ $('add-files').onclick = AddLocalFiles;
 $('mini-player').onclick = () => Run(() => api.mini());
 $('transport-volume').oninput = () => VolumeInput($('transport-volume'));
 $('mute').onclick = () => Run(() => api.volume(state.settings.volume > 0 ? 0 : lastVolume));
-$('video-fullscreen').onclick = () => Run(async () => { if (!(await api.videoFullscreen())) Toast('動画を表示しているときに、画面全体へ拡大できます。'); });
 $('filter').addEventListener('input', () => { queueFollower?.Interact(); RenderEntries(); });
 $('entries').addEventListener('wheel', event => { queueFollower?.Interact(); queueDrag?.Wheel(event); }, { passive: false });
 $('entries').addEventListener('touchmove', () => queueFollower?.Interact(), { passive: true });

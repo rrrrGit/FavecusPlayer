@@ -361,8 +361,7 @@ test('067 the local player quality request opens the single-track save dialog fo
   assert.equal(api.estimates[0].entryId, entry.id); assert.deepEqual(s.Snapshot(), before, '要求だけでは保存データを変えない');
   h.emit('change-quality', { playlistId: h.id, entryId: entry.id }); assert.match(h.node('toast').textContent, /閉じてから/, '画面が開いているときは通知だけ');
   h.run('CloseModal()'); h.emit('change-quality', { playlistId: 'unknown', entryId: 'unknown' }); await new Promise(setImmediate); assert.equal(h.node('modal').open, false, '存在しない曲では開かない');
-  const requests = []; h.api.videoFullscreen = async () => { requests.push('toggle'); return requests.length > 1; };
-  await h.node('video-fullscreen').onclick(); assert.deepEqual(requests, ['toggle']); assert.match(h.node('toast').textContent, /画面全体へ拡大/, '動画が表示されていないとき（拒否）は理由を知らせる');
+  assert.equal(h.node('video-fullscreen'), undefined, 'v0.7.2：下の機能欄の最大化ボタンは削除した（音量バーを、v0.6.7の長さに戻すため）');
 });
 test('067 home card puts the check, play and a three-dot menu on the cover; excluded lists stay marked and shuffle starts that list', async t => {
   const h = await Harness(t), ids = ParentTree(h); let shuffled, played;
