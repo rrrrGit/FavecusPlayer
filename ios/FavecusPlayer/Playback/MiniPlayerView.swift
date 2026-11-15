@@ -255,7 +255,7 @@ struct FullPlayerView: View {
             }
         }
         .background(
-            LinearGradient(colors: [Color(hex: 0x241F3D), Theme.background], startPoint: .top, endPoint: .center).ignoresSafeArea()
+            LinearGradient(colors: [Color(hex: 0x1B1E2A), Theme.background], startPoint: .top, endPoint: .center).ignoresSafeArea()
         )
         // 最大化は、再生画面の上に重ねて、ゆっくり現れる（画面を入れ替える下からの表示では、横向きへの切り替えとあわせて急に見えるため）
         .overlay {

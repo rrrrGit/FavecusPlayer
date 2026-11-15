@@ -241,7 +241,7 @@ private struct LibraryTab: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
-                    SectionLabel(text: "HOME")
+                    SectionLabel(text: "ホーム")
                     Text("\(songCount)曲").font(.system(size: 12)).foregroundStyle(Theme.mint)
                 }
                 .padding(.horizontal, 16).padding(.top, 4)

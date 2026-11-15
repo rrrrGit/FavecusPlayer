@@ -27,15 +27,12 @@ extension Color {
     }
 }
 
-/// PC版の小見出し（「PLAYER」のように、ミントの点と小さな大文字）。
+/// 小見出し：通常の表記・字間なし・落ち着いた灰色（大文字・広い字間・色の点は使わない）。
 struct SectionLabel: View {
     let text: String
 
     var body: some View {
-        HStack(spacing: 6) {
-            Circle().fill(Theme.mint).frame(width: 5, height: 5)
-            Text(text).font(.system(size: 11, weight: .semibold)).tracking(1.2).foregroundStyle(Theme.muted)
-        }
+        Text(text).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.muted)
     }
 }
 
