@@ -196,7 +196,9 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
                 if (try? write(job)) != nil, (try? enqueue(job, index)) != nil { handled += 1; continue }
             }
             let wifi = wifiOnly() ? "・Wi-Fi接続時のみ保存がオン" : ""
-            let detail = "受信 \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))・候補 \(stream.urlIndex + 1)/\(max(stream.urls.count, 1))・\(Int(idle / 60))分 受信なし\(wifi)"
+            // 原因の切り分け用：どの配信先の候補で止まったか（ホスト名のみ。パス・検索条件・認証に関わる部分は出さない）と、何本目の取得か
+            let hosts = stream.urls.compactMap { URL(string: $0)?.host }.joined(separator: " → ")
+            let detail = "受信 \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))・候補 \(stream.urlIndex + 1)/\(max(stream.urls.count, 1))・\(Int(idle / 60))分 受信なし・\(index + 1)/\(job.streams.count)本目\(hosts.isEmpty ? "" : "・配信先 " + hosts)\(wifi)"
             fail(id, index, "取得が進みません（\(detail)）。時間を置いて、もう一度保存してください。", refused: false)
             handled += 1
         }
@@ -253,7 +255,8 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
         guard let (id, index) = Self.parse(downloadTask.taskDescription), let job = job(id), index < job.streams.count else { return }
         guard let response = downloadTask.response as? HTTPURLResponse else { reject(id, index, "配信先の応答を確認できません。", refused: false); return }
         guard response.statusCode == 200 || response.statusCode == 206 else {
-            let text = "配信先から取得できません（HTTP \(response.statusCode)）。時間を置いて再実行してください。"
+            let host = downloadTask.originalRequest?.url?.host.map { "・配信先 " + $0 } ?? ""
+            let text = "配信先から取得できません（HTTP \(response.statusCode)\(host)）。時間を置いて再実行してください。"
             reject(id, index, text, refused: [401, 403, 412, 429].contains(response.statusCode))
             return
         }
