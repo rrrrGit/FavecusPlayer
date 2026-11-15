@@ -577,17 +577,17 @@ private struct PlaylistDetail: View {
 
     /// このリストの曲のうち、ほかのリストが使っていない保存済みの動画（オフライン用データの削除の対象）。
     private var offlineTarget: (keys: [String], shared: Int) {
-        let all = store.document?.playlists.flatMap(.entries) ?? []
+        let all = store.document?.playlists.flatMap(\.entries) ?? []
         return DownloadService.exclusiveKeys(target: entries, all: all) { services.downloads?.entryKeys[$0.id] }
     }
 
     private var offlineRemovalTitle: String {
         let target = offlineTarget
         let saved = services.downloads?.savedSummary(keys: target.keys) ?? (0, 0)
-        if saved.0 == 0 { return "このプレイリストに、削除できるオフライン用データはありません。" + (target.shared > 0 ? "（他のプレイリストにもある動画 (target.shared)件は、削除の対象外です）" : "") }
+        if saved.0 == 0 { return "このプレイリストに、削除できるオフライン用データはありません。" + (target.shared > 0 ? "（他のプレイリストにもある動画 \(target.shared)件は、削除の対象外です）" : "") }
         let size = ByteCountFormatter.string(fromByteCount: saved.1, countStyle: .file)
-        let sharedNote = target.shared > 0 ? "他のプレイリストにもある動画 (target.shared)件は、残します。" : ""
-        return "「(parent?.name ?? "")」の保存した音声・動画 (saved.0)件（(size)）を、この端末から削除します。曲は消えません。(sharedNote)元に戻せません。"
+        let sharedNote = target.shared > 0 ? "他のプレイリストにもある動画 \(target.shared)件は、残します。" : ""
+        return "「\(parent?.name ?? "")」の保存した音声・動画 \(saved.0)件（\(size)）を、この端末から削除します。曲は消えません。\(sharedNote)元に戻せません。"
     }
 
     /// 再生画面から曲の位置を指定されたとき、このリストの曲まで動かす（画面が出そろってから）。ほかのリストの指定は、何もしない。
