@@ -680,9 +680,10 @@ final class DownloadService: ObservableObject, MediaProvider {
     // MARK: オンライン再生
 
     /// 再生に使う音声ファイル。保存済みならそれ、なければ一時ファイルへ取得する（オンライン再生）。同じ曲の取得が重なったら、1つにまとめる。取得できなければ、理由つきで失敗する（再試行や回避はしない）。
+    /// 音声を保存していなくても、動画を保存済みなら、その音声を使う（動画だけを保存した曲が、オフラインで再生できないのを防ぐ）。
     func playableFile(for entry: EntryItem) async throws -> URL {
         guard let key = await key(for: entry), let url = entry.url else { throw DownloadError.message("この曲の情報を確認できません。") }
-        if let saved = savedFile(key: key) { return saved }
+        if let saved = savedFile(key: key) ?? savedFile(key: key, kind: "video") { return saved }
         if let existing = fetching[key] { return try await existing.value }
         let task = Task { try await self.fetchOnline(key: key, url: url) }
         fetching[key] = task

@@ -243,6 +243,19 @@ final class DownloadTests: XCTestCase {
         XCTAssertEqual(afterSave, service.savedFile(key: key))
     }
 
+    /// v0.7.2 C5：動画だけを保存した曲も、オフラインで（通信せずに）再生できる。
+    func testASongWithOnlyASavedVideoPlaysOfflineFromTheSavedVideo() async throws {
+        let (service, catalog) = try environment(Fixture(audio: try makeAudio(seconds: 3)))
+        let key = try await requireKey(service)
+        try FileManager.default.createDirectory(at: service.directory, withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: service.directory.appendingPathComponent("only-video.mp4"))
+        try await catalog.upsert(DeviceMediaRecord(key: key, kind: "video", state: .completed, fileName: "only-video.mp4", bytes: 3))
+        await service.start()
+        let file = try await service.playableFile(for: entry)
+        XCTAssertEqual(file.lastPathComponent, "only-video.mp4")
+        XCTAssertTrue(StubProtocol.requests.filter { $0.url?.host == "upos.bilivideo.com" || $0.url?.host == "api.bilibili.com" }.isEmpty, "通信しない")
+    }
+
     // MARK: 再起動後の引き継ぎ（背面の取得の続き）
 
     private func plantJob(_ service: DownloadService, id: String, key: String, files: [String: Data], errors: [String: String] = [:]) async throws {
