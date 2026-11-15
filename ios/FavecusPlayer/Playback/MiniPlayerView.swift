@@ -195,6 +195,9 @@ struct FullPlayerView: View {
     @State private var location: [PlaybackEngine.LocationItem] = []
     @State private var maximized = false
     @State private var queueOpen = false
+    /// シャッフル・リピートを切り替えた直後だけ、状態の文字を出す。
+    @State private var toggleNote: String?
+    @State private var toggleNoteTask: Task<Void, Never>?
     /// 所在の名前・曲名を押したとき：プレイリストの階層（ホームから）と、曲のID（曲の位置まで移動するとき）。再生画面を閉じて、ライブラリで表示する。
     let reveal: (_ chain: [String], _ entryId: String?) -> Void
 
@@ -417,9 +420,33 @@ struct FullPlayerView: View {
         .clipped()
     }
 
+    /// 有効なシャッフル・リピートは、丸く塗る（無効は、塗らず、灰色）。色が見えにくくても、塗りの有無で分かる。
+    private func toggleIcon(_ name: String, on: Bool) -> some View {
+        Image(systemName: name)
+            .foregroundStyle(on ? Theme.accentText : Theme.muted)
+            .frame(width: 44, height: 44)
+            .background(Circle().fill(on ? Theme.accent : Color.clear))
+    }
+
+    private func flash(_ text: String) {
+        toggleNote = text
+        toggleNoteTask?.cancel()
+        toggleNoteTask = Task {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            if !Task.isCancelled { toggleNote = nil }
+        }
+    }
+
     private var controls: some View {
+        VStack(spacing: 4) {
+            controlRow
+            Text(toggleNote ?? " ").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.accent).frame(height: 14)
+        }
+    }
+
+    private var controlRow: some View {
         HStack(spacing: 28) {
-            Button { player.setShuffle(!player.shuffle) } label: { Image(systemName: "shuffle").foregroundStyle(player.shuffle ? Theme.accent : Theme.muted).frame(width: 44, height: 44) }
+            Button { player.setShuffle(!player.shuffle); flash(player.shuffle ? "シャッフル：オン" : "シャッフル：オフ") } label: { toggleIcon("shuffle", on: player.shuffle) }
                 .accessibilityLabel(player.shuffle ? "シャッフル（オン）" : "シャッフル（オフ）")
             Button { player.previous() } label: { Image(systemName: "backward.end.fill").font(.title).frame(width: 44, height: 44) }
                 .accessibilityLabel("前の曲")
@@ -429,8 +456,8 @@ struct FullPlayerView: View {
             }
             Button { player.next() } label: { Image(systemName: "forward.end.fill").font(.title).frame(width: 44, height: 44) }
                 .accessibilityLabel("次の曲")
-            Button { cycleRepeat() } label: {
-                Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").foregroundStyle(player.repeatMode == .off ? Theme.muted : Theme.accent).frame(width: 44, height: 44)
+            Button { cycleRepeat(); flash(player.repeatMode == .off ? "リピート：オフ" : player.repeatMode == .all ? "リピート：全曲" : "リピート：1曲") } label: {
+                toggleIcon(player.repeatMode == .one ? "repeat.1" : "repeat", on: player.repeatMode != .off)
             }
             .accessibilityLabel(player.repeatMode == .off ? "リピート（オフ）" : player.repeatMode == .all ? "リピート（全曲）" : "リピート（1曲）")
         }

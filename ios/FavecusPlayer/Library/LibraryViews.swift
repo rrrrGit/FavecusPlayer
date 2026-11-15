@@ -112,6 +112,7 @@ struct LibraryRootView: View {
         .sheet(isPresented: $showImport) {
             if let importer { ImportSheet(coordinator: importer, isPresented: $showImport) }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openFullPlayer)) { _ in showPlayer = true } // 再生ボタンを押したとき、再生画面を大きく開く
         .fullScreenCover(isPresented: $showPlayer, onDismiss: applyReveal) {
             if let player {
                 FullPlayerView(player: player, services: services, isPresented: $showPlayer) { chain, entryId in
@@ -739,11 +740,13 @@ private struct PlaylistDetail: View {
         guard let player = services.player else { return }
         if shuffled {
             // 最初の曲も、再生範囲の中からランダムに選ぶ（先頭の曲に固定しない）
+            OpenPlayer.request()
             Task { await player.play(entryId: nil, scope: parentId) }
             return
         }
         guard let first = entries.first(where: { player.canPlay($0) }) ?? entries.first else { return }
         player.shuffle = false
+        OpenPlayer.request()
         Task { await player.play(entryId: first.id, scope: parentId) }
     }
 }
