@@ -357,12 +357,14 @@ struct FullPlayerView: View {
             Spacer()
             modeSwitch
             Spacer()
+            // 三点リーダーは、サムネイル／動画の切り替えと同じ高さ（同じ行の中央）の右端
             if let entry = player.currentEntry, let downloads = services.downloads {
                 CurrentSongMenu(entry: entry, downloads: downloads, canReveal: !location.isEmpty) { reveal(location.map(\.id), entry.id) }
             } else {
                 Color.clear.frame(width: 44, height: 44)
             }
         }
+        .frame(height: 44)
         .padding(.horizontal, 8)
     }
 

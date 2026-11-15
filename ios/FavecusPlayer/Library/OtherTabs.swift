@@ -78,8 +78,8 @@ private struct DownloadsList: View {
                         if busy && savedCount > 0 { Text("保存中のものがあるため、削除できません。").font(.caption2).foregroundStyle(Theme.muted) }
                     }
                     Spacer()
-                    // 更新ボタンの上に、すべてのオフライン用データを削除するゴミ箱（押すと確認を挟む）
-                    VStack(spacing: 0) {
+                    // 更新ボタンの左に、すべてのオフライン用データを削除するゴミ箱を横並びで置く（押すと確認を挟む）
+                    HStack(spacing: 0) {
                         Button { confirmDeleteAll = true } label: {
                             Image(systemName: "trash").frame(width: 44, height: 44).contentShape(Rectangle())
                         }
