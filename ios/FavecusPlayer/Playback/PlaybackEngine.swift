@@ -48,6 +48,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     /// 利用者が動画を選んでいる（次の曲に動画があれば、続けて動画で映す）。サムネイルを選ぶ・動画の再生に失敗すると解除する。
     @Published private(set) var prefersVideo = false
     @Published var shuffle = false
+    /// 再生キュー：いまの周で、これから再生する曲（共通JSのQueueList）。
+    @Published private(set) var upcoming: [EntryItem] = []
     @Published var repeatMode: RepeatMode = .off
     @Published var message: String?
 
@@ -314,6 +316,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         videoMode = false
         videoAvailable = false
         refresh()
+        Task { await refreshQueue() }
         Task { await updateVideoAvailability(for: target, file: file, generation: mine) }
         Task { // 再生回数：この曲の再生を数え始める（実再生3秒で1回。同期が無効でも数える）
             guard let counts else { return }
@@ -335,6 +338,46 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         videoFile = found
         videoAvailable = found != nil
         applyPreferredVideo() // 動画で見ていたなら、次の曲も動画で映す
+    }
+
+    // MARK: 再生キュー
+
+    /// 再生キューの表示を、共通JSの再生順に合わせる。
+    func refreshQueue() async {
+        guard let text = try? await core.callAsync("QueueList", "{}"),
+              let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any], object["error"] == nil,
+              let ids = object["upcoming"] as? [String] else { return }
+        upcoming = ids.compactMap { entry($0) }
+    }
+
+    /// シャッフルの切り替え（利用者の操作）。再生キューも、すぐに組み直す。
+    func setShuffle(_ on: Bool) {
+        guard shuffle != on else { return }
+        shuffle = on
+        guard var request = syncRequest() else { return }
+        request["shuffle"] = on
+        Task {
+            _ = await queue("QueueSync", request)
+            await refreshQueue()
+        }
+    }
+
+    /// 再生キューの並べ替え：これから再生する曲の from 番目を to 番目へ。
+    func moveQueued(from: Int, to: Int) async {
+        let text = String(decoding: (try? JSONSerialization.data(withJSONObject: ["from": from, "to": to])) ?? Data(), as: UTF8.self)
+        _ = try? await core.callAsync("QueueReorder", text)
+        await refreshQueue()
+    }
+
+    /// 再生キューの曲を選んだ：その曲へ移る。
+    func playQueued(_ id: String) async {
+        guard let canPlayEntry = entry(id), canPlay(canPlayEntry) else { return }
+        failureStreak = 0
+        generation += 1
+        let mine = generation
+        guard let result = await queue("QueueJump", ["id": id]), let target = result.id, let playlistId = result.playlistId else { return }
+        guard mine == generation else { return }
+        await load(id: target, playlistId: playlistId)
     }
 
     /// サムネイルと動画を切り替える（利用者の操作。選んだ側を、次の曲でも続ける）。動画がないときは何もしない。

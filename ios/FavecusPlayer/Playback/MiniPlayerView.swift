@@ -194,6 +194,7 @@ struct FullPlayerView: View {
     @State private var hint: String?
     @State private var location: [PlaybackEngine.LocationItem] = []
     @State private var maximized = false
+    @State private var queueOpen = false
     /// 所在の名前・曲名を押したとき：プレイリストの階層（ホームから）と、曲のID（曲の位置まで移動するとき）。再生画面を閉じて、ライブラリで表示する。
     let reveal: (_ chain: [String], _ entryId: String?) -> Void
 
@@ -215,13 +216,17 @@ struct FullPlayerView: View {
         let width = UIScreen.main.bounds.width
         VStack(spacing: 0) {
             topBar
-            Spacer(minLength: 10)
-            media(width: width)
-            // 曲名・所在は、映像のすぐ下へ。操作（再生位置・ボタン）は、下へ寄せる
-            titleBlock
-                .padding(.horizontal, 24)
-                .padding(.top, 16)
-            Spacer(minLength: 20)
+            if queueOpen {
+                compactHeader
+            } else {
+                Spacer(minLength: 10)
+                media(width: width)
+                // 曲名・所在は、映像のすぐ下へ。操作（再生位置・ボタン）は、下へ寄せる
+                titleBlock
+                    .padding(.horizontal, 24)
+                    .padding(.top, 16)
+                Spacer(minLength: 20)
+            }
             VStack(spacing: 18) {
                 VStack(spacing: 4) {
                     Slider(value: Binding(get: { scrubbing ?? min(player.position, max(player.duration, 1)) }, set: { scrubbing = $0 }), in: 0...max(player.duration, 1)) { editing in
@@ -238,7 +243,13 @@ struct FullPlayerView: View {
                 controls
             }
             .padding(.horizontal, 24)
-            Spacer().frame(height: 18)
+            .padding(.top, queueOpen ? 12 : 0)
+            if queueOpen {
+                QueuePanel(player: player, close: { withAnimation(.easeInOut(duration: 0.3)) { queueOpen = false } })
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
+                queueHandle
+            }
         }
         .background(
             LinearGradient(colors: [Color(hex: 0x241F3D), Theme.background], startPoint: .top, endPoint: .center).ignoresSafeArea()
@@ -293,6 +304,47 @@ struct FullPlayerView: View {
                 }
             }
         }
+    }
+
+    /// 再生キューを開いている間の、上の小さな曲の表示（画像・曲名・所在）。
+    private var compactHeader: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Color.black
+                if player.videoMode { VideoSurface(player: player.videoPlayer) }
+                else if let image { Image(uiImage: image).resizable().scaledToFit() }
+                else { Image(systemName: "music.note").foregroundStyle(Color(hex: 0x50586F)) }
+            }
+            .frame(width: 96, height: 54).clipShape(RoundedRectangle(cornerRadius: 6))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title.isEmpty ? "（再生していません）" : title).font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.text).lineLimit(2)
+                if let last = location.last { Text(last.name).font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(1) }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 24).padding(.top, 8)
+        .transition(.opacity)
+    }
+
+    /// 下の「再生キュー」の取っ手：押す、または上へ引くと、キューが開く。次の曲の名前も、ここに出す。
+    private var queueHandle: some View {
+        Button { withAnimation(.easeInOut(duration: 0.3)) { queueOpen = true } } label: {
+            VStack(spacing: 6) {
+                Capsule().fill(Theme.faint).frame(width: 36, height: 4)
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.up").font(.system(size: 11, weight: .bold))
+                    Text(player.upcoming.first.map { "次：" + ($0.title.isEmpty ? "（無題）" : $0.title) } ?? "再生キュー").font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                }
+                .foregroundStyle(Theme.muted)
+            }
+            .frame(maxWidth: .infinity).padding(.top, 14).padding(.bottom, 10).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("再生キューを開く")
+        .gesture(DragGesture(minimumDistance: 20).onEnded { value in
+            if value.translation.height < -30 { withAnimation(.easeInOut(duration: 0.3)) { queueOpen = true } }
+        })
+        .padding(.bottom, 6)
     }
 
     private var topBar: some View {
@@ -367,7 +419,7 @@ struct FullPlayerView: View {
 
     private var controls: some View {
         HStack(spacing: 28) {
-            Button { player.shuffle.toggle() } label: { Image(systemName: "shuffle").foregroundStyle(player.shuffle ? Theme.accent : Theme.muted).frame(width: 44, height: 44) }
+            Button { player.setShuffle(!player.shuffle) } label: { Image(systemName: "shuffle").foregroundStyle(player.shuffle ? Theme.accent : Theme.muted).frame(width: 44, height: 44) }
                 .accessibilityLabel(player.shuffle ? "シャッフル（オン）" : "シャッフル（オフ）")
             Button { player.previous() } label: { Image(systemName: "backward.end.fill").font(.title).frame(width: 44, height: 44) }
                 .accessibilityLabel("前の曲")
@@ -427,5 +479,67 @@ private struct CurrentSongMenu: View {
             Image(systemName: "ellipsis").font(.title3.weight(.semibold)).foregroundStyle(Theme.text).frame(width: 44, height: 44).contentShape(Rectangle())
         }
         .accessibilityLabel("曲のメニュー")
+    }
+}
+
+/// 再生キュー：再生中の曲と、これから再生する曲。右端の「≡」をドラッグして並べ替え、曲を押すとその曲へ移る。下へ引く（または見出しを押す）と閉じる。
+private struct QueuePanel: View {
+    @ObservedObject var player: PlaybackEngine
+    let close: () -> Void
+    @Environment(\.editMode) private var editMode
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: close) {
+                VStack(spacing: 6) {
+                    Capsule().fill(Theme.faint).frame(width: 36, height: 4)
+                    HStack {
+                        Text("再生キュー").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.text)
+                        Spacer()
+                        Image(systemName: "chevron.down").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.muted)
+                    }
+                    .padding(.horizontal, 24)
+                }
+                .padding(.top, 10).padding(.bottom, 8).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("再生キューを閉じる")
+            List {
+                if let current = player.current {
+                    HStack(spacing: 8) {
+                        Image(systemName: player.isPlaying ? "speaker.wave.2.fill" : "speaker.fill").foregroundStyle(Theme.accent)
+                        Text(current.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.accent).lineLimit(1)
+                        Spacer()
+                        Text("再生中").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    }
+                    .listRowBackground(Color.clear)
+                    .moveDisabled(true)
+                }
+                ForEach(player.upcoming) { entry in
+                    Button { Task { await player.playQueued(entry.id) } } label: {
+                        Text(entry.title.isEmpty ? "（無題）" : entry.title).font(.system(size: 14)).foregroundStyle(Theme.text).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(Color.clear)
+                }
+                .onMove { source, destination in
+                    guard let from = source.first else { return }
+                    let to = destination > from ? destination - 1 : destination
+                    guard from != to else { return }
+                    Task { await player.moveQueued(from: from, to: to) }
+                }
+                if player.upcoming.isEmpty {
+                    Text(player.repeatMode == .off ? "このあとの曲はありません" : "この周の最後です。このあと、最初から続きます").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                        .listRowBackground(Color.clear)
+                }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .environment(\.editMode, .constant(.active)) // 右端に「≡」（並べ替え）を出す
+        }
+        .gesture(DragGesture(minimumDistance: 30).onEnded { value in
+            if value.translation.height > 80, abs(value.translation.height) > abs(value.translation.width) { close() }
+        })
+        .task { await player.refreshQueue() }
     }
 }

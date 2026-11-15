@@ -149,6 +149,23 @@ function QueueStep(target, options) {
     return { id, playlistId: entries ? Found(entries, id).playlistId : (target.catalog.get(id) || {}).playlistId || null };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
+// 再生キューの表示：再生中の曲と、これから再生する曲（いまの周の分）。
+function QueueList() {
+  try { return { current: queue.index < 0 ? null : queue.ids[queue.index], upcoming: queue.Upcoming() }; }
+  catch (error) { return { error: String(error && error.message || error) }; }
+}
+// 再生キューの並べ替え：これから再生する曲の from 番目を to 番目へ。
+function QueueReorder(options) {
+  try { return { ok: queue.Reorder(options.from, options.to), upcoming: queue.Upcoming() }; }
+  catch (error) { return { error: String(error && error.message || error) }; }
+}
+// 再生キューの曲を選んだ：その曲へ移る。
+function QueueJump(options) {
+  try {
+    const id = queue.JumpTo(options.id);
+    return id === null ? { id: null, playlistId: null } : { id, playlistId: (queue.catalog.get(id) || {}).playlistId || null };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
 function QueuePeek(options) {
   try {
     const id = queue.Peek(options.repeat, options.automatic !== false);
@@ -228,4 +245,4 @@ function MediaKeys(options) {
     return { keys: (options.entries || []).map(entry => { try { return keyOf({ type: 'bilibili', url: entry.url }); } catch { return null; } }) };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
-module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueRun, PlaylistPath, LedgerOpen, LedgerCounts, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };
+module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueRun, PlaylistPath, LedgerOpen, LedgerCounts, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };
