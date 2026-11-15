@@ -486,7 +486,6 @@ private struct CurrentSongMenu: View {
 private struct QueuePanel: View {
     @ObservedObject var player: PlaybackEngine
     let close: () -> Void
-    @Environment(\.editMode) private var editMode
 
     var body: some View {
         VStack(spacing: 0) {
@@ -504,6 +503,9 @@ private struct QueuePanel: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("再生キューを閉じる")
+            .gesture(DragGesture(minimumDistance: 20).onEnded { value in
+                if value.translation.height > 30 { close() }
+            })
             List {
                 if let current = player.current {
                     HStack(spacing: 8) {
@@ -537,9 +539,6 @@ private struct QueuePanel: View {
             .scrollContentBackground(.hidden)
             .environment(\.editMode, .constant(.active)) // 右端に「≡」（並べ替え）を出す
         }
-        .gesture(DragGesture(minimumDistance: 30).onEnded { value in
-            if value.translation.height > 80, abs(value.translation.height) > abs(value.translation.width) { close() }
-        })
         .task { await player.refreshQueue() }
     }
 }
