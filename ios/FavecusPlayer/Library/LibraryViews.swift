@@ -462,6 +462,8 @@ private struct PlaylistDetail: View {
     @State private var renameText = ""
     @State private var confirmDelete = false
     @State private var confirmRemoveOffline = false
+    /// 先頭の画像が、画面の上端からどれだけ動いたか（上のバーを、スクロールに合わせて濃くするため）。
+    @State private var heroTop: CGFloat = 0
     @State private var dragging: String?
 
     private var parent: PlaylistItem? { store.document?.playlist(parentId) }
@@ -519,6 +521,8 @@ private struct PlaylistDetail: View {
         .environment(\.editMode, $editMode)
         .toolbar(.hidden, for: .navigationBar)
         .background(SwipeBackEnabler()) // ナビゲーションバーを隠しても、画面の端からのスワイプで戻れるようにする
+        .onPreferenceChange(HeroTopKey.self) { heroTop = $0 }
+        .overlay(alignment: .top) { pinnedBar } // 上のメニューは、スクロールしても常に表示する
         .overlay(alignment: .bottomTrailing) {
             AddSongButton(player: services.player) { showAdd = true }
         }
@@ -616,13 +620,31 @@ private struct PlaylistDetail: View {
             }
             .clipped()
             .overlay(LinearGradient(colors: [.black.opacity(0.35), .clear, Theme.background], startPoint: .top, endPoint: .bottom))
-            .overlay(alignment: .top) {
-                HStack {
-                    circle("chevron.left", label: "ひとつ前へ戻る") { dismiss() }
-                    Spacer()
-                    if editing {
-                        circle("checkmark", label: "編集を終わる") { withAnimation { editMode = .inactive } }
-                    } else {
+            .background(GeometryReader { Color.clear.preference(key: HeroTopKey.self, value: $0.frame(in: .global).minY) })
+    }
+
+    /// 上に固定するバー：戻る・（スクロールすると）題名・再生・メニュー（編集中は終わるチェック）。スクロールするほど背景が濃くなる。
+    private var pinnedBar: some View {
+        let progress = min(1, max(0, (-heroTop - 120) / 100))
+        return HStack(spacing: 10) {
+            circle("chevron.left", label: "ひとつ前へ戻る") { dismiss() }
+            Text(parent?.name ?? "").font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.text).lineLimit(1).opacity(progress)
+            Spacer(minLength: 0)
+            if editing {
+                circle("checkmark", label: "編集を終わる") { withAnimation { editMode = .inactive } }
+            } else {
+                if progress > 0.5 {
+                    circle("play.fill", label: "再生") { play(shuffled: false) }
+                        .disabled(services.player == nil)
+                }
+                menuButton
+            }
+        }
+        .padding(.horizontal, 12).padding(.top, Self.topInset + 8).padding(.bottom, 6)
+        .background(Theme.background.opacity(progress).ignoresSafeArea(edges: .top))
+    }
+
+    private var menuButton: some View {
                         Menu {
                             Button { withAnimation { editMode = .active } } label: { Label("編集（曲の並べ替え・削除）", systemImage: "pencil") }
                             if services.downloads != nil { Button { showSave = true } label: { Label("このプレイリストの曲を保存", systemImage: "arrow.down.circle") } }
@@ -635,10 +657,6 @@ private struct PlaylistDetail: View {
                                 .frame(width: 44, height: 44).background(Circle().fill(Color.black.opacity(0.45)))
                         }
                         .accessibilityLabel("メニュー")
-                    }
-                }
-                .padding(.horizontal, 12).padding(.top, Self.topInset + 8)
-            }
     }
 
     /// 画面上端の安全領域（ステータスバーの高さ）。見出しの画像を、画面の上端まで広げるために使う。
@@ -778,4 +796,10 @@ private struct AddSongButton: View {
         .accessibilityLabel("このプレイリストへ曲を追加")
         .padding(.trailing, 18).padding(.bottom, 14 + lift)
     }
+}
+
+/// プレイリスト画面の先頭の画像の、画面上端からの位置（上のバーの濃さに使う）。
+private struct HeroTopKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
