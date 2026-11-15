@@ -461,6 +461,7 @@ private struct PlaylistDetail: View {
     @State private var renaming = false
     @State private var renameText = ""
     @State private var confirmDelete = false
+    @State private var confirmRemoveOffline = false
     @State private var dragging: String?
 
     private var parent: PlaylistItem? { store.document?.playlist(parentId) }
@@ -546,6 +547,16 @@ private struct PlaylistDetail: View {
             Button("変更") { store.perform(["type": "rename", "playlistId": parentId, "name": renameText]) }
             Button("キャンセル", role: .cancel) {}
         }
+        .confirmationDialog(offlineRemovalTitle, isPresented: $confirmRemoveOffline, titleVisibility: .visible) {
+            Button("削除", role: .destructive) {
+                let keys = offlineTarget.keys
+                Task {
+                    if let current = services.player?.current, entries.contains(where: { $0.id == current.entryId }) { services.player?.stop() }
+                    _ = await services.downloads?.removeOffline(keys: keys)
+                }
+            }
+            Button("キャンセル", role: .cancel) {}
+        }
         .confirmationDialog("このプレイリストを削除", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("削除", role: .destructive) {
                 store.perform(["type": "delete", "playlistId": parentId])
@@ -562,6 +573,21 @@ private struct PlaylistDetail: View {
             if defaults.bool(forKey: "FavecusDemoSave") { showSave = true }
         }
         } // ScrollViewReader
+    }
+
+    /// このリストの曲のうち、ほかのリストが使っていない保存済みの動画（オフライン用データの削除の対象）。
+    private var offlineTarget: (keys: [String], shared: Int) {
+        let all = store.document?.playlists.flatMap(.entries) ?? []
+        return DownloadService.exclusiveKeys(target: entries, all: all) { services.downloads?.entryKeys[$0.id] }
+    }
+
+    private var offlineRemovalTitle: String {
+        let target = offlineTarget
+        let saved = services.downloads?.savedSummary(keys: target.keys) ?? (0, 0)
+        if saved.0 == 0 { return "このプレイリストに、削除できるオフライン用データはありません。" + (target.shared > 0 ? "（他のプレイリストにもある動画 (target.shared)件は、削除の対象外です）" : "") }
+        let size = ByteCountFormatter.string(fromByteCount: saved.1, countStyle: .file)
+        let sharedNote = target.shared > 0 ? "他のプレイリストにもある動画 (target.shared)件は、残します。" : ""
+        return "「(parent?.name ?? "")」の保存した音声・動画 (saved.0)件（(size)）を、この端末から削除します。曲は消えません。(sharedNote)元に戻せません。"
     }
 
     /// 再生画面から曲の位置を指定されたとき、このリストの曲まで動かす（画面が出そろってから）。ほかのリストの指定は、何もしない。
@@ -601,6 +627,7 @@ private struct PlaylistDetail: View {
                             Button { withAnimation { editMode = .active } } label: { Label("編集（曲の並べ替え・削除）", systemImage: "pencil") }
                             if services.downloads != nil { Button { showSave = true } label: { Label("このプレイリストの曲を保存", systemImage: "arrow.down.circle") } }
                             if services.downloads != nil { Button { Task { await services.downloads?.ensureFrames(entries: entries) } } label: { Label("サムネイルを取得", systemImage: "photo") } }
+                            if services.downloads != nil { Button { confirmRemoveOffline = true } label: { Label("このプレイリストのオフライン用データを削除", systemImage: "trash.slash") } }
                             Button { renameText = parent?.name ?? ""; renaming = true } label: { Label("名前を変更", systemImage: "textformat") }
                             Button(role: .destructive) { confirmDelete = true } label: { Label("プレイリストを削除", systemImage: "trash") }
                         } label: {
@@ -691,8 +718,14 @@ private struct PlaylistDetail: View {
     }
 
     private func play(shuffled: Bool) {
-        guard let player = services.player, let first = entries.first(where: { player.canPlay($0) }) ?? entries.first else { return }
-        player.shuffle = shuffled
+        guard let player = services.player else { return }
+        if shuffled {
+            // 最初の曲も、再生範囲の中からランダムに選ぶ（先頭の曲に固定しない）
+            Task { await player.play(entryId: nil, scope: parentId) }
+            return
+        }
+        guard let first = entries.first(where: { player.canPlay($0) }) ?? entries.first else { return }
+        player.shuffle = false
         Task { await player.play(entryId: first.id, scope: parentId) }
     }
 }

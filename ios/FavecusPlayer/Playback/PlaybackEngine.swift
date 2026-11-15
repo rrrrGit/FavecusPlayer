@@ -123,15 +123,19 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     // MARK: 操作
 
     /// scope：再生範囲のリストID（そのリストと子のリスト）、または "*"（すべて）。
-    func play(entryId: String, scope: String) async {
-        guard let target = entry(entryId), canPlay(target) else {
-            message = "この曲はこの端末で再生できません（メディアがありません）。"
-            return
+    /// entryId が nil のときは、シャッフル再生で、最初の曲もランダムに選ぶ（再生範囲の中から。重みの設定に従う）。
+    func play(entryId: String?, scope: String) async {
+        if let entryId {
+            guard let target = entry(entryId), canPlay(target) else {
+                message = "この曲はこの端末で再生できません（メディアがありません）。"
+                return
+            }
         }
         failureStreak = 0
         generation += 1
         let mine = generation
-        var request: [String: Any] = ["text": store.currentText, "scope": scope, "entryId": entryId, "shuffle": shuffle, "playable": playableIds()]
+        var request: [String: Any] = ["text": store.currentText, "scope": scope, "entryId": entryId ?? "", "shuffle": shuffle || entryId == nil, "playable": playableIds()]
+        if entryId == nil { request["randomStart"] = true; shuffle = true }
         if shuffle, let weights = await shuffleWeights() { request["weights"] = weights } // 再生回数が少ない曲を優先する（設定がオンのとき）
         guard let result = await queue("QueueStart", request),
               let id = result.id, let playlistId = result.playlistId else {

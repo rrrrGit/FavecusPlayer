@@ -568,3 +568,24 @@ final class DownloadTests: XCTestCase {
         XCTAssertEqual(service.savedBytes, 0)
     }
 }
+
+/// v0.7.2 A3：プレイリスト単位の削除の対象。ほかのリストの曲が同じ動画を使っているときは、対象に含めない。
+final class PlaylistOfflineTargetTests: XCTestCase {
+    private func song(_ id: String) -> EntryItem { EntryItem(id: id, title: id, type: "bilibili", fileName: nil, url: "https://www.bilibili.com/video/BV1aaaaaaaaa/") }
+    private func local(_ id: String) -> EntryItem { EntryItem(id: id, title: id, type: "local", fileName: "\(id).mp3", url: nil) }
+
+    func testOnlyKeysNotUsedByOtherPlaylistsAreTargeted() {
+        let a = song("a"), b = song("b"), c = song("c"), same = song("same-as-b"), file = local("l")
+        let keys = ["a": "k1", "b": "k2", "c": "k3", "same-as-b": "k2"]
+        let result = DownloadService.exclusiveKeys(target: [a, b, file], all: [a, b, file, c, same]) { keys[$0.id] }
+        XCTAssertEqual(result.keys, ["k1"], "k2は、ほかのリストの曲も使うので対象外。ローカル曲は対象外")
+        XCTAssertEqual(result.shared, 1)
+    }
+
+    func testTheSameKeyInsideTheTargetListIsCountedOnce() {
+        let a = song("a"), b = song("b")
+        let result = DownloadService.exclusiveKeys(target: [a, b], all: [a, b]) { _ in "k1" }
+        XCTAssertEqual(result.keys, ["k1"])
+        XCTAssertEqual(result.shared, 0)
+    }
+}

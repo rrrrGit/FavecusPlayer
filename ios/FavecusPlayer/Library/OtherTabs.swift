@@ -73,21 +73,34 @@ private struct DownloadsList: View {
         List {
             Section {
                 HStack {
-                    Text(summary).font(.caption).foregroundStyle(Theme.muted)
-                    Spacer()
-                    Button {
-                        Task {
-                            reloading = true
-                            await downloads.reload()
-                            free = downloads.freeBytes()
-                            reloading = false
-                        }
-                    } label: {
-                        Image(systemName: "arrow.clockwise").frame(width: 44, height: 44).contentShape(Rectangle())
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(summary).font(.caption).foregroundStyle(Theme.muted)
+                        if busy && savedCount > 0 { Text("保存中のものがあるため、削除できません。").font(.caption2).foregroundStyle(Theme.muted) }
                     }
-                    .buttonStyle(.borderless)
-                    .disabled(reloading)
-                    .accessibilityLabel("更新")
+                    Spacer()
+                    // 更新ボタンの上に、すべてのオフライン用データを削除するゴミ箱（押すと確認を挟む）
+                    VStack(spacing: 0) {
+                        Button { confirmDeleteAll = true } label: {
+                            Image(systemName: "trash").frame(width: 44, height: 44).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .tint(.red)
+                        .disabled(busy || savedCount == 0)
+                        .accessibilityLabel("すべてのオフライン用データを削除")
+                        Button {
+                            Task {
+                                reloading = true
+                                await downloads.reload()
+                                free = downloads.freeBytes()
+                                reloading = false
+                            }
+                        } label: {
+                            Image(systemName: "arrow.clockwise").frame(width: 44, height: 44).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(reloading)
+                        .accessibilityLabel("更新")
+                    }
                 }
                 Toggle("Wi-Fi接続時のみ保存", isOn: $wifiOnly)
             }
@@ -110,14 +123,6 @@ private struct DownloadsList: View {
                 SectionLabel(text: "保存済み")
             } footer: {
                 if saved.count > Self.savedLimit { Text("新しい \(Self.savedLimit) 件を表示しています（他 \(saved.count - Self.savedLimit) 件は、曲のメニューから確認できます）。") }
-            }
-            if savedCount > 0 {
-                Section {
-                    Button(role: .destructive) { confirmDeleteAll = true } label: { Text("すべてのオフライン用データを削除") }
-                        .disabled(busy)
-                } footer: {
-                    if busy { Text("保存中のものがあります。取り消してから削除してください。") }
-                }
             }
         }
         .confirmationDialog(

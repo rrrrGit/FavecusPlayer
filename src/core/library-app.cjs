@@ -102,7 +102,8 @@ function PlayableEntries(options) {
 const Found = (entries, id) => { const entry = entries.find(e => e.id === id); return { id: id || null, playlistId: entry ? entry.playlistId : null }; };
 function QueueApply(target, options) {
   const entries = PlayableEntries(options);
-  const id = target.Start(options.scope, entries, options.entryId, options.shuffle);
+  // randomStart：シャッフル再生で、最初の曲もランダムに選ぶ（entryIdを指定しない。重みがあれば、重みに従う）
+  const id = options.randomStart ? target.ShuffleStart(options.scope, entries) : target.Start(options.scope, entries, options.entryId, options.shuffle);
   return id === null ? { id: null, playlistId: null } : Found(entries, id);
 }
 // ライブラリの変更を再生順へ反映する（Windows版の SyncPlayingQueue と同じ規則）。
