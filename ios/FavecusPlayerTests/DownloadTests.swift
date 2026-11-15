@@ -243,6 +243,19 @@ final class DownloadTests: XCTestCase {
         XCTAssertEqual(afterSave, service.savedFile(key: key))
     }
 
+    /// v0.7.2 C5：動画だけを保存した曲も、オフラインで（通信せずに）再生できる。
+    func testASongWithOnlyASavedVideoPlaysOfflineFromTheSavedVideo() async throws {
+        let (service, catalog) = try environment(Fixture(audio: try makeAudio(seconds: 3)))
+        let key = try await requireKey(service)
+        try FileManager.default.createDirectory(at: service.directory, withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: service.directory.appendingPathComponent("only-video.mp4"))
+        try await catalog.upsert(DeviceMediaRecord(key: key, kind: "video", state: .completed, fileName: "only-video.mp4", bytes: 3))
+        await service.start()
+        let file = try await service.playableFile(for: entry)
+        XCTAssertEqual(file.lastPathComponent, "only-video.mp4")
+        XCTAssertTrue(StubProtocol.requests.filter { $0.url?.host == "upos.bilivideo.com" || $0.url?.host == "api.bilibili.com" }.isEmpty, "通信しない")
+    }
+
     // MARK: 再起動後の引き継ぎ（背面の取得の続き）
 
     private func plantJob(_ service: DownloadService, id: String, key: String, files: [String: Data], errors: [String: String] = [:]) async throws {
@@ -515,7 +528,8 @@ final class DownloadTests: XCTestCase {
         guard case .failed(let text, let refused) = try XCTUnwrap(transfers.status(of: job).first) else { return XCTFail("失敗として残るはず") }
         XCTAssertFalse(refused)
         XCTAssertTrue(text.contains("取得が進みません") && text.contains("候補 1/1"), text)
-        XCTAssertFalse(text.contains("http") || text.contains("bilivideo"), "診断の文にURLを含めない: \(text)")
+        XCTAssertFalse(text.contains("http") || text.contains("/a/only"), "診断の文にURL（パス・検索条件）を含めない: \(text)")
+        XCTAssertTrue(text.contains("配信先 upos.bilivideo.com"), "原因の切り分けのため、ホスト名だけは出す: \(text)")
     }
 
     func testATransferThatIsStillMovingIsNotRestarted() async throws {
@@ -566,5 +580,26 @@ final class DownloadTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: service.directory.appendingPathComponent("not-managed.txt").path), "記録にないファイルは消さない")
         XCTAssertNotNil(service.record(key: "k2", kind: "audio"), "失敗の記録など、保存済み以外は触れない")
         XCTAssertEqual(service.savedBytes, 0)
+    }
+}
+
+/// v0.7.2 A3：プレイリスト単位の削除の対象。ほかのリストの曲が同じ動画を使っているときは、対象に含めない。
+final class PlaylistOfflineTargetTests: XCTestCase {
+    private func song(_ id: String) -> EntryItem { EntryItem(id: id, title: id, type: "bilibili", fileName: nil, url: "https://www.bilibili.com/video/BV1aaaaaaaaa/") }
+    private func local(_ id: String) -> EntryItem { EntryItem(id: id, title: id, type: "local", fileName: "\(id).mp3", url: nil) }
+
+    func testOnlyKeysNotUsedByOtherPlaylistsAreTargeted() {
+        let a = song("a"), b = song("b"), c = song("c"), same = song("same-as-b"), file = local("l")
+        let keys = ["a": "k1", "b": "k2", "c": "k3", "same-as-b": "k2"]
+        let result = DownloadService.exclusiveKeys(target: [a, b, file], all: [a, b, file, c, same]) { keys[$0.id] }
+        XCTAssertEqual(result.keys, ["k1"], "k2は、ほかのリストの曲も使うので対象外。ローカル曲は対象外")
+        XCTAssertEqual(result.shared, 1)
+    }
+
+    func testTheSameKeyInsideTheTargetListIsCountedOnce() {
+        let a = song("a"), b = song("b")
+        let result = DownloadService.exclusiveKeys(target: [a, b], all: [a, b]) { _ in "k1" }
+        XCTAssertEqual(result.keys, ["k1"])
+        XCTAssertEqual(result.shared, 0)
     }
 }

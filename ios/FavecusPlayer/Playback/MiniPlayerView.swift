@@ -97,7 +97,7 @@ struct FullscreenVideoView: View {
             if controlsVisible {
                 VStack {
                     HStack {
-                        Button { isPresented = false } label: {
+                        Button { close() } label: {
                             Image(systemName: "xmark").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
                                 .frame(width: 44, height: 44).background(Circle().fill(Color.black.opacity(0.55)))
                         }
@@ -105,11 +105,23 @@ struct FullscreenVideoView: View {
                         Spacer()
                     }
                     Spacer()
-                    Button { player.toggle() } label: {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 28)).foregroundStyle(.white)
-                            .frame(width: 64, height: 64).background(Circle().fill(Color.black.opacity(0.55)))
+                    HStack(spacing: 36) {
+                        Button { player.previous() } label: {
+                            Image(systemName: "backward.end.fill").font(.system(size: 24)).foregroundStyle(.white)
+                                .frame(width: 56, height: 56).background(Circle().fill(Color.black.opacity(0.55)))
+                        }
+                        .accessibilityLabel("前の曲")
+                        Button { player.toggle() } label: {
+                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 28)).foregroundStyle(.white)
+                                .frame(width: 64, height: 64).background(Circle().fill(Color.black.opacity(0.55)))
+                        }
+                        .accessibilityLabel(player.isPlaying ? "一時停止" : "再生")
+                        Button { player.next() } label: {
+                            Image(systemName: "forward.end.fill").font(.system(size: 24)).foregroundStyle(.white)
+                                .frame(width: 56, height: 56).background(Circle().fill(Color.black.opacity(0.55)))
+                        }
+                        .accessibilityLabel("次の曲")
                     }
-                    .accessibilityLabel(player.isPlaying ? "一時停止" : "再生")
                     Spacer()
                     Text("画面を上から下へスワイプすると、元に戻ります").font(.system(size: 11)).foregroundStyle(.white.opacity(0.7))
                 }
@@ -126,13 +138,18 @@ struct FullscreenVideoView: View {
                 }
                 .onEnded { value in
                     let vertical = abs(value.translation.height) > abs(value.translation.width)
-                    if vertical && value.translation.height > 100 { isPresented = false } else { withAnimation { dragOffset = 0 } }
+                    if vertical && value.translation.height > 100 { close() } else { withAnimation { dragOffset = 0 } }
                 }
         )
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .onAppear { OrientationLock.set(.landscape) }
         .onDisappear { OrientationLock.set(.portrait) }
+    }
+
+    /// 元の大きさへ戻す（ゆっくり消える）。
+    private func close() {
+        withAnimation(.easeInOut(duration: 0.25)) { isPresented = false }
     }
 }
 
@@ -177,6 +194,10 @@ struct FullPlayerView: View {
     @State private var hint: String?
     @State private var location: [PlaybackEngine.LocationItem] = []
     @State private var maximized = false
+    @State private var queueOpen = false
+    /// シャッフル・リピートを切り替えた直後だけ、状態の文字を出す。
+    @State private var toggleNote: String?
+    @State private var toggleNoteTask: Task<Void, Never>?
     /// 所在の名前・曲名を押したとき：プレイリストの階層（ホームから）と、曲のID（曲の位置まで移動するとき）。再生画面を閉じて、ライブラリで表示する。
     let reveal: (_ chain: [String], _ entryId: String?) -> Void
 
@@ -198,13 +219,17 @@ struct FullPlayerView: View {
         let width = UIScreen.main.bounds.width
         VStack(spacing: 0) {
             topBar
-            Spacer(minLength: 10)
-            media(width: width)
-            // 曲名・所在は、映像のすぐ下へ。操作（再生位置・ボタン）は、下へ寄せる
-            titleBlock
-                .padding(.horizontal, 24)
-                .padding(.top, 16)
-            Spacer(minLength: 20)
+            if queueOpen {
+                compactHeader
+            } else {
+                Spacer(minLength: 10)
+                media(width: width)
+                // 曲名・所在は、映像のすぐ下へ。操作（再生位置・ボタン）は、下へ寄せる
+                titleBlock
+                    .padding(.horizontal, 24)
+                    .padding(.top, 16)
+                Spacer(minLength: 20)
+            }
             VStack(spacing: 18) {
                 VStack(spacing: 4) {
                     Slider(value: Binding(get: { scrubbing ?? min(player.position, max(player.duration, 1)) }, set: { scrubbing = $0 }), in: 0...max(player.duration, 1)) { editing in
@@ -221,15 +246,30 @@ struct FullPlayerView: View {
                 controls
             }
             .padding(.horizontal, 24)
-            Spacer().frame(height: 18)
+            .padding(.top, queueOpen ? 12 : 0)
+            if queueOpen {
+                QueuePanel(player: player, close: { withAnimation(.easeInOut(duration: 0.3)) { queueOpen = false } })
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
+                queueHandle
+            }
         }
         .background(
-            LinearGradient(colors: [Color(hex: 0x241F3D), Theme.background], startPoint: .top, endPoint: .center).ignoresSafeArea()
+            LinearGradient(colors: [Color(hex: 0x1B1E2A), Theme.background], startPoint: .top, endPoint: .center).ignoresSafeArea()
         )
-        .fullScreenCover(isPresented: $maximized) {
-            FullscreenVideoView(player: player, isPresented: $maximized).preferredColorScheme(.dark)
+        // 最大化は、再生画面の上に重ねて、ゆっくり現れる（画面を入れ替える下からの表示では、横向きへの切り替えとあわせて急に見えるため）
+        .overlay {
+            if maximized {
+                FullscreenVideoView(player: player, isPresented: $maximized).preferredColorScheme(.dark)
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
         }
-        .onChange(of: player.videoMode) { on in if !on { maximized = false } } // 動画でなくなったら（曲が変わった・失敗した）、最大化を閉じる
+        .onChange(of: player.videoMode) { on in
+            hint = nil // 切り替えたら、「動画を保存していません」の表示は消す
+            if !on { withAnimation(.easeInOut(duration: 0.25)) { maximized = false } } // 動画でなくなったら（曲が変わった・失敗した）、最大化を閉じる
+        }
+        .onChange(of: player.current?.entryId) { _ in hint = nil } // 曲が変わったら、前の曲の表示は消す
         .alert("お知らせ", isPresented: Binding(get: { player.message != nil }, set: { if !$0 { player.message = nil } })) {
             Button("コピー") { Clipboard.copy(player.message ?? ""); player.message = nil }
             Button("閉じる", role: .cancel) { player.message = nil }
@@ -269,6 +309,47 @@ struct FullPlayerView: View {
         }
     }
 
+    /// 再生キューを開いている間の、上の小さな曲の表示（画像・曲名・所在）。
+    private var compactHeader: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Color.black
+                if player.videoMode { VideoSurface(player: player.videoPlayer) }
+                else if let image { Image(uiImage: image).resizable().scaledToFit() }
+                else { Image(systemName: "music.note").foregroundStyle(Color(hex: 0x50586F)) }
+            }
+            .frame(width: 96, height: 54).clipShape(RoundedRectangle(cornerRadius: 6))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title.isEmpty ? "（再生していません）" : title).font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.text).lineLimit(2)
+                if let last = location.last { Text(last.name).font(.system(size: 11)).foregroundStyle(Theme.muted).lineLimit(1) }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 24).padding(.top, 8)
+        .transition(.opacity)
+    }
+
+    /// 下の「再生キュー」の取っ手：押す、または上へ引くと、キューが開く。次の曲の名前も、ここに出す。
+    private var queueHandle: some View {
+        Button { withAnimation(.easeInOut(duration: 0.3)) { queueOpen = true } } label: {
+            VStack(spacing: 6) {
+                Capsule().fill(Theme.faint).frame(width: 36, height: 4)
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.up").font(.system(size: 11, weight: .bold))
+                    Text(player.upcoming.first.map { "次：" + ($0.title.isEmpty ? "（無題）" : $0.title) } ?? "再生キュー").font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                }
+                .foregroundStyle(Theme.muted)
+            }
+            .frame(maxWidth: .infinity).padding(.top, 14).padding(.bottom, 10).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("再生キューを開く")
+        .gesture(DragGesture(minimumDistance: 20).onEnded { value in
+            if value.translation.height < -30 { withAnimation(.easeInOut(duration: 0.3)) { queueOpen = true } }
+        })
+        .padding(.bottom, 6)
+    }
+
     private var topBar: some View {
         HStack {
             Button { isPresented = false } label: { Image(systemName: "chevron.down").font(.title3.weight(.semibold)).frame(width: 44, height: 44) }
@@ -276,8 +357,14 @@ struct FullPlayerView: View {
             Spacer()
             modeSwitch
             Spacer()
-            Color.clear.frame(width: 44, height: 44)
+            // 三点リーダーは、サムネイル／動画の切り替えと同じ高さ（同じ行の中央）の右端
+            if let entry = player.currentEntry, let downloads = services.downloads {
+                CurrentSongMenu(entry: entry, downloads: downloads, canReveal: !location.isEmpty) { reveal(location.map(\.id), entry.id) }
+            } else {
+                Color.clear.frame(width: 44, height: 44)
+            }
         }
+        .frame(height: 44)
         .padding(.horizontal, 8)
     }
 
@@ -317,7 +404,7 @@ struct FullPlayerView: View {
                     Spacer()
                     HStack {
                         Spacer()
-                        Button { maximized = true } label: {
+                        Button { withAnimation(.easeInOut(duration: 0.25)) { maximized = true } } label: {
                             Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
                                 .frame(width: 44, height: 44).background(Circle().fill(Color.black.opacity(0.55)))
                         }
@@ -335,9 +422,33 @@ struct FullPlayerView: View {
         .clipped()
     }
 
+    /// 有効なシャッフル・リピートは、丸く塗る（無効は、塗らず、灰色）。色が見えにくくても、塗りの有無で分かる。
+    private func toggleIcon(_ name: String, on: Bool) -> some View {
+        Image(systemName: name)
+            .foregroundStyle(on ? Theme.accentText : Theme.muted)
+            .frame(width: 44, height: 44)
+            .background(Circle().fill(on ? Theme.accent : Color.clear))
+    }
+
+    private func flash(_ text: String) {
+        toggleNote = text
+        toggleNoteTask?.cancel()
+        toggleNoteTask = Task {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            if !Task.isCancelled { toggleNote = nil }
+        }
+    }
+
     private var controls: some View {
+        VStack(spacing: 4) {
+            controlRow
+            Text(toggleNote ?? " ").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.accent).frame(height: 14)
+        }
+    }
+
+    private var controlRow: some View {
         HStack(spacing: 28) {
-            Button { player.shuffle.toggle() } label: { Image(systemName: "shuffle").foregroundStyle(player.shuffle ? Theme.accent : Theme.muted).frame(width: 44, height: 44) }
+            Button { player.setShuffle(!player.shuffle); flash(player.shuffle ? "シャッフル：オン" : "シャッフル：オフ") } label: { toggleIcon("shuffle", on: player.shuffle) }
                 .accessibilityLabel(player.shuffle ? "シャッフル（オン）" : "シャッフル（オフ）")
             Button { player.previous() } label: { Image(systemName: "backward.end.fill").font(.title).frame(width: 44, height: 44) }
                 .accessibilityLabel("前の曲")
@@ -347,8 +458,8 @@ struct FullPlayerView: View {
             }
             Button { player.next() } label: { Image(systemName: "forward.end.fill").font(.title).frame(width: 44, height: 44) }
                 .accessibilityLabel("次の曲")
-            Button { cycleRepeat() } label: {
-                Image(systemName: player.repeatMode == .one ? "repeat.1" : "repeat").foregroundStyle(player.repeatMode == .off ? Theme.muted : Theme.accent).frame(width: 44, height: 44)
+            Button { cycleRepeat(); flash(player.repeatMode == .off ? "リピート：オフ" : player.repeatMode == .all ? "リピート：全曲" : "リピート：1曲") } label: {
+                toggleIcon(player.repeatMode == .one ? "repeat.1" : "repeat", on: player.repeatMode != .off)
             }
             .accessibilityLabel(player.repeatMode == .off ? "リピート（オフ）" : player.repeatMode == .all ? "リピート（全曲）" : "リピート（1曲）")
         }
@@ -363,5 +474,100 @@ struct FullPlayerView: View {
         case .all: player.repeatMode = .one
         case .one: player.repeatMode = .off
         }
+    }
+}
+
+/// 再生画面の右上の「…」：曲の選択時（ライブラリの曲の行）と同じ、保存・削除の操作と、ライブラリでの位置の表示。
+private struct CurrentSongMenu: View {
+    let entry: EntryItem
+    @ObservedObject var downloads: DownloadService
+    let canReveal: Bool
+    let reveal: () -> Void
+
+    private var key: String? { downloads.entryKeys[entry.id] }
+
+    var body: some View {
+        Menu {
+            if canReveal { Button(action: reveal) { Label("ライブラリで位置を表示", systemImage: "scope") } }
+            if entry.type == "bilibili", let key {
+                ForEach(["audio", "video"], id: \.self) { kind in
+                    let label = kind == "video" ? "動画" : "音声"
+                    let state = downloads.record(key: key, kind: kind)?.state
+                    if state?.inProgress == true {
+                        Button(role: .destructive) { downloads.cancel(key: key, kind: kind) } label: { Label(label + "の保存を取り消す", systemImage: "xmark.circle") }
+                    } else if state == .completed {
+                        Button(role: .destructive) { Task { await downloads.remove(key: key, kind: kind) } } label: { Label(label + "の保存を削除", systemImage: "trash") }
+                    } else {
+                        Button { downloads.save(entry: entry, kind: kind) } label: {
+                            Label(kind == "video" ? "動画を保存（" + String(DownloadService.preferredHeight) + "p）" : label + "を保存", systemImage: kind == "video" ? "film" : "arrow.down.circle")
+                        }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis").font(.title3.weight(.semibold)).foregroundStyle(Theme.text).frame(width: 44, height: 44).contentShape(Rectangle())
+        }
+        .accessibilityLabel("曲のメニュー")
+    }
+}
+
+/// 再生キュー：再生中の曲と、これから再生する曲。右端の「≡」をドラッグして並べ替え、曲を押すとその曲へ移る。下へ引く（または見出しを押す）と閉じる。
+private struct QueuePanel: View {
+    @ObservedObject var player: PlaybackEngine
+    let close: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: close) {
+                VStack(spacing: 6) {
+                    Capsule().fill(Theme.faint).frame(width: 36, height: 4)
+                    HStack {
+                        Text("再生キュー").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.text)
+                        Spacer()
+                        Image(systemName: "chevron.down").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.muted)
+                    }
+                    .padding(.horizontal, 24)
+                }
+                .padding(.top, 10).padding(.bottom, 8).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("再生キューを閉じる")
+            .gesture(DragGesture(minimumDistance: 20).onEnded { value in
+                if value.translation.height > 30 { close() }
+            })
+            List {
+                if let current = player.current {
+                    HStack(spacing: 8) {
+                        Image(systemName: player.isPlaying ? "speaker.wave.2.fill" : "speaker.fill").foregroundStyle(Theme.accent)
+                        Text(current.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.accent).lineLimit(1)
+                        Spacer()
+                        Text("再生中").font(.system(size: 11)).foregroundStyle(Theme.muted)
+                    }
+                    .listRowBackground(Color.clear)
+                    .moveDisabled(true)
+                }
+                ForEach(player.upcoming) { entry in
+                    Button { Task { await player.playQueued(entry.id) } } label: {
+                        Text(entry.title.isEmpty ? "（無題）" : entry.title).font(.system(size: 14)).foregroundStyle(Theme.text).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(Color.clear)
+                }
+                .onMove { source, destination in
+                    guard let from = source.first else { return }
+                    let to = destination > from ? destination - 1 : destination
+                    guard from != to else { return }
+                    Task { await player.moveQueued(from: from, to: to) }
+                }
+                if player.upcoming.isEmpty {
+                    Text(player.repeatMode == .off ? "このあとの曲はありません" : "この周の最後です。このあと、最初から続きます").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                        .listRowBackground(Color.clear)
+                }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .environment(\.editMode, .constant(.active)) // 右端に「≡」（並べ替え）を出す
+        }
+        .task { await player.refreshQueue() }
     }
 }

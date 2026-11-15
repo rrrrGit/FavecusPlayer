@@ -39,7 +39,7 @@ struct AddSongSheet: View {
                     .labelStyle(.titleAndIcon)
                     .tint(Theme.accent)
                 } header: {
-                    SectionLabel(text: "BILIBILIの動画")
+                    SectionLabel(text: "Bilibiliの動画")
                 } footer: {
                     Text("動画のURL、またはBV番号を貼り付けます。複数のパートがある動画は、URLの「?p=2」のように、パートを指定できます。\n貼り付けがうまくいかないときは、入力欄を長押しして「ペースト」を選ぶか、iPhoneの「設定」→「FavecusPlayer」→「他のAppからペースト」を「許可」にします。")
                 }

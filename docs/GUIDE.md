@@ -1,4 +1,4 @@
-# Favecus Player v0.7.1 の使い方
+# Favecus Player v0.7.2 の使い方
 
 Windows x64向けの、Bilibiliと手元の動画・音楽をまとめて再生するプレイヤーです。
 

@@ -47,7 +47,9 @@ class Queue {
       const ids = shuffle ? [...prefix, id, ...this.Shuffled(available.filter(x => !seen.has(x)))] : [...available];
       this.cycles = [{ ids, seen }]; this.cycleIndex = 0;
     } else if (!shuffle) {
-      cycle.ids = [...available];
+      // 利用者が並べ替えた順（custom）は保つ。ライブラリで増えた曲は、最後へ足す。
+      if (cycle.custom) { const known = new Set(cycle.ids); cycle.ids = [...cycle.ids.filter(x => valid.has(x)), ...available.filter(x => !known.has(x))]; }
+      else cycle.ids = [...available];
       this.cycles = [cycle]; this.cycleIndex = 0;
     } else {
       for (const [i, c] of this.cycles.entries()) {
@@ -100,6 +102,27 @@ class Queue {
     this.index = next; this.cycles[this.cycleIndex].seen.add(this.ids[next]);
     this.Remember(previous);
     return this.ids[next];
+  }
+  // いま再生中の周の、これから再生する曲（再生中の曲は含まない）。
+  Upcoming() { return this.index < 0 ? [] : this.ids.slice(this.index + 1); }
+  // これから再生する曲の中で、from番目の曲をto番目へ動かす（0始まり）。再生中の曲・再生済みの曲は動かさない。
+  Reorder(from, to) {
+    const rest = this.Upcoming();
+    if (this.index < 0 || !Number.isInteger(from) || !Number.isInteger(to) || from < 0 || from >= rest.length || to < 0 || to >= rest.length) return false;
+    const [moved] = rest.splice(from, 1); rest.splice(to, 0, moved);
+    const cycle = this.cycles[this.cycleIndex];
+    cycle.ids = [...cycle.ids.slice(0, this.index + 1), ...rest]; cycle.custom = true;
+    return true;
+  }
+  // これから再生する曲のうち、idの曲へ移る（その手前の曲は、再生済みの扱いにしない）。なければ null。
+  JumpTo(id) {
+    if (this.index < 0) return null;
+    const at = this.ids.indexOf(id, this.index + 1);
+    if (at < 0) return null;
+    const previous = this.ids[this.index];
+    this.index = at; this.cycles[this.cycleIndex].seen.add(id);
+    this.Remember(previous);
+    return id;
   }
   Remember(id) { this.history.push(id); if (this.history.length > 1000) this.history.shift(); }
   Timeline(repeat) {

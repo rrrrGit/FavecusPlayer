@@ -130,6 +130,49 @@ final class DownloadService: ObservableObject, MediaProvider {
         return (removedIds.count, bytes)
     }
 
+    /// プレイリスト単位の削除の対象：このリストの曲のうち、保存済みで、ほかのリストの曲が使っていないもの（記録のキー）。
+    /// 同じ動画をほかのリストにも登録しているときは、そのリストの曲の保存を消さないため、対象に含めない。
+    nonisolated static func exclusiveKeys(target: [EntryItem], all: [EntryItem], keyOf: (EntryItem) -> String?) -> (keys: [String], shared: Int) {
+        let targetIds = Set(target.map(\.id))
+        let others = Set(all.filter { !targetIds.contains($0.id) }.compactMap(keyOf))
+        var seen = Set<String>(), exclusive: [String] = [], shared = 0
+        for entry in target where entry.type == "bilibili" {
+            guard let key = keyOf(entry), seen.insert(key).inserted else { continue }
+            if others.contains(key) { shared += 1 } else { exclusive.append(key) }
+        }
+        return (exclusive, shared)
+    }
+
+    /// 指定した動画（キー）の保存済みの音声・動画を削除する。保存中のものは削除しない。曲・プレイリストは消さない。戻り値：削除した件数と容量。
+    func removeOffline(keys: [String]) async -> (count: Int, bytes: Int64) {
+        guard started, !removingAll else { return (0, 0) }
+        removingAll = true
+        defer { removingAll = false }
+        var count = 0
+        var bytes: Int64 = 0
+        for key in keys {
+            for kind in ["audio", "video"] {
+                guard let record = record(key: key, kind: kind), record.state == .completed else { continue }
+                bytes += record.bytes
+                await remove(key: key, kind: kind)
+                count += 1
+            }
+        }
+        return (count, bytes)
+    }
+
+    /// このキーの保存済みの件数と容量（削除の確認の表示用）。
+    func savedSummary(keys: [String]) -> (count: Int, bytes: Int64) {
+        var count = 0
+        var bytes: Int64 = 0
+        for key in keys {
+            for kind in ["audio", "video"] {
+                if let record = record(key: key, kind: kind), record.state == .completed { count += 1; bytes += record.bytes }
+            }
+        }
+        return (count, bytes)
+    }
+
     // MARK: 更新・一覧の表示
 
     /// 失敗・取り消しの記録を一覧に出しておく時間（秒）。過ぎたものは表示しない（記録は残る）。
@@ -637,9 +680,10 @@ final class DownloadService: ObservableObject, MediaProvider {
     // MARK: オンライン再生
 
     /// 再生に使う音声ファイル。保存済みならそれ、なければ一時ファイルへ取得する（オンライン再生）。同じ曲の取得が重なったら、1つにまとめる。取得できなければ、理由つきで失敗する（再試行や回避はしない）。
+    /// 音声を保存していなくても、動画を保存済みなら、その音声を使う（動画だけを保存した曲が、オフラインで再生できないのを防ぐ）。
     func playableFile(for entry: EntryItem) async throws -> URL {
         guard let key = await key(for: entry), let url = entry.url else { throw DownloadError.message("この曲の情報を確認できません。") }
-        if let saved = savedFile(key: key) { return saved }
+        if let saved = savedFile(key: key) ?? savedFile(key: key, kind: "video") { return saved }
         if let existing = fetching[key] { return try await existing.value }
         let task = Task { try await self.fetchOnline(key: key, url: url) }
         fetching[key] = task
