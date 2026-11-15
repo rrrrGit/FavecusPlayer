@@ -133,7 +133,7 @@ final class DownloadService: ObservableObject, MediaProvider {
     /// プレイリスト単位の削除の対象：このリストの曲のうち、保存済みで、ほかのリストの曲が使っていないもの（記録のキー）。
     /// 同じ動画をほかのリストにも登録しているときは、そのリストの曲の保存を消さないため、対象に含めない。
     nonisolated static func exclusiveKeys(target: [EntryItem], all: [EntryItem], keyOf: (EntryItem) -> String?) -> (keys: [String], shared: Int) {
-        let targetIds = Set(target.map(.id))
+        let targetIds = Set(target.map(\.id))
         let others = Set(all.filter { !targetIds.contains($0.id) }.compactMap(keyOf))
         var seen = Set<String>(), exclusive: [String] = [], shared = 0
         for entry in target where entry.type == "bilibili" {
