@@ -97,7 +97,7 @@ struct FullscreenVideoView: View {
             if controlsVisible {
                 VStack {
                     HStack {
-                        Button { isPresented = false } label: {
+                        Button { close() } label: {
                             Image(systemName: "xmark").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
                                 .frame(width: 44, height: 44).background(Circle().fill(Color.black.opacity(0.55)))
                         }
@@ -105,11 +105,23 @@ struct FullscreenVideoView: View {
                         Spacer()
                     }
                     Spacer()
-                    Button { player.toggle() } label: {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 28)).foregroundStyle(.white)
-                            .frame(width: 64, height: 64).background(Circle().fill(Color.black.opacity(0.55)))
+                    HStack(spacing: 36) {
+                        Button { player.previous() } label: {
+                            Image(systemName: "backward.end.fill").font(.system(size: 24)).foregroundStyle(.white)
+                                .frame(width: 56, height: 56).background(Circle().fill(Color.black.opacity(0.55)))
+                        }
+                        .accessibilityLabel("前の曲")
+                        Button { player.toggle() } label: {
+                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 28)).foregroundStyle(.white)
+                                .frame(width: 64, height: 64).background(Circle().fill(Color.black.opacity(0.55)))
+                        }
+                        .accessibilityLabel(player.isPlaying ? "一時停止" : "再生")
+                        Button { player.next() } label: {
+                            Image(systemName: "forward.end.fill").font(.system(size: 24)).foregroundStyle(.white)
+                                .frame(width: 56, height: 56).background(Circle().fill(Color.black.opacity(0.55)))
+                        }
+                        .accessibilityLabel("次の曲")
                     }
-                    .accessibilityLabel(player.isPlaying ? "一時停止" : "再生")
                     Spacer()
                     Text("画面を上から下へスワイプすると、元に戻ります").font(.system(size: 11)).foregroundStyle(.white.opacity(0.7))
                 }
@@ -126,13 +138,18 @@ struct FullscreenVideoView: View {
                 }
                 .onEnded { value in
                     let vertical = abs(value.translation.height) > abs(value.translation.width)
-                    if vertical && value.translation.height > 100 { isPresented = false } else { withAnimation { dragOffset = 0 } }
+                    if vertical && value.translation.height > 100 { close() } else { withAnimation { dragOffset = 0 } }
                 }
         )
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .onAppear { OrientationLock.set(.landscape) }
         .onDisappear { OrientationLock.set(.portrait) }
+    }
+
+    /// 元の大きさへ戻す（ゆっくり消える）。
+    private func close() {
+        withAnimation(.easeInOut(duration: 0.25)) { isPresented = false }
     }
 }
 
@@ -226,10 +243,19 @@ struct FullPlayerView: View {
         .background(
             LinearGradient(colors: [Color(hex: 0x241F3D), Theme.background], startPoint: .top, endPoint: .center).ignoresSafeArea()
         )
-        .fullScreenCover(isPresented: $maximized) {
-            FullscreenVideoView(player: player, isPresented: $maximized).preferredColorScheme(.dark)
+        // 最大化は、再生画面の上に重ねて、ゆっくり現れる（画面を入れ替える下からの表示では、横向きへの切り替えとあわせて急に見えるため）
+        .overlay {
+            if maximized {
+                FullscreenVideoView(player: player, isPresented: $maximized).preferredColorScheme(.dark)
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
         }
-        .onChange(of: player.videoMode) { on in if !on { maximized = false } } // 動画でなくなったら（曲が変わった・失敗した）、最大化を閉じる
+        .onChange(of: player.videoMode) { on in
+            hint = nil // 切り替えたら、「動画を保存していません」の表示は消す
+            if !on { withAnimation(.easeInOut(duration: 0.25)) { maximized = false } } // 動画でなくなったら（曲が変わった・失敗した）、最大化を閉じる
+        }
+        .onChange(of: player.current?.entryId) { _ in hint = nil } // 曲が変わったら、前の曲の表示は消す
         .alert("お知らせ", isPresented: Binding(get: { player.message != nil }, set: { if !$0 { player.message = nil } })) {
             Button("コピー") { Clipboard.copy(player.message ?? ""); player.message = nil }
             Button("閉じる", role: .cancel) { player.message = nil }
@@ -276,7 +302,11 @@ struct FullPlayerView: View {
             Spacer()
             modeSwitch
             Spacer()
-            Color.clear.frame(width: 44, height: 44)
+            if let entry = player.currentEntry, let downloads = services.downloads {
+                CurrentSongMenu(entry: entry, downloads: downloads, canReveal: !location.isEmpty) { reveal(location.map(\.id), entry.id) }
+            } else {
+                Color.clear.frame(width: 44, height: 44)
+            }
         }
         .padding(.horizontal, 8)
     }
@@ -317,7 +347,7 @@ struct FullPlayerView: View {
                     Spacer()
                     HStack {
                         Spacer()
-                        Button { maximized = true } label: {
+                        Button { withAnimation(.easeInOut(duration: 0.25)) { maximized = true } } label: {
                             Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
                                 .frame(width: 44, height: 44).background(Circle().fill(Color.black.opacity(0.55)))
                         }
@@ -363,5 +393,39 @@ struct FullPlayerView: View {
         case .all: player.repeatMode = .one
         case .one: player.repeatMode = .off
         }
+    }
+}
+
+/// 再生画面の右上の「…」：曲の選択時（ライブラリの曲の行）と同じ、保存・削除の操作と、ライブラリでの位置の表示。
+private struct CurrentSongMenu: View {
+    let entry: EntryItem
+    @ObservedObject var downloads: DownloadService
+    let canReveal: Bool
+    let reveal: () -> Void
+
+    private var key: String? { downloads.entryKeys[entry.id] }
+
+    var body: some View {
+        Menu {
+            if canReveal { Button(action: reveal) { Label("ライブラリで位置を表示", systemImage: "scope") } }
+            if entry.type == "bilibili", let key {
+                ForEach(["audio", "video"], id: \.self) { kind in
+                    let label = kind == "video" ? "動画" : "音声"
+                    let state = downloads.record(key: key, kind: kind)?.state
+                    if state?.inProgress == true {
+                        Button(role: .destructive) { downloads.cancel(key: key, kind: kind) } label: { Label(label + "の保存を取り消す", systemImage: "xmark.circle") }
+                    } else if state == .completed {
+                        Button(role: .destructive) { Task { await downloads.remove(key: key, kind: kind) } } label: { Label(label + "の保存を削除", systemImage: "trash") }
+                    } else {
+                        Button { downloads.save(entry: entry, kind: kind) } label: {
+                            Label(kind == "video" ? "動画を保存（" + String(DownloadService.preferredHeight) + "p）" : label + "を保存", systemImage: kind == "video" ? "film" : "arrow.down.circle")
+                        }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis").font(.title3.weight(.semibold)).foregroundStyle(Theme.text).frame(width: 44, height: 44).contentShape(Rectangle())
+        }
+        .accessibilityLabel("曲のメニュー")
     }
 }

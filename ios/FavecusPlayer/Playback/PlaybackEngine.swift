@@ -116,6 +116,9 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         (store.document?.playlists ?? []).flatMap(\.entries).filter(canPlay).map(\.id)
     }
 
+    /// 再生中の曲（ライブラリの登録情報）。
+    var currentEntry: EntryItem? { current.flatMap { entry($0.entryId) } }
+
     private func entry(_ id: String) -> EntryItem? {
         store.document?.playlists.lazy.flatMap(\.entries).first { $0.id == id }
     }
