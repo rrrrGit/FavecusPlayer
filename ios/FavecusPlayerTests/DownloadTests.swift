@@ -528,7 +528,8 @@ final class DownloadTests: XCTestCase {
         guard case .failed(let text, let refused) = try XCTUnwrap(transfers.status(of: job).first) else { return XCTFail("失敗として残るはず") }
         XCTAssertFalse(refused)
         XCTAssertTrue(text.contains("取得が進みません") && text.contains("候補 1/1"), text)
-        XCTAssertFalse(text.contains("http") || text.contains("bilivideo"), "診断の文にURLを含めない: \(text)")
+        XCTAssertFalse(text.contains("http") || text.contains("/a/only"), "診断の文にURL（パス・検索条件）を含めない: \(text)")
+        XCTAssertTrue(text.contains("配信先 upos.bilivideo.com"), "原因の切り分けのため、ホスト名だけは出す: \(text)")
     }
 
     func testATransferThatIsStillMovingIsNotRestarted() async throws {
