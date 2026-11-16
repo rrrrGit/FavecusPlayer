@@ -4,6 +4,8 @@ import SwiftUI
 struct AlarmListView: View {
     @ObservedObject var service: AlarmService
     let catalog: AlarmSongCatalog?
+    /// 画面確認用：開いてすぐ、編集の画面を出す。
+    var startEditing = false
     @State private var editing: AlarmItem?
     @State private var pendingDelete: AlarmItem?
 
@@ -59,7 +61,10 @@ struct AlarmListView: View {
             }
             Button("キャンセル", role: .cancel) { pendingDelete = nil }
         }
-        .task { await service.resync() }
+        .task {
+            await service.resync()
+            if startEditing, editing == nil { editing = service.alarms.first ?? AlarmItem(hour: 7, minute: 0) }
+        }
     }
 
     private var sorted: [AlarmItem] {

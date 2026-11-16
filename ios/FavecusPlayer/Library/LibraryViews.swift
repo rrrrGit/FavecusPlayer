@@ -24,6 +24,7 @@ struct LibraryRootView: View {
     @State private var showImport = false
     @State private var showExport = false
     @State private var showSync = false
+    @State private var alarmDemo: AlarmDemoMode?
     @State private var showBilibili = false
     @State private var showDiagnostics = false
 
@@ -70,6 +71,7 @@ struct LibraryRootView: View {
             }
             if defaults.object(forKey: "FavecusDemoTab") != nil { tab = defaults.integer(forKey: "FavecusDemoTab") }
             if defaults.bool(forKey: "FavecusDemoSync") { showSync = true }
+            if let raw = defaults.string(forKey: "FavecusDemoAlarm") { alarmDemo = AlarmDemoMode(rawValue: raw) }
             if defaults.bool(forKey: "FavecusDemoMini") { player?.showDemo(title: "朝のピアノ", position: 62, duration: 257) }
             if defaults.bool(forKey: "FavecusDemoPlayer") {
                 // 所在の表示を確かめるため、模擬ライブラリの深い階層のリスト（作業用BGM ＞ 集中 ＞ 試験前）を持つ曲として表示する
@@ -84,6 +86,7 @@ struct LibraryRootView: View {
             }
         }
         .sheet(isPresented: $showDiagnostics) { PlaceholderView() }
+        .sheet(item: $alarmDemo) { AlarmDemoView(mode: $0, store: store, downloads: downloads) }
         .fileImporter(isPresented: $showPicker, allowedContentTypes: [.zip]) { result in
             guard let importer else { return }
             switch result {

@@ -204,6 +204,10 @@ jobs:
           shot 14-search -FavecusDemoSearch Lo-fi
           shot 10-home-edit -FavecusDemoHomeEdit YES
           shot 11-sync -FavecusDemoSync YES
+          shot 15-alarm-list -FavecusDemoAlarm list
+          shot 16-alarm-edit -FavecusDemoAlarm edit
+          shot 17-alarm-picker -FavecusDemoAlarm picker
+          shot 18-alarm-range -FavecusDemoAlarm range
           ls -l out
 
       - name: Build unsigned IPA
