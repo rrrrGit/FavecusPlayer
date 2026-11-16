@@ -68,7 +68,10 @@ final class AppEnvironment: ObservableObject {
 
     init() {
         let alarmDirectory = (try? LibraryStore.defaultDirectory()) ?? FileManager.default.temporaryDirectory.appendingPathComponent("FavecusPlayer-unavailable")
-        alarms = AlarmService(store: AlarmStore(directory: alarmDirectory), scheduler: AlarmSchedulers.make())
+        let alarmService = AlarmService(store: AlarmStore(directory: alarmDirectory), scheduler: AlarmSchedulers.make())
+        // 作ったアラームの音は、Library/Sounds（アラームが探す場所）に置く
+        alarmService.soundsDirectory = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first?.appendingPathComponent("Sounds", isDirectory: true)
+        alarms = alarmService
         do {
             let directory = try LibraryStore.defaultDirectory()
             let core = try SharedCore(bundle: .main)
@@ -105,6 +108,8 @@ final class AppEnvironment: ObservableObject {
             let vault = KeychainVault()
             let host = StoreSyncHost(store: store, directory: store.syncDirectory, vault: vault, counts: playCounts)
             sync = (try? SyncCore(bundle: .main, host: host)).map { SyncCoordinator(store: store, core: $0, host: host, vault: vault) }
+            let catalog = AlarmSongCatalog(store: store, downloads: downloadService)
+            alarmService.soundSource = { catalog.file(forKey: $0) }
         } catch {
             // 起動に必要な部品がない：保存データには触らず、画面に理由を出す。
             let fallback = FileManager.default.temporaryDirectory.appendingPathComponent("FavecusPlayer-unavailable")

@@ -50,6 +50,7 @@ enum AlarmError: Error, Equatable, LocalizedError {
     case invalid
     case unsupported
     case notAuthorized
+    case sound(String)
 
     var errorDescription: String? {
         switch self {
@@ -57,6 +58,7 @@ enum AlarmError: Error, Equatable, LocalizedError {
         case .invalid: return "アラームの時刻・曜日が正しくありません"
         case .unsupported: return "アラームはiOS 26以降で使えます"
         case .notAuthorized: return "アラームの許可がありません（設定アプリで許可してください）"
+        case .sound(let message): return message
         }
     }
 }

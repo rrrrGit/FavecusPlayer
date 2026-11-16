@@ -9,7 +9,8 @@ enum AlarmAuthorization: Equatable { case authorized, denied, unsupported }
 /// 端末のアラーム予約。実体はAlarmKit（iOS 26以降）。テストでは差し替える。
 protocol AlarmScheduling {
     func requestAuthorization() async -> AlarmAuthorization
-    func schedule(_ item: AlarmItem) async throws
+    /// soundName：アラームの音のファイル名（Library/Sounds にあるもの）。nil なら既定の音。
+    func schedule(_ item: AlarmItem, soundName: String?) async throws
     func cancel(id: UUID) async
     /// OS側に予約が残っているアラームのID（取得できないときは nil）。
     func scheduledIDs() async -> Set<UUID>?
@@ -18,7 +19,7 @@ protocol AlarmScheduling {
 /// iOS 26未満、またはAlarmKitのない環境。
 struct UnsupportedAlarmScheduler: AlarmScheduling {
     func requestAuthorization() async -> AlarmAuthorization { .unsupported }
-    func schedule(_ item: AlarmItem) async throws { throw AlarmError.unsupported }
+    func schedule(_ item: AlarmItem, soundName: String?) async throws { throw AlarmError.unsupported }
     func cancel(id: UUID) async {}
     func scheduledIDs() async -> Set<UUID>? { nil }
 }
@@ -47,7 +48,7 @@ struct AlarmKitScheduler: AlarmScheduling {
         }
     }
 
-    func schedule(_ item: AlarmItem) async throws {
+    func schedule(_ item: AlarmItem, soundName: String?) async throws {
         guard item.isValid else { throw AlarmError.invalid }
         guard await requestAuthorization() == .authorized else { throw AlarmError.notAuthorized }
         let time = Alarm.Schedule.Relative.Time(hour: item.hour, minute: item.minute)
@@ -56,7 +57,7 @@ struct AlarmKitScheduler: AlarmScheduling {
         let title = item.label.isEmpty ? "アラーム" : item.label
         let alert = AlarmPresentation.Alert(title: LocalizedStringResource(stringLiteral: title), stopButton: AlarmButton(text: "停止", textColor: .white, systemImageName: "stop.circle"))
         let attributes = AlarmAttributes(presentation: AlarmPresentation(alert: alert), metadata: FavecusAlarmMetadata(), tintColor: .indigo)
-        let configuration = AlarmManager.AlarmConfiguration.alarm(schedule: schedule, attributes: attributes)
+        let configuration = AlarmManager.AlarmConfiguration.alarm(schedule: schedule, attributes: attributes, sound: soundName.map { AlertConfiguration.AlertSound.named($0) } ?? .default)
         // 同じIDの予約があれば、置き換える
         try? AlarmManager.shared.cancel(id: item.id)
         _ = try await AlarmManager.shared.schedule(id: item.id, configuration: configuration)

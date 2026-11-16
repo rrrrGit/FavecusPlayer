@@ -17,11 +17,13 @@ final class AlarmTests: XCTestCase {
 
     final class FakeScheduler: AlarmScheduling, @unchecked Sendable {
         var scheduled: [UUID: AlarmItem] = [:]
+        var soundNames: [UUID: String?] = [:]
         var failure: AlarmError?
         func requestAuthorization() async -> AlarmAuthorization { failure == nil ? .authorized : .denied }
-        func schedule(_ item: AlarmItem) async throws {
+        func schedule(_ item: AlarmItem, soundName: String?) async throws {
             if let failure { throw failure }
             scheduled[item.id] = item
+            soundNames[item.id] = soundName
         }
         func cancel(id: UUID) async { scheduled[id] = nil }
         func scheduledIDs() async -> Set<UUID>? { Set(scheduled.keys) }

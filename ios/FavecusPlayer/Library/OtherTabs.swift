@@ -245,7 +245,7 @@ struct SettingsTab: View {
                     }
                 }
                 Section("アラーム") {
-                    NavigationLink { AlarmListView(service: AppEnvironment.shared.alarms) } label: { Label("アラーム", systemImage: "alarm") }
+                    NavigationLink { AlarmListView(service: AppEnvironment.shared.alarms, catalog: AlarmSongCatalog(store: store, downloads: services.downloads)) } label: { Label("アラーム", systemImage: "alarm") }
                 }
                 Section("アプリ") {
                     Button { openDiagnostics() } label: { Label("診断", systemImage: "stethoscope") }

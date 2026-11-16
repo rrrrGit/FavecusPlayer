@@ -3,6 +3,7 @@ import SwiftUI
 /// アラームの一覧（設定タブから開く）。追加・編集・有効／無効・削除。
 struct AlarmListView: View {
     @ObservedObject var service: AlarmService
+    let catalog: AlarmSongCatalog?
     @State private var editing: AlarmItem?
     @State private var pendingDelete: AlarmItem?
 
@@ -36,7 +37,7 @@ struct AlarmListView: View {
                 Text(notice).font(.footnote).foregroundStyle(Theme.warning)
             }
             Section {} footer: {
-                Text("iOS 26以降で使えます。消音や集中モードでも鳴ります。音は、いまは既定の音です。")
+                Text("iOS 26以降で使えます。消音や集中モードでも鳴ります。音は、保存済みの曲と範囲を選べます（選ばないと既定の音）。")
             }
         }
         .scrollContentBackground(.hidden)
@@ -49,7 +50,7 @@ struct AlarmListView: View {
             }
         }
         .sheet(item: $editing) { item in
-            AlarmEditor(item: item) { saved in Task { await service.save(saved) } }
+            AlarmEditor(item: item, catalog: catalog) { saved in Task { await service.save(saved) } }
         }
         .confirmationDialog("このアラームを削除しますか", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), titleVisibility: .visible) {
             Button("削除する", role: .destructive) {
@@ -83,9 +84,11 @@ struct AlarmEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var item: AlarmItem
     @State private var time: Date
+    let catalog: AlarmSongCatalog?
     let onSave: (AlarmItem) -> Void
 
-    init(item: AlarmItem, onSave: @escaping (AlarmItem) -> Void) {
+    init(item: AlarmItem, catalog: AlarmSongCatalog?, onSave: @escaping (AlarmItem) -> Void) {
+        self.catalog = catalog
         _item = State(initialValue: item)
         _time = State(initialValue: Calendar.current.date(from: DateComponents(hour: item.hour, minute: item.minute)) ?? Date())
         self.onSave = onSave
@@ -118,6 +121,15 @@ struct AlarmEditor: View {
                     }
                     Text("選ばないと、次の1回だけ鳴ります。").font(.footnote).foregroundStyle(Theme.muted)
                 }
+                if let catalog {
+                    Section("音") {
+                        NavigationLink {
+                            AlarmSoundPicker(catalog: catalog, current: item.sound) { item.sound = $0 }
+                        } label: {
+                            HStack { Text("曲と範囲"); Spacer(); Text(Self.soundText(item.sound, catalog)).foregroundStyle(Theme.muted).lineLimit(1) }
+                        }
+                    }
+                }
                 Section("ラベル") {
                     TextField("アラーム", text: $item.label)
                 }
@@ -142,5 +154,11 @@ struct AlarmEditor: View {
             }
         }
         .presentationDetents([.large])
+    }
+
+    static func soundText(_ sound: AlarmSound?, _ catalog: AlarmSongCatalog) -> String {
+        guard let sound else { return "既定の音" }
+        let title = catalog.songs().first { $0.key == sound.mediaKey }?.title ?? "（曲が見つかりません）"
+        return "\(title)・\(AlarmRangeEditor.clock(sound.startSeconds))から\(Int(sound.durationSeconds))秒"
     }
 }
