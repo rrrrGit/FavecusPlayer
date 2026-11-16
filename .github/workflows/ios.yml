@@ -186,7 +186,7 @@ jobs:
             xcrun simctl launch "$SIM_UDID" dev.favecus.player "$@" > /dev/null
             sleep 4
             xcrun simctl io "$SIM_UDID" screenshot "out/$NAME.png"
-            xcrun simctl terminate "$SIM_UDID" dev.favecus.player
+            xcrun simctl terminate "$SIM_UDID" dev.favecus.player || echo "（終了済み：起動中に終了した可能性）"
           }
           P1=00000001-0000-4000-8000-000000000001
           P2=00000001-0000-4000-8000-000000000002
@@ -208,6 +208,8 @@ jobs:
           shot 16-alarm-edit -FavecusDemoAlarm edit
           shot 17-alarm-picker -FavecusDemoAlarm picker
           shot 18-alarm-range -FavecusDemoAlarm range
+          # アプリが途中で終了していた場合の手がかり（クラッシュレポート）
+          for f in "$HOME"/Library/Logs/DiagnosticReports/FavecusPlayer*; do [ -f "$f" ] && { echo "== $f"; head -c 2500 "$f"; }; done || true
           ls -l out
 
       - name: Build unsigned IPA
