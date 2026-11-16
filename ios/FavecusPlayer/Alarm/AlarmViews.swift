@@ -94,6 +94,7 @@ struct AlarmListView: View {
 struct AlarmEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var item: AlarmItem
+    @State private var showSoundPicker = false
     let catalog: AlarmSongCatalog?
     let onSave: (AlarmItem) -> Void
 
@@ -145,14 +146,19 @@ struct AlarmEditor: View {
                 }
                 if let catalog {
                     Section("音") {
-                        NavigationLink {
-                            AlarmSoundPicker(catalog: catalog, current: item.sound) { item.sound = $0 }
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("曲と範囲")
-                                Text(Self.soundText(item.sound, catalog)).font(.footnote).foregroundStyle(Theme.muted).lineLimit(2)
+                        // 曲・範囲を決めたら、この編集の画面に戻る（画面全体は閉じない）。アラームは「保存」で作られる。
+                        Button { showSoundPicker = true } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("曲と範囲").foregroundStyle(Theme.text)
+                                    Text(Self.soundText(item.sound, catalog)).font(.footnote).foregroundStyle(Theme.muted).lineLimit(2)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.faint)
                             }
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
                     }
                 }
                 Section("ラベル") {
@@ -163,6 +169,14 @@ struct AlarmEditor: View {
             .background(Theme.background)
             .navigationTitle("アラームの編集")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(isPresented: $showSoundPicker) {
+                if let catalog {
+                    AlarmSoundPicker(catalog: catalog, current: item.sound) { picked in
+                        item.sound = picked
+                        showSoundPicker = false
+                    }
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("キャンセル") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {

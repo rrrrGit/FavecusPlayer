@@ -54,20 +54,19 @@ struct AlarmSoundPicker: View {
     let catalog: AlarmSongCatalog
     let current: AlarmSound?
     let onPick: (AlarmSound?) -> Void
-    @Environment(\.dismiss) private var dismiss
     @State private var query = ""
 
     var body: some View {
         let songs = catalog.songs().filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) }
         List {
-            Button { onPick(nil); dismiss() } label: {
+            Button { onPick(nil) } label: {
                 HStack { Text("既定の音"); Spacer(); if current == nil { Image(systemName: "checkmark") } }
             }
             Section("保存済みの曲") {
                 if songs.isEmpty { Text("保存済みの曲がありません").foregroundStyle(Theme.muted) }
                 ForEach(songs) { song in
                     NavigationLink {
-                        AlarmRangeEditor(song: song, initial: current?.mediaKey == song.key ? current : nil) { onPick($0); dismiss() }
+                        AlarmRangeEditor(song: song, initial: current?.mediaKey == song.key ? current : nil) { onPick($0) }
                     } label: {
                         HStack { Text(song.title).lineLimit(1); Spacer(); if current?.mediaKey == song.key { Image(systemName: "checkmark") } }
                     }
