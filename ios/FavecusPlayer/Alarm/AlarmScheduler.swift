@@ -1,5 +1,6 @@
 import Foundation
 #if canImport(AlarmKit)
+import ActivityKit
 import AlarmKit
 import SwiftUI
 #endif
