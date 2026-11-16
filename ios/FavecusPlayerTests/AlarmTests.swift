@@ -131,3 +131,23 @@ final class AlarmTests: XCTestCase {
         XCTAssertNil(AlarmItem(hour: 7, minute: 30, weekdays: [9]).nextFireDate(after: now, calendar: calendar))
     }
 }
+
+/// 「曲を再生」ボタンからの再生の依頼（v0.7.3 Step4）。
+final class AlarmPlayRequestTests: XCTestCase {
+    private func defaults() -> UserDefaults { UserDefaults(suiteName: "favecus-alarm-request-\(UUID().uuidString)")! }
+
+    func testRequestIsTakenOnceAndThenGone() {
+        let store = defaults()
+        AlarmPlayRequest.set("abc", defaults: store)
+        XCTAssertEqual(AlarmPlayRequest.take(defaults: store), "abc")
+        XCTAssertNil(AlarmPlayRequest.take(defaults: store))
+    }
+
+    func testStaleRequestIsIgnoredAndCleared() {
+        let store = defaults()
+        let past = Date(timeIntervalSinceNow: -(AlarmPlayRequest.lifetime + 5))
+        AlarmPlayRequest.set("old", now: past, defaults: store)
+        XCTAssertNil(AlarmPlayRequest.take(defaults: store))
+        XCTAssertNil(AlarmPlayRequest.take(defaults: store))
+    }
+}

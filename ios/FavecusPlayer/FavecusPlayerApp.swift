@@ -44,8 +44,9 @@ struct FavecusPlayerApp: App {
         WindowGroup {
             LibraryRootView(store: environment.store, importer: environment.importer, exporter: environment.exporter, player: environment.player, sync: environment.sync, bilibili: environment.bilibili, downloads: environment.downloads, artwork: environment.artwork, observer: environment.observer)
                 .onChange(of: scenePhase) { phase in
-                    if phase == .active { Task { await environment.downloads?.resume(); await environment.alarms.resync() } }
+                    if phase == .active { Task { await environment.downloads?.resume(); await environment.alarms.resync(); await environment.playPendingAlarm() } }
                 }
+                .task { await environment.playPendingAlarm() }
         }
     }
 }
@@ -65,6 +66,22 @@ final class AppEnvironment: ObservableObject {
     let artwork: ArtworkStore
     /// アラーム（端末内だけ。同期しない）。保存先の準備に失敗しても、アラームの画面にだけ理由を出す。
     let alarms: AlarmService
+
+    /// アラームの「曲を再生」で開かれたとき、そのアラームの曲の全体を再生する。ライブラリ・保存の読み込みを待つ（最大10秒）。
+    func playPendingAlarm() async {
+        guard let id = AlarmPlayRequest.take() else { return }
+        guard let alarm = alarms.alarms.first(where: { $0.id.uuidString == id }), let sound = alarm.sound else { return }
+        let catalog = AlarmSongCatalog(store: store, downloads: downloads)
+        for _ in 0..<50 {
+            if case .ready = store.state, let entryId = catalog.entryId(forKey: sound.mediaKey), let player {
+                OpenPlayer.request()
+                await player.play(entryId: entryId, scope: "*")
+                return
+            }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        alarms.notice = "アラームの曲を再生できませんでした（曲が見つかりません）"
+    }
 
     init() {
         let alarmDirectory = (try? LibraryStore.defaultDirectory()) ?? FileManager.default.temporaryDirectory.appendingPathComponent("FavecusPlayer-unavailable")

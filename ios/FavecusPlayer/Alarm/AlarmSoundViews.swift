@@ -28,6 +28,17 @@ struct AlarmSongCatalog {
 
     func file(forKey key: String) -> URL? { songs().first { $0.key == key }?.file }
 
+    /// メディアキーの曲の、登録曲ID（再生に使う）。保存の有無は問わない。
+    func entryId(forKey key: String) -> String? {
+        for playlist in store.document?.playlists ?? [] {
+            for entry in playlist.entries {
+                if entry.type == "bilibili" { if downloads?.entryKeys[entry.id] == key { return entry.id } }
+                else if let name = entry.fileName, "local:" + name == key { return entry.id }
+            }
+        }
+        return nil
+    }
+
     private func song(for entry: EntryItem) -> AlarmSong? {
         if entry.type == "bilibili" {
             guard let downloads, let key = downloads.entryKeys[entry.id], let file = downloads.savedFile(key: key) ?? downloads.savedFile(key: key, kind: "video") else { return nil }
