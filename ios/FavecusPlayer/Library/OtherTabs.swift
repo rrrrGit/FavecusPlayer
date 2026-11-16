@@ -244,6 +244,9 @@ struct SettingsTab: View {
                         Text("曲ごとの再生回数（実際に3秒以上再生した回数）を数え、回数が多い曲ほど後に出やすくなります。順番は毎回変わります。同じ動画・パートは、別のリストでも共通の回数です。プレイリストの同期を有効にすると、Windows版とも共通になります（ローカルの曲は、この端末だけ）。リセットは、次にシャッフルを始めたときから反映されます。")
                     }
                 }
+                Section("アラーム") {
+                    NavigationLink { AlarmListView(service: AppEnvironment.shared.alarms) } label: { Label("アラーム", systemImage: "alarm") }
+                }
                 Section("アプリ") {
                     Button { openDiagnostics() } label: { Label("診断", systemImage: "stethoscope") }
                     LabeledContent("バージョン", value: AppInfo.versionText)

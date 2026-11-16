@@ -49,10 +49,21 @@ final class AlarmService: ObservableObject {
         await scheduler.cancel(id: id)
     }
 
-    /// 起動時：有効なアラームの予約を、保存内容に合わせて作り直す（OS側の予約と食い違っていても直る）。
+    /// 起動時：OS側の予約と、保存内容を合わせる。繰り返しのアラームで予約が消えていれば作り直す。
+    /// 繰り返しなしで予約が残っていないものは、すでに鳴ったものとして無効にする（翌日に鳴り直さない）。
     func resync() async {
-        for item in alarms where item.enabled {
-            do { try await scheduler.schedule(item) } catch { notice = error.localizedDescription }
+        guard let live = await scheduler.scheduledIDs() else { return }
+        for item in alarms where item.enabled && !live.contains(item.id) {
+            if item.weekdays.isEmpty {
+                var done = item
+                done.enabled = false
+                var next = alarms
+                if let index = next.firstIndex(where: { $0.id == item.id }) { next[index] = done }
+                try? store.save(next)
+                alarms = next
+            } else {
+                do { try await scheduler.schedule(item) } catch { notice = error.localizedDescription }
+            }
         }
     }
 }

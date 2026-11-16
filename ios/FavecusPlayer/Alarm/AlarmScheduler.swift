@@ -11,6 +11,8 @@ protocol AlarmScheduling {
     func requestAuthorization() async -> AlarmAuthorization
     func schedule(_ item: AlarmItem) async throws
     func cancel(id: UUID) async
+    /// OS側に予約が残っているアラームのID（取得できないときは nil）。
+    func scheduledIDs() async -> Set<UUID>?
 }
 
 /// iOS 26未満、またはAlarmKitのない環境。
@@ -18,6 +20,7 @@ struct UnsupportedAlarmScheduler: AlarmScheduling {
     func requestAuthorization() async -> AlarmAuthorization { .unsupported }
     func schedule(_ item: AlarmItem) async throws { throw AlarmError.unsupported }
     func cancel(id: UUID) async {}
+    func scheduledIDs() async -> Set<UUID>? { nil }
 }
 
 enum AlarmSchedulers {
@@ -61,6 +64,11 @@ struct AlarmKitScheduler: AlarmScheduling {
 
     func cancel(id: UUID) async {
         try? AlarmManager.shared.cancel(id: id)
+    }
+
+    func scheduledIDs() async -> Set<UUID>? {
+        guard let alarms = try? AlarmManager.shared.alarms else { return nil }
+        return Set(alarms.map { $0.id })
     }
 
     static func weekdays(_ numbers: Set<Int>) -> [Locale.Weekday] {

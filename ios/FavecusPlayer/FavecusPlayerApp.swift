@@ -44,7 +44,7 @@ struct FavecusPlayerApp: App {
         WindowGroup {
             LibraryRootView(store: environment.store, importer: environment.importer, exporter: environment.exporter, player: environment.player, sync: environment.sync, bilibili: environment.bilibili, downloads: environment.downloads, artwork: environment.artwork, observer: environment.observer)
                 .onChange(of: scenePhase) { phase in
-                    if phase == .active { Task { await environment.downloads?.resume() } }
+                    if phase == .active { Task { await environment.downloads?.resume(); await environment.alarms.resync() } }
                 }
         }
     }
@@ -63,8 +63,12 @@ final class AppEnvironment: ObservableObject {
     let bilibili: BilibiliAccount?
     let downloads: DownloadService?
     let artwork: ArtworkStore
+    /// アラーム（端末内だけ。同期しない）。保存先の準備に失敗しても、アラームの画面にだけ理由を出す。
+    let alarms: AlarmService
 
     init() {
+        let alarmDirectory = (try? LibraryStore.defaultDirectory()) ?? FileManager.default.temporaryDirectory.appendingPathComponent("FavecusPlayer-unavailable")
+        alarms = AlarmService(store: AlarmStore(directory: alarmDirectory), scheduler: AlarmSchedulers.make())
         do {
             let directory = try LibraryStore.defaultDirectory()
             let core = try SharedCore(bundle: .main)

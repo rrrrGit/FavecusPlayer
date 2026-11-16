@@ -24,6 +24,7 @@ final class AlarmTests: XCTestCase {
             scheduled[item.id] = item
         }
         func cancel(id: UUID) async { scheduled[id] = nil }
+        func scheduledIDs() async -> Set<UUID>? { Set(scheduled.keys) }
     }
 
     private func service(_ scheduler: FakeScheduler) -> AlarmService {
@@ -91,15 +92,18 @@ final class AlarmTests: XCTestCase {
         XCTAssertEqual(AlarmSound(mediaKey: "x", startSeconds: 10, durationSeconds: 0).normalized().durationSeconds, AlarmSound.minDuration)
     }
 
-    func testResyncReschedulesOnlyEnabledAlarms() async {
-        let setup = FakeScheduler()
-        let first = service(setup)
-        let on = AlarmItem(hour: 7, minute: 0), off = AlarmItem(hour: 8, minute: 0, enabled: false)
-        await first.save(on)
+    func testResyncRebuildsRepeatingAlarmsAndRetiresFiredOneShots() async {
+        let first = service(FakeScheduler())
+        let repeating = AlarmItem(hour: 7, minute: 0, weekdays: [2]), oneShot = AlarmItem(hour: 8, minute: 0), off = AlarmItem(hour: 9, minute: 0, enabled: false)
+        await first.save(repeating)
+        await first.save(oneShot)
         await first.save(off)
-        let fresh = FakeScheduler()
-        await service(fresh).resync()
-        XCTAssertEqual(Set(fresh.scheduled.keys), [on.id])
+        let fresh = FakeScheduler() // OS側の予約が、すべて消えている状態
+        let sut = service(fresh)
+        await sut.resync()
+        XCTAssertEqual(Set(fresh.scheduled.keys), [repeating.id])
+        XCTAssertEqual(sut.alarms.first { $0.id == oneShot.id }?.enabled, false)
+        XCTAssertEqual(service(FakeScheduler()).alarms.first { $0.id == oneShot.id }?.enabled, false)
     }
 
     func testCorruptOrNewerFileIsNeverOverwritten() async throws {
