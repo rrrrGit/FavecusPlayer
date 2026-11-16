@@ -49,7 +49,7 @@ struct AlarmDemoView: View {
         .task {
             await service.save(AlarmItem(hour: 6, minute: 30, weekdays: [2, 3, 4, 5, 6], label: "起きる", sound: AlarmSound(mediaKey: "demo", startSeconds: 62, durationSeconds: 15)))
             await service.save(AlarmItem(hour: 8, minute: 15, weekdays: [1, 7], label: ""))
-            await service.save(AlarmItem(hour: 22, minute: 0, weekdays: [], label: "薬", enabled: false))
+            await service.save(AlarmItem(hour: 22, minute: 0, weekdays: [], enabled: false, label: "薬"))
             if mode == .range { demoFile = Self.makeDemoAudio(seconds: 180) }
         }
     }
