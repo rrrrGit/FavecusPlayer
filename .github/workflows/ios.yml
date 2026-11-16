@@ -194,7 +194,8 @@ jobs:
           shot 2-parent -FavecusDemoPath $P1
           shot 3-child -FavecusDemoPath $P1,$P2
           shot 4-downloads -FavecusDemoTab 1
-          shot 5-settings -FavecusDemoTab 2
+          shot 5-settings -FavecusDemoTab 3
+          shot 19-alarm-tab -FavecusDemoTab 2
           shot 6-player -FavecusDemoPlayer YES
           shot 7-menu -FavecusDemoPath $P1 -FavecusDemoMenu YES
           shot 8-edit -FavecusDemoPath $P1 -FavecusDemoEdit YES

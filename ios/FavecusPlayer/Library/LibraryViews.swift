@@ -45,12 +45,15 @@ struct LibraryRootView: View {
                     DownloadsTab(store: store, services: services, showPlayer: $showPlayer)
                         .tabItem { Label("保存", systemImage: "arrow.down.circle.fill") }
                         .tag(1)
+                    AlarmTab(store: store, services: services, showPlayer: $showPlayer)
+                        .tabItem { Label("アラーム", systemImage: "alarm.fill") }
+                        .tag(2)
                     SettingsTab(store: store, hasImporter: importer != nil, hasExporter: exporter != nil, hasSync: sync != nil, hasBilibili: bilibili != nil,
                                 services: services, showPlayer: $showPlayer,
                                 openPicker: { showPicker = true }, openExport: { showExport = true }, openSync: { showSync = true },
                                 openBilibili: { showBilibili = true }, openDiagnostics: { showDiagnostics = true })
                         .tabItem { Label("設定", systemImage: "gearshape.fill") }
-                        .tag(2)
+                        .tag(3)
                 }
             }
         }

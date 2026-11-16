@@ -94,24 +94,35 @@ struct AlarmListView: View {
 struct AlarmEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var item: AlarmItem
-    @State private var time: Date
     let catalog: AlarmSongCatalog?
     let onSave: (AlarmItem) -> Void
 
     init(item: AlarmItem, catalog: AlarmSongCatalog?, onSave: @escaping (AlarmItem) -> Void) {
         self.catalog = catalog
         _item = State(initialValue: item)
-        _time = State(initialValue: Calendar.current.date(from: DateComponents(hour: item.hour, minute: item.minute)) ?? Date())
         self.onSave = onSave
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                DatePicker("時刻", selection: $time, displayedComponents: .hourAndMinute)
-                    .datePickerStyle(.wheel)
+                // 時刻は、端末の12時間／24時間の設定に関係なく、0〜23時・0〜59分の24時間表示で選ぶ
+                HStack(spacing: 0) {
+                    Picker("時", selection: $item.hour) {
+                        ForEach(0..<24, id: \.self) { Text("\($0)").tag($0) }
+                    }
+                    .pickerStyle(.wheel)
                     .labelsHidden()
-                    .frame(maxWidth: .infinity)
+                    Text("時").foregroundStyle(Theme.muted)
+                    Picker("分", selection: $item.minute) {
+                        ForEach(0..<60, id: \.self) { Text(String(format: "%02d", $0)).tag($0) }
+                    }
+                    .pickerStyle(.wheel)
+                    .labelsHidden()
+                    Text("分").foregroundStyle(Theme.muted)
+                }
+                .frame(height: 160)
+                .clipped()
                 Section("繰り返し") {
                     HStack(spacing: 8) {
                         ForEach(1...7, id: \.self) { day in
@@ -156,10 +167,7 @@ struct AlarmEditor: View {
                 ToolbarItem(placement: .cancellationAction) { Button("キャンセル") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
-                        let parts = Calendar.current.dateComponents([.hour, .minute], from: time)
                         var saved = item
-                        saved.hour = parts.hour ?? 7
-                        saved.minute = parts.minute ?? 0
                         saved.enabled = true
                         onSave(saved)
                         dismiss()
@@ -175,5 +183,19 @@ struct AlarmEditor: View {
         guard let sound else { return "既定の音" }
         let title = catalog.songs().first { $0.key == sound.mediaKey }?.title ?? "（曲が見つかりません）"
         return "\(title)・\(AlarmRangeEditor.clock(sound.startSeconds))から\(Int(sound.durationSeconds))秒"
+    }
+}
+
+/// タブ「アラーム」（保存と設定の間）。
+struct AlarmTab: View {
+    @ObservedObject var store: LibraryStore
+    let services: Services
+    @Binding var showPlayer: Bool
+
+    var body: some View {
+        NavigationStack {
+            AlarmListView(service: AppEnvironment.shared.alarms, catalog: AlarmSongCatalog(store: store, downloads: services.downloads))
+        }
+        .miniPlayer(services, showPlayer: $showPlayer)
     }
 }
