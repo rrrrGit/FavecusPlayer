@@ -46,8 +46,10 @@ struct AlarmDemoView: View {
                 }
             }
         }
+        .tint(Theme.accent)
         .task {
-            await service.save(AlarmItem(hour: 6, minute: 30, weekdays: [2, 3, 4, 5, 6], label: "起きる", sound: AlarmSound(mediaKey: "demo", startSeconds: 62, durationSeconds: 15)))
+            let key = catalog.songs().first?.key ?? "demo"
+            await service.save(AlarmItem(hour: 6, minute: 30, weekdays: [2, 3, 4, 5, 6], label: "起きる", sound: AlarmSound(mediaKey: key, startSeconds: 62, durationSeconds: 15)))
             await service.save(AlarmItem(hour: 8, minute: 15, weekdays: [1, 7], label: ""))
             await service.save(AlarmItem(hour: 22, minute: 0, weekdays: [], enabled: false, label: "薬"))
             if mode == .range { demoFile = Self.makeDemoAudio(seconds: 180) }
@@ -58,9 +60,10 @@ struct AlarmDemoView: View {
     private static func makeDemoAudio(seconds: Double) -> URL? {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("favecus-demo-\(UUID().uuidString).wav")
         let rate = 8000.0
-        guard let format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: rate, channels: 1, interleaved: true),
-              let file = try? AVAudioFile(forWriting: url, settings: format.settings),
-              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(seconds * rate)) else { return nil }
+        let settings: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: rate, AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false]
+        // バッファは、ファイルの処理用の形式（processingFormat）で作る（違う形式で書くと、例外で落ちる）
+        guard let file = try? AVAudioFile(forWriting: url, settings: settings),
+              let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(seconds * rate)) else { return nil }
         buffer.frameLength = buffer.frameCapacity
         do { try file.write(from: buffer) } catch { return nil }
         return url

@@ -78,6 +78,8 @@ struct AlarmSoundPicker: View {
         .scrollContentBackground(.hidden)
         .background(Theme.background)
         .navigationTitle("アラームの音")
+        .navigationBarTitleDisplayMode(.inline)
+        .tint(Theme.accent)
     }
 }
 
@@ -123,6 +125,7 @@ struct AlarmRangeEditor: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.background)
+        .tint(Theme.accent)
         .navigationTitle("範囲を選ぶ")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

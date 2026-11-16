@@ -21,7 +21,11 @@ struct AlarmListView: View {
                     Button { editing = item } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(Self.timeText(item)).font(.system(size: 32, weight: .regular)).monospacedDigit()
-                            Text(Self.summary(item)).font(.footnote).foregroundStyle(Theme.muted)
+                            HStack(spacing: 6) {
+                                Text(Self.summary(item))
+                                if item.sound != nil { Image(systemName: "music.note").imageScale(.small) }
+                            }
+                            .font(.footnote).foregroundStyle(Theme.muted)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
@@ -45,6 +49,8 @@ struct AlarmListView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.background)
         .navigationTitle("アラーム")
+        .navigationBarTitleDisplayMode(.inline)
+        .tint(Theme.accent)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button { editing = AlarmItem(hour: 7, minute: 0) } label: { Image(systemName: "plus") }
@@ -131,7 +137,10 @@ struct AlarmEditor: View {
                         NavigationLink {
                             AlarmSoundPicker(catalog: catalog, current: item.sound) { item.sound = $0 }
                         } label: {
-                            HStack { Text("曲と範囲"); Spacer(); Text(Self.soundText(item.sound, catalog)).foregroundStyle(Theme.muted).lineLimit(1) }
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("曲と範囲")
+                                Text(Self.soundText(item.sound, catalog)).font(.footnote).foregroundStyle(Theme.muted).lineLimit(2)
+                            }
                         }
                     }
                 }
@@ -158,6 +167,7 @@ struct AlarmEditor: View {
                 }
             }
         }
+        .tint(Theme.accent)
         .presentationDetents([.large])
     }
 
