@@ -24,6 +24,8 @@ targets:
       path: Config/Info.plist
       properties:
         LSSupportsOpeningDocumentsInPlace: true
+        # アラーム（AlarmKit、iOS 26以降）の許可の確認に表示する説明
+        NSAlarmKitUsageDescription: 設定した時刻に、選んだ曲の音でアラームを鳴らすために使います
         # 画面を閉じた・ロックした状態でも音声の再生を続ける
         UIBackgroundModes:
           - audio

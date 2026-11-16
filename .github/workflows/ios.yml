@@ -76,6 +76,14 @@ jobs:
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
         working-directory: .
 
+      # AlarmKit（iOS 26）を使うため、Xcode 26 以降があれば選ぶ（なければ既定のまま。その場合 AlarmKit のコードは除外される）
+      - name: Select Xcode 26 if available
+        run: |
+          NEW=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          echo "Xcode 26: ${NEW:-none}"
+          if [ -n "$NEW" ]; then sudo xcode-select -s "$NEW/Contents/Developer"; fi
+        working-directory: .
+
       - name: Tool versions
         run: |
           xcodebuild -version
