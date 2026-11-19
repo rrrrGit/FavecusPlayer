@@ -17,7 +17,7 @@ const LibraryData = require('./library-data.cjs');
 const Actions = require('./library-actions.cjs');
 const { MAX_PLAYLISTS, MAX_ENTRIES, MEDIA_NAME, CleanText, ValidatePlaylistCount } = LibraryData;
 const MAX_JSON = 32 * 1024 * 1024;
-const DEFAULT_SETTINGS = { releaseRepository: '', discordThumbnailSize: 'small', weightedShuffle: true, discordThumbnail: true, discordVideoLink: true, discordEnabled: false, discordClientId: '', discordImageKey: 'favecus_player_music', hideWhenPaused: true, thumbnailMode: false, autoThumbnailEnabled: true, autoThumbnailMinutes: 5, taskbarEmbed: true, taskbarWidth: 500, taskbarOffset: 0, repeat: 'off', shuffle: false, volume: 1, sidebarWidth: 218 };
+const DEFAULT_SETTINGS = { releaseRepository: '', discordThumbnailSize: 'small', weightedShuffle: true, volumeLeveling: true, discordThumbnail: true, discordVideoLink: true, discordEnabled: false, discordClientId: '', discordImageKey: 'favecus_player_music', hideWhenPaused: true, thumbnailMode: false, autoThumbnailEnabled: true, autoThumbnailMinutes: 5, taskbarEmbed: true, taskbarWidth: 500, taskbarOffset: 0, repeat: 'off', shuffle: false, volume: 1, sidebarWidth: 218 };
 
 function NewPlaylist(name = 'お気に入り') { return { id: randomUUID(), name: CleanText(name, 60) || '無題のリスト', icon: '', entries: [], childIds: [], createdAt: new Date().toISOString(), lastAddedAt: '', includeInAll: true }; }
 function Defaults() {
@@ -32,7 +32,7 @@ function ValidateSettings(input) {
   s.titleCleanupWords = ValidateTitleWords(input?.titleCleanupWords);
   s.keybindings = Keys.Validate(input?.keybindings);
   s.playlistSort = Tree.SortModes.includes(input?.playlistSort) ? input.playlistSort : 'manual';
-  for (const key of ['weightedShuffle', 'discordThumbnail', 'discordVideoLink', 'discordEnabled', 'hideWhenPaused', 'shuffle', 'thumbnailMode', 'autoThumbnailEnabled', 'taskbarEmbed']) if (typeof input?.[key] === 'boolean') s[key] = input[key];
+  for (const key of ['weightedShuffle', 'volumeLeveling', 'discordThumbnail', 'discordVideoLink', 'discordEnabled', 'hideWhenPaused', 'shuffle', 'thumbnailMode', 'autoThumbnailEnabled', 'taskbarEmbed']) if (typeof input?.[key] === 'boolean') s[key] = input[key];
   if (Number.isSafeInteger(input?.weightedShuffleAt) && input.weightedShuffleAt >= 0) s.weightedShuffleAt = input.weightedShuffleAt;
   if (Number.isFinite(input?.autoThumbnailMinutes)) s.autoThumbnailMinutes = Math.round(Math.max(1, Math.min(120, input.autoThumbnailMinutes)));
   if (Number.isFinite(input?.sidebarWidth)) s.sidebarWidth = Math.round(Math.max(170, Math.min(400, input.sidebarWidth)));

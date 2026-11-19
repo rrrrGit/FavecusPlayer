@@ -211,6 +211,7 @@ struct SettingsTab: View {
     @AppStorage("downloadWiFiOnly") private var wifiOnly = false
     @AppStorage("downloadVideoHeight") private var videoHeight = 720
     @AppStorage("weightedShuffle") private var weighted = true
+    @AppStorage("volumeLeveling") private var leveling = true
     @State private var confirmResetCounts = false
 
     var body: some View {
@@ -243,6 +244,13 @@ struct SettingsTab: View {
                     } footer: {
                         Text("曲ごとの再生回数（実際に3秒以上再生した回数）を数え、回数が多い曲ほど後に出やすくなります。順番は毎回変わります。同じ動画・パートは、別のリストでも共通の回数です。プレイリストの同期を有効にすると、Windows版とも共通になります（ローカルの曲は、この端末だけ）。リセットは、次にシャッフルを始めたときから反映されます。")
                     }
+                }
+                Section {
+                    Toggle("曲ごとの音量差を自動で揃える", isOn: $leveling)
+                } header: {
+                    Text("音量")
+                } footer: {
+                    Text("音量が大きい曲だけを、小さくします（大きくはしません）。保存済み・ローカルの曲が対象で、初めて再生する曲は、音量を測るため、数秒だけ遅れて反映されます。測った結果は、この端末に覚えます。")
                 }
                 Section("最近削除") {
                     NavigationLink { TrashView(store: store) } label: { Label("最近削除", systemImage: "trash.circle") }

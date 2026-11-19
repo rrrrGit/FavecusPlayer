@@ -135,7 +135,7 @@ test('playback settings append after existing categories and save only the backg
   assert.equal(h.node('modal-title').textContent, '再生・表示'); assert.equal(h.node('auto-thumbnail').checked, true); assert.equal(h.node('auto-thumbnail-minutes').value, '5');
   h.node('auto-thumbnail-minutes').value = '12'; h.node('auto-thumbnail').checked = false;
   await h.node('modal-back').click(); assert.equal(h.node('modal-title').textContent, '設定・連携');
-  assert.deepEqual(h.calls.at(-1).settings, { autoThumbnailEnabled: false, autoThumbnailMinutes: 12 });
+  assert.deepEqual(h.calls.at(-1).settings, { volumeLeveling: true, autoThumbnailEnabled: false, autoThumbnailMinutes: 12 }); // 音量の自動調整（v0.7.3）：既定はオン
 });
 
 test('URL classification is explicit and a stale network response cannot reopen a closed dialog', async t => {

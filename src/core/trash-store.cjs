@@ -7,7 +7,7 @@ const Trash = require('./trash.cjs');
 
 class TrashStore {
   constructor(file, now = () => new Date().toISOString()) {
-    this.file = file; this.now = now; this.items = [];
+    this.file = file; this.now = now; this.items = []; this.pruned = false;
     try {
       const data = JSON.parse(fs.readFileSync(file, 'utf8'));
       if (data?.version === 1 && Array.isArray(data.items)) this.items = Trash.Prune(data.items.filter(Trash.ValidItem), this.now());
@@ -26,7 +26,9 @@ class TrashStore {
     this.items = Trash.Prune([item, ...this.items.filter(x => x.id !== item.id)], this.now());
     return this.Save();
   }
-  List() { this.items = Trash.Prune(this.items, this.now()); return this.items.map(item => Trash.Summary(item, this.now())); }
+  // 期限切れで保管から外れたことがあるか（外れたら、保存済みメディアの整理を、呼び出し側が行う）。
+  TakePruned() { const value = this.pruned; this.pruned = false; return value; }
+  List() { const before = this.items.length; this.items = Trash.Prune(this.items, this.now()); if (this.items.length < before) this.pruned = true; return this.items.map(item => Trash.Summary(item, this.now())); }
   Get(id) { return this.items.find(item => item.id === id) || null; }
   Remove(id) { const before = this.items.length; this.items = this.items.filter(item => item.id !== id); if (this.items.length !== before) this.Save(); }
   Clear() { this.items = []; this.Save(); }

@@ -4,6 +4,53 @@ import Foundation
 /// 保存済みの曲の、選んだ範囲（開始・長さ）から、アラームの音のファイル（CAF・リニアPCM 16bit）を作る。
 /// 元のファイルは変えない。出力は、一時ファイルへ書いてから置き換える。
 enum AlarmSoundMaker {
+    /// 音量を揃える：ピークを −1 dBFS へ（小さい音を上げるのは、最大 +12 dB まで）。最初の0.2秒は、音をなめらかに立ち上げる（クリック音を避ける）。
+    static let targetPeak: Float = 0.891
+    static let maxBoost: Float = 4
+    static let fadeInSeconds = 0.2
+
+    private final class LevelState: @unchecked Sendable { var framesDone = 0 }
+
+    private static func peakOf(asset: AVURLAsset, track: AVAssetTrack, range: CMTimeRange, settings: [String: Any]) throws -> Int {
+        let reader = try AVAssetReader(asset: asset)
+        reader.timeRange = range
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
+        guard reader.canAdd(output) else { throw AlarmError.sound("音声を読み込めません") }
+        reader.add(output)
+        guard reader.startReading() else { throw AlarmError.sound("音声を読み込めません") }
+        var peak = 0
+        while let buffer = output.copyNextSampleBuffer() {
+            guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
+            var length = 0
+            var pointer: UnsafeMutablePointer<Int8>?
+            guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &pointer) == kCMBlockBufferNoErr, let pointer else { continue }
+            let count = length / 2
+            pointer.withMemoryRebound(to: Int16.self, capacity: count) { values in
+                for index in 0..<count { peak = max(peak, abs(Int(values[index]))) }
+            }
+        }
+        return peak
+    }
+
+    /// 16bitの音声のサンプルに、倍率とフェードインをかける（ステレオ・インターリーブ）。
+    private static func scale(_ buffer: CMSampleBuffer, gain: Float, fadeFrames: Int, state: LevelState) {
+        guard let block = CMSampleBufferGetDataBuffer(buffer) else { return }
+        var length = 0
+        var pointer: UnsafeMutablePointer<Int8>?
+        guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &pointer) == kCMBlockBufferNoErr, let pointer else { return }
+        let count = length / 2
+        let start = state.framesDone
+        pointer.withMemoryRebound(to: Int16.self, capacity: count) { values in
+            for index in 0..<count {
+                let frame = start + index / 2
+                var factor = gain
+                if frame < fadeFrames { factor *= Float(frame) / Float(fadeFrames) }
+                values[index] = Int16(max(-32768, min(32767, (Float(values[index]) * factor).rounded())))
+            }
+        }
+        state.framesDone += count / 2
+    }
+
     static func make(source: URL, start: Double, duration: Double, output: URL) async throws {
         let asset = AVURLAsset(url: source)
         guard let track = try await asset.loadTracks(withMediaType: .audio).first else { throw AlarmError.sound("音声がありません") }
@@ -22,6 +69,10 @@ enum AlarmSoundMaker {
         let readerOutput = AVAssetReaderTrackOutput(track: track, outputSettings: pcm)
         guard reader.canAdd(readerOutput) else { throw AlarmError.sound("音声を読み込めません") }
         reader.add(readerOutput)
+        let peak = try peakOf(asset: asset, track: track, range: reader.timeRange, settings: pcm)
+        let gain: Float = peak > 0 ? min(maxBoost, targetPeak / (Float(peak) / 32768)) : 1
+        let fadeFrames = Int(fadeInSeconds * 44100)
+        let level = LevelState()
 
         let directory = output.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -39,6 +90,7 @@ enum AlarmSoundMaker {
             input.requestMediaDataWhenReady(on: DispatchQueue(label: "favecus.alarm.sound")) {
                 while input.isReadyForMoreMediaData {
                     if let buffer = readerOutput.copyNextSampleBuffer() {
+                        scale(buffer, gain: gain, fadeFrames: fadeFrames, state: level)
                         input.append(buffer)
                     } else {
                         input.markAsFinished()

@@ -55,6 +55,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     /// おやすみタイマー（終わりに、音量を下げて一時停止する）。端末内の一時的な状態。
     let sleepTimer = SleepTimer()
+    /// 音量の自動調整（曲ごとの平均音量の記録）。設定「曲ごとの音量差を自動で揃える」がオンのときだけ使う。
+    private let loudness = LoudnessCache()
     /// 前回の続きから再生：最後の曲・位置の保存（端末内。同期しない）。なければ、保存も復元もしない。
     var resumeStore: ResumeStore?
     /// 起動後に、前回の曲を「一時停止の状態」で表示しているだけ（まだ読み込んでいない）。再生を押すと、保存した位置から始める。
@@ -337,6 +339,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             isPreparing = false
         }
         backend.load(url: file)
+        applyLeveling(file: file, generation: mine)
         if let seek = resumeSeek, seek.id == id { backend.seek(to: seek.position) } // 前回の続きから（位置は、再生を始める前に合わせる）
         resumeSeek = nil
         backend.play()
@@ -489,6 +492,18 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         message = "再生できない曲を飛ばしました：\(reason)"
         // 1曲リピートでも、壊れた曲を繰り返さず次へ進む（automaticにしない）。
         Task { await advance(direction: 1, automatic: false) }
+    }
+
+    /// 曲の音量を揃える：測ったことがあれば、すぐ倍率を反映する。なければ、いったん等倍で再生し、測り終えたら反映する（初めての曲だけ、数秒かかる）。
+    private func applyLeveling(file: URL, generation mine: Int) {
+        guard UserDefaults.standard.object(forKey: "volumeLeveling") as? Bool ?? true else { backend.gain = 1; return }
+        if let cached = loudness.cachedGain(file) { backend.gain = Float(cached); return }
+        backend.gain = 1
+        Task { [weak self] in
+            guard let meanDb = await VolumeLeveling.meanDb(of: file), let self else { return }
+            self.loudness.store(file, meanDb: meanDb)
+            if mine == self.generation, UserDefaults.standard.object(forKey: "volumeLeveling") as? Bool ?? true { self.backend.gain = Float(VolumeLeveling.gain(meanDb: meanDb)) }
+        }
     }
 
     /// 前回の続きから再生のために、いまの曲・位置を保存する（約10秒ごと・一時停止の瞬間。保存の間隔は ResumeStore が管理）。

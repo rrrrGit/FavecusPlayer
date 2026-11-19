@@ -37,6 +37,7 @@ const { SleepTimer } = require('./core/sleep-timer.cjs');
 const { ResumeStore } = require('./core/resume-point.cjs');
 const AutoListsCore = require('./core/auto-lists.cjs');
 const { TrashStore } = require('./core/trash-store.cjs');
+const { LoudnessStore } = require('./core/loudness.cjs');
 const { APP_ID, ConfigureTaskbar, PreviousInstallRoots } = require('./core/windows-identity.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'favecus', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
@@ -48,7 +49,7 @@ app.setPath('sessionData', dataDirectory);
 let win, store, presence, remoteView, mini, volumeSaveTimer, backgroundMode, sync;
 let viewVisible = false;
 let current = null, playback = null;
-let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null, trashStore = null;
+let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null, trashStore = null, loudness = null, songGain = 1;
 let visibleBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 let statuses = { discord: { code: 'off', text: 'Discord連携はオフです' }, taskbar: { code: 'off', text: '下向き矢印を押すと埋め込みを試します' } };
 let playCounts;
@@ -112,6 +113,14 @@ function WithTrashedEntries(data) {
   const extra = trashStore?.Entries() || [];
   if (!data || !Array.isArray(data.playlists) || !extra.length) return data;
   return { ...data, playlists: [...data.playlists, { id: 'trash', name: 'trash', entries: extra, childIds: [] }] };
+}
+// 保存済み・ローカルの曲の音量を測り（初めてだけ。結果は覚える）、大きい曲を下げる倍率を、再生中の音量に反映する。オンライン再生は、対象外。
+async function LevelCurrent(request, file) {
+  if (!file || !loudness || store.data.settings.volumeLeveling === false) return;
+  try {
+    const gain = await loudness.GainFor(file);
+    if (request === loadRequest && gain !== songGain) { songGain = gain; SetVolume(); }
+  } catch { /* 測れなくても、再生は妨げない */ }
 }
 function QueueState() {
   if (!current?.playlistId) return null;
@@ -302,7 +311,8 @@ function ResumeOffer() {
 }
 // factor：おやすみタイマーの終わりの音量の倍率（1＝設定の音量。設定の値は変えない）。
 function SetVolume(factor = 1) {
-  const volume = store.data.settings.volume * factor; biliBrowser?.SetVolume(volume);
+  // 曲ごとの自動調整（保存済み・ローカルの曲だけ。大きい曲を下げる。設定でオフにできる）
+  const volume = store.data.settings.volume * factor * (store.data.settings.volumeLeveling === false ? 1 : songGain); biliBrowser?.SetVolume(volume);
   for (const wc of [remoteView?.webContents, ...[...accountWindows.values()].map(w => w.webContents)].filter(Boolean)) {
     if (!wc.isDestroyed()) {
       const channel = mediaChannels.get(wc);
@@ -492,6 +502,7 @@ async function LoadEntry(playlistId, entryId, pageMode = false, { allowRecovery 
   }
   const gen = generation; view.resume = resume;
   if (!preserveCount) playCounts?.Begin(entry);
+  songGain = 1; void LevelCurrent(request, saved ? offline.ResolvePath(saved.file) : entry.type === 'local' ? path.join(store.media, entry.fileName) : null);
   current = { source, queuePlaylistId: queue.playlistId, playlistId, entryId, entry: structuredClone(entry), pageMode, officialPlayer, recoveryAttempt, offline: saved ? { token: saved.token, kind: saved.kind, height: saved.height } : null };
   PlayerDiagnostic('track-change', { source, saved: !!saved });
   playback = null; thumbnail = null; UpdatePresence(); UpdateForeground(); Emit('current', current); void LoadThumbnail(); backgroundMode?.Refresh();
@@ -605,6 +616,7 @@ async function Command(command, value) {
 async function Start() {
   const ffmpeg = process.env.FAVECUS_INSTALL_ROOT ? path.join(process.env.FAVECUS_INSTALL_ROOT, 'runtime', 'ffmpeg', 'ffmpeg.exe') : app.isPackaged ? path.join(process.resourcesPath, 'ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg') : path.join(app.getAppPath(), 'runtime', 'ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
   trashStore = new TrashStore(path.join(app.getPath('userData'), 'trash.json'));
+  loudness = new LoudnessStore(path.join(app.getPath('userData'), 'loudness.json'), ffmpeg);
   store = new Store(app.getPath('userData'), { trash: item => trashStore.Add(item), committed: () => { offline?.ScheduleCleanup(); sync?.Changed(); }, convertWma: (source, destination) => ConvertWma(ffmpeg, source, destination) });
 
   // プレイリストの同期（既定はオフ。利用者が設定で有効にしたときだけ動く）。library.jsonが正本で、同期の状態はuserData/sync/にある。
@@ -851,7 +863,7 @@ async function Start() {
   });
   Handle('player:auto-play', (kind, entryId, shuffled) => AutoPlay(kind, typeof entryId === 'string' ? entryId : null, shuffled === true));
   // 最近削除（一覧・元に戻す・完全に削除）。元に戻すのは共通の規則（core/trash.cjs）。失敗したときは、保管を残して、理由を返す。
-  Handle('trash:list', () => trashStore.List());
+  Handle('trash:list', () => { const list = trashStore.List(); if (trashStore.TakePruned()) offline?.ScheduleCleanup(); return list; });
   Handle('trash:restore', id => {
     const item = trashStore.Get(String(id));
     if (!item) throw new Error('この項目は、すでに保管の期限が切れたか、なくなっています。');
@@ -859,8 +871,8 @@ async function Start() {
     trashStore.Remove(item.id); Emit('state', state);
     return trashStore.List();
   });
-  Handle('trash:delete', id => { trashStore.Remove(String(id)); return trashStore.List(); });
-  Handle('trash:clear', () => { trashStore.Clear(); return []; });
+  Handle('trash:delete', id => { trashStore.Remove(String(id)); offline?.ScheduleCleanup(); return trashStore.List(); }); // 完全に削除したあと、参照のなくなった保存済みメディアを整理する
+  Handle('trash:clear', () => { trashStore.Clear(); offline?.ScheduleCleanup(); return []; });
   Handle('player:resume-last', () => {
     const saved = resumeStore?.Get();
     if (!saved || !ResumeOffer()) throw new Error('前回の続きがありません。');

@@ -109,7 +109,7 @@ test('067 deleting the last playing reference waits for native destruction and p
   const h = await MainHarness(t, { delayPlayerClose: true }), id = h.store.data.activePlaylistId;
   const state = await h.invoke('library:action', { type: 'add', playlistId: id, urls: 'av123' }), entry = state.playlists[0].entries[0], record = SavedTrack(h, entry);
   await h.invoke('player:play', id, entry.id); const view = h.views.at(-1), url = SavedURL(view);
-  await h.invoke('library:action', { type: 'remove', playlistId: id, entryId: entry.id }); await FlushPlayer();
+  await h.invoke('library:action', { type: 'remove', playlistId: id, entryId: entry.id }); await h.invoke('trash:clear'); /* 最近削除に保管中は、保存済みメディアを残す（v0.7.3）。完全に削除したあとに整理される */ await FlushPlayer();
   assert.equal((await h.invoke('app:state')).current, null); assert.ok(fs.existsSync(h.offline.ResolvePath(record.file))); assert.ok(h.offline.cleanup.leases.size);
   view.webContents.finishClose(); await FlushPlayer(); assert.equal(fs.existsSync(h.offline.ResolvePath(record.file)), false); assert.equal(h.offline.records.size, 0);
   assert.equal((await h.protocols.get('favecus')(new Request(url))).status, 403);
@@ -124,7 +124,7 @@ test('067 single and batch moves retain a playing saved file until the final pla
   assert.equal(h.offline.File(record.token).file, record.file); assert.equal((await h.invoke('app:state')).current.playlistId, second);
   await h.invoke('library:move-tracks', { entries: [{ playlistId: second, entryId: one.destinations[0].entryId }], destinationIds: [first] }); await FlushPlayer();
   assert.equal((await h.invoke('app:state')).current.playlistId, first); assert.equal(h.views.at(-1), view);
-  await h.invoke('library:action', { type: 'delete', playlistId: first }); await FlushPlayer(); assert.ok(fs.existsSync(h.offline.ResolvePath(record.file)));
+  await h.invoke('library:action', { type: 'delete', playlistId: first }); await h.invoke('trash:clear'); /* 最近削除に保管中は、保存済みメディアを残す（v0.7.3）。完全に削除したあとに整理される */ await FlushPlayer(); assert.ok(fs.existsSync(h.offline.ResolvePath(record.file)));
   view.webContents.finishClose(); await FlushPlayer(); assert.equal(h.offline.File(record.token), null);
 });
 test('067 quality refresh and a second playback keep independent source paths and reject an expired playback route', async t => {
@@ -146,7 +146,7 @@ test('067 an in-flight protocol stream keeps its source after the native player 
   await h.invoke('player:play', id, entry.id); const view = h.views.at(-1), stream = new (require('node:stream').PassThrough)();
   const mock = t.mock.method(fs, 'createReadStream', () => stream); let response;
   try { response = await h.protocols.get('favecus')(new Request(SavedURL(view))); } finally { mock.mock.restore(); }
-  await h.invoke('library:action', { type: 'remove', playlistId: id, entryId: entry.id }); await FlushPlayer(); view.webContents.finishClose(); await FlushPlayer();
+  await h.invoke('library:action', { type: 'remove', playlistId: id, entryId: entry.id }); await h.invoke('trash:clear'); /* 最近削除に保管中は、保存済みメディアを残す（v0.7.3）。完全に削除したあとに整理される */ await FlushPlayer(); view.webContents.finishClose(); await FlushPlayer();
   assert.ok(fs.existsSync(h.offline.ResolvePath(record.file))); assert.ok(h.offline.cleanup.leases.size);
   stream.end('media'); assert.equal(await response.text(), 'media'); await FlushPlayer(); assert.equal(fs.existsSync(h.offline.ResolvePath(record.file)), false);
 });
@@ -154,7 +154,7 @@ test('067 a failed native close holds the file until actual destruction is obser
   let fail = true; const h = await MainHarness(t, { onNative: type => { if (type === 'close' && fail) { fail = false; throw new Error('native busy'); } } }), id = h.store.data.activePlaylistId;
   const state = await h.invoke('library:action', { type: 'add', playlistId: id, urls: 'av123' }), entry = state.playlists[0].entries[0], record = SavedTrack(h, entry);
   await h.invoke('player:play', id, entry.id); const view = h.views.at(-1);
-  await h.invoke('library:action', { type: 'remove', playlistId: id, entryId: entry.id }); await FlushPlayer(); assert.ok(fs.existsSync(h.offline.ResolvePath(record.file)));
+  await h.invoke('library:action', { type: 'remove', playlistId: id, entryId: entry.id }); await h.invoke('trash:clear'); /* 最近削除に保管中は、保存済みメディアを残す（v0.7.3）。完全に削除したあとに整理される */ await FlushPlayer(); assert.ok(fs.existsSync(h.offline.ResolvePath(record.file)));
   view.webContents.finishClose(); await FlushPlayer(); assert.equal(fs.existsSync(h.offline.ResolvePath(record.file)), false);
 });
 test('067 startup removes known orphan downloads while retaining referenced and unmanaged files', async t => {

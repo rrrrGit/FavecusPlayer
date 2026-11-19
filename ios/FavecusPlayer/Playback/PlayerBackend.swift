@@ -13,6 +13,8 @@ protocol PlayerBackend: AnyObject {
     var isPlaying: Bool { get }
     /// 音量（0〜1）。おやすみタイマーの終わりのフェードに使う。
     var volume: Float { get set }
+    /// 曲ごとの音量の自動調整の倍率（0〜1。1＝そのまま）。実際の音量は、volume × gain。
+    var gain: Float { get set }
     func load(url: URL)
     func play()
     func pause()
@@ -25,6 +27,10 @@ protocol PlayerBackend: AnyObject {
 extension PlayerBackend {
     var videoPlayer: AVPlayer? { nil }
     var volume: Float {
+        get { 1 }
+        set {}
+    }
+    var gain: Float {
         get { 1 }
         set {}
     }
@@ -58,9 +64,18 @@ final class AVPlayerBackend: PlayerBackend {
         if let failObserver { NotificationCenter.default.removeObserver(failObserver) }
     }
 
+    private var fade: Float = 1
+    private var levelGain: Float = 1
+    private func applyVolume() { player.volume = fade * levelGain }
+
     var volume: Float {
-        get { player.volume }
-        set { player.volume = max(0, min(1, newValue)) }
+        get { fade }
+        set { fade = max(0, min(1, newValue)); applyVolume() }
+    }
+
+    var gain: Float {
+        get { levelGain }
+        set { levelGain = max(0, min(1, newValue)); applyVolume() }
     }
 
     var position: Double {

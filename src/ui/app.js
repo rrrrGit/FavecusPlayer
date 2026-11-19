@@ -760,18 +760,21 @@ function PlaybackSettings() {
   const s = state.settings;
   const save = async () => {
     if (!$('modal-form').reportValidity()) return false;
-    const epoch = modalEpoch, settings = { autoThumbnailEnabled: $('auto-thumbnail').checked, autoThumbnailMinutes: Number($('auto-thumbnail-minutes').value) };
+    const epoch = modalEpoch, settings = { volumeLeveling: $('volume-leveling').checked, autoThumbnailEnabled: $('auto-thumbnail').checked, autoThumbnailMinutes: Number($('auto-thumbnail-minutes').value) };
     UpdateDownloads(await api.preferSaved($('playback-source').value === 'saved'));
     return SaveSettingsSection(settings, epoch);
   };
   OpenModal('再生・表示', `
     <label class="field">再生するデータの優先<select id="playback-source"><option value="saved">保存済みの動画・音声を優先</option><option value="online">オンラインを優先</option></select><small>保存済みを優先すると、対応するファイルがある曲はPCから再生します。変更は次の曲の読み込みから反映します。</small></label>
     <label class="field">プレイリスト欄の幅<input id="sidebar-width" type="range" min="170" max="400" step="1"><output id="sidebar-width-value"></output><small>変更はすぐに反映・保存されます。</small></label>
+    <label class="check-row"><input id="volume-leveling" type="checkbox">曲ごとの音量差を自動で揃える（大きい曲を下げます）</label>
+    <p class="form-note">保存済みの音声・動画と、ローカルの曲が対象です（オンライン再生は対象外）。初めて再生する曲は、音量を測るため、数秒だけ遅れて反映されます。曲を上げることはしません。</p>
     <label class="check-row"><input id="auto-thumbnail" type="checkbox">アプリを前面で使っていない間は、自動で曲モードにする</label>
     <label class="field">切り替えまでの時間（分）<input id="auto-thumbnail-minutes" type="number" min="1" max="120" step="1" required><small>初期値5分。最小化・タスクバー表示中や、別のアプリを操作している間を数えます。前面に戻すと待ち時間をリセットします。</small></label>
     <p class="form-note">音声と再生位置は保ちます。自動切り替え後は「動画」で戻せます。同じ再生画面を再表示・再描画し、通常はページを再読み込みしません。</p>
     <p class="form-note">左上の「戻る」または「保存して戻る」で保存します。×・閉じるは変更を保存せず閉じます。</p>`, save, '保存して戻る', save);
   $('playback-source').value = downloadInfo.preferSaved === false ? 'online' : 'saved';
+  $('volume-leveling').checked = s.volumeLeveling !== false;
   $('sidebar-width').value = s.sidebarWidth; $('sidebar-width-value').textContent = `${s.sidebarWidth}px`;
   $('sidebar-width').oninput = () => { const width = Number($('sidebar-width').value); $('sidebar-width-value').textContent = `${width}px`; document.body.style.setProperty('--sidebar-width', `${width}px`); Run(() => Action({ type: 'settings', settings: { sidebarWidth: width } })); };
   $('auto-thumbnail').checked = s.autoThumbnailEnabled; $('auto-thumbnail-minutes').value = s.autoThumbnailMinutes;
