@@ -364,6 +364,7 @@ final class PlaybackTests: XCTestCase {
         let a = try entry(store, "ローカルA")
         let scope = try parentId(store)
         await engine.play(entryId: a.id, scope: scope)
+        backend.duration = 200 // 終わりの5秒以内では、頭から再生するため、長い曲にする
         backend.position = 7
         backend.onTick?()
         engine.pause()
