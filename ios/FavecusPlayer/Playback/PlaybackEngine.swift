@@ -56,7 +56,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     /// おやすみタイマー（終わりに、音量を下げて一時停止する）。端末内の一時的な状態。
     let sleepTimer = SleepTimer()
     /// 前回の続きから再生：最後の曲・位置の保存（端末内。同期しない）。なければ、保存も復元もしない。
-    var resume: ResumeStore?
+    var resumeStore: ResumeStore?
     /// 起動後に、前回の曲を「一時停止の状態」で表示しているだけ（まだ読み込んでいない）。再生を押すと、保存した位置から始める。
     @Published private(set) var restoredPending = false
     private var resumeSeek: (id: String, position: Double)?
@@ -486,16 +486,16 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     /// 前回の続きから再生のために、いまの曲・位置を保存する（約10秒ごと・一時停止の瞬間。保存の間隔は ResumeStore が管理）。
     private func saveResume() {
-        guard let resume, let current, !isPreparing, !restoredPending else { return }
-        resume.observe(ResumeRecord(entryId: current.entryId, playlistId: current.playlistId, scope: scope ?? "*", position: position, duration: duration), paused: !isPlaying)
+        guard let resumeStore, let current, !isPreparing, !restoredPending else { return }
+        resumeStore.observe(ResumeRecord(entryId: current.entryId, playlistId: current.playlistId, scope: scope ?? "*", position: position, duration: duration), paused: !isPlaying)
     }
 
     /// アプリが背面へ移るとき・終了するときに、保存を確定する。
-    func flushResume() { resume?.flush() }
+    func flushResume() { resumeStore?.flush() }
 
     /// 起動後、前回の曲を、一時停止の状態で表示する（読み込まず、鳴らさない）。ライブラリの読み込みのあとに呼ぶ。
     func restoreLast() {
-        guard current == nil, let record = resume?.get(), let target = entry(record.entryId), canPlay(target) else { return }
+        guard current == nil, let record = resumeStore?.get(), let target = entry(record.entryId), canPlay(target) else { return }
         current = NowPlaying(entryId: record.entryId, playlistId: record.playlistId, title: target.title.isEmpty ? "（無題）" : target.title)
         scope = record.scope
         position = record.position
