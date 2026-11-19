@@ -265,7 +265,10 @@ private struct LibraryTab: View {
                         card(list, index: index)
                     }
                 }
-                .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 90)
+                .padding(.horizontal, 16).padding(.top, 8)
+                // 自分のプレイリストの下：自動リスト（保存せず、その都度作る。曲の選び方は共通JS）
+                AutoListsSection(store: store, services: services)
+                    .padding(.horizontal, 16).padding(.top, 20).padding(.bottom, 90)
             }
         }
         .scrollDismissesKeyboard(.interactively)
@@ -314,6 +317,9 @@ private struct LibraryTab: View {
             .toolbar { ToolbarItem(placement: .navigationBarTrailing) { EditToggle(editing: $editing) } }
             .navigationDestination(for: String.self) { id in
                 PlaylistDetail(store: store, services: services, parentId: id, reveal: $reveal)
+            }
+            .navigationDestination(for: AutoListKind.self) { kind in
+                AutoListDetail(kind: kind, store: store, services: services)
             }
             .alert("新しいプレイリスト", isPresented: $creating) {
                 TextField("名前", text: $newName)

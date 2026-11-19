@@ -425,4 +425,24 @@ final class PlaybackTests: XCTestCase {
         XCTAssertNil(engine.current)
         XCTAssertFalse(engine.restoredPending)
     }
+    // MARK: 自動リスト（v0.7.3 F3）
+
+    func testAutoListsAreChosenByTheSharedRule() async throws {
+        let (store, engine, _) = try await prepare()
+        let lists = try XCTUnwrap(await engine.autoLists())
+        let total = Set((store.document?.playlists ?? []).flatMap(.entries).map(.id)).count
+        XCTAssertTrue(lists.frequent.isEmpty, "再生回数が0なら、よく聴く曲は空")
+        XCTAssertEqual(lists.unplayed.count, min(total, 200))
+        XCTAssertEqual(lists.recent.count, min(total, 50))
+    }
+
+    func testPlayingAnAutoListFollowsTheListOrderAndKeepsItWhileMoving() async throws {
+        let (store, engine, backend) = try await prepare()
+        let a = try entry(store, "ローカルA"), b = try entry(store, "ローカルB")
+        await engine.play(entryId: b.id, scope: "auto:recent", entryIds: [b.id, a.id])
+        XCTAssertEqual(engine.current?.title, "ローカルB")
+        XCTAssertTrue(backend.isPlaying)
+        await engine.goNext()
+        XCTAssertEqual(engine.current?.title, "ローカルA", "一覧の順（B→A）に進む")
+    }
 }

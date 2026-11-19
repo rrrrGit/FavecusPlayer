@@ -71,6 +71,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     private let backend: PlayerBackend
     private var system: SystemAudioHooks?
     private var scope: String?
+    /// 自動リストの再生：再生範囲の曲のID（開いた時点の並び。scope は auto:…）。ふつうのリストでは nil。
+    private var scopeEntryIds: [String]?
     private var failureStreak = 0
     /// 曲の切り替え・停止のたびに増やす。待っている間に状態が変わった古い処理の結果を捨てるため。
     private var generation = 0
@@ -138,7 +140,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     /// scope：再生範囲のリストID（そのリストと子のリスト）、または "*"（すべて）。
     /// entryId が nil のときは、シャッフル再生で、最初の曲もランダムに選ぶ（再生範囲の中から。重みの設定に従う）。
-    func play(entryId: String?, scope: String) async {
+    func play(entryId: String?, scope: String, entryIds: [String]? = nil) async {
         if let entryId {
             guard let target = entry(entryId), canPlay(target) else {
                 message = "この曲はこの端末で再生できません（メディアがありません）。"
@@ -148,19 +150,21 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         failureStreak = 0
         generation += 1
         let mine = generation
-        guard let result = await startQueue(entryId: entryId, scope: scope),
+        guard let result = await startQueue(entryId: entryId, scope: scope, entryIds: entryIds),
               let id = result.id, let playlistId = result.playlistId else {
             if mine == generation { message = "この曲を再生キューに入れられません。" } // 失敗しても、再生中の曲・再生範囲は変えない
             return
         }
         guard mine == generation else { return } // 待っている間に、別の曲を選ばれた・止められた
         self.scope = scope
+        scopeEntryIds = entryIds
         await load(id: id, playlistId: playlistId)
     }
 
     /// 再生キューだけを作る（読み込み・再生はしない）。entryId が nil のときは、シャッフルで、最初の曲もランダムに選ぶ。
-    private func startQueue(entryId: String?, scope: String) async -> QueueResult? {
+    private func startQueue(entryId: String?, scope: String, entryIds: [String]? = nil) async -> QueueResult? {
         var request: [String: Any] = ["text": store.currentText, "scope": scope, "entryId": entryId ?? "", "shuffle": shuffle || entryId == nil, "playable": playableIds()]
+        if let entryIds { request["entryIds"] = entryIds }
         if entryId == nil { request["randomStart"] = true; shuffle = true }
         if shuffle, let weights = await shuffleWeights() { request["weights"] = weights } // 再生回数が少ない曲を優先する（設定がオンのとき）
         return await queue("QueueStart", request)
@@ -240,6 +244,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         backend.stop()
         current = nil
         scope = nil
+        scopeEntryIds = nil
         refresh()
     }
 
@@ -267,7 +272,9 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     /// 前後の曲へ。automatic：曲の終わりでの自動送り（1曲リピートではそのまま繰り返す）。
     private func syncRequest() -> [String: Any]? {
         guard let scope, let current else { return nil }
-        return ["text": store.currentText, "scope": scope, "entryId": current.entryId, "ownScope": current.playlistId, "shuffle": shuffle, "playable": playableIds()]
+        var request: [String: Any] = ["text": store.currentText, "scope": scope, "entryId": current.entryId, "ownScope": current.playlistId, "shuffle": shuffle, "playable": playableIds()]
+        if let scopeEntryIds { request["entryIds"] = scopeEntryIds }
+        return request
     }
 
     private func advance(direction: Int, automatic: Bool) async {
@@ -487,11 +494,26 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     /// 前回の続きから再生のために、いまの曲・位置を保存する（約10秒ごと・一時停止の瞬間。保存の間隔は ResumeStore が管理）。
     private func saveResume() {
         guard let resumeStore, let current, !isPreparing, !restoredPending else { return }
-        resumeStore.observe(ResumeRecord(entryId: current.entryId, playlistId: current.playlistId, scope: scope ?? "*", position: position, duration: duration), paused: !isPlaying)
+        resumeStore.observe(ResumeRecord(entryId: current.entryId, playlistId: current.playlistId, scope: (scope?.hasPrefix("auto:") == true ? "*" : scope) ?? "*", position: position, duration: duration), paused: !isPlaying)
     }
 
     /// アプリが背面へ移るとき・終了するときに、保存を確定する。
     func flushResume() { resumeStore?.flush() }
+
+    /// 自動リスト（よく聴く曲・最近追加した曲・未再生）。選び方は共通JS（src/core/auto-lists.cjs。PC版と同じ）。ここは、曲のキーと再生回数を集めて渡すだけ。
+    func autoLists() async -> AutoListsResult? {
+        var seen = Set<String>(), unique: [EntryItem] = []
+        for entry in (store.document?.playlists ?? []).flatMap(\.entries) where seen.insert(entry.id).inserted { unique.append(entry) }
+        let keys = await countKeys(for: unique)
+        var keyMap: [String: String] = [:]
+        for (entry, key) in zip(unique, keys) { if let key { keyMap[entry.id] = key } }
+        let countMap = await counts?.counts(for: Array(Set(keyMap.values))) ?? [:]
+        let request: [String: Any] = ["text": store.currentText, "keys": keyMap, "counts": countMap]
+        guard let data = try? JSONSerialization.data(withJSONObject: request),
+              let reply = try? await core.callAsync("AutoLists", String(decoding: data, as: UTF8.self)),
+              let result = try? JSONDecoder().decode(AutoListsResult.self, from: Data(reply.utf8)) else { return nil }
+        return result
+    }
 
     /// 起動後、前回の曲を、一時停止の状態で表示する（読み込まず、鳴らさない）。ライブラリの読み込みのあとに呼ぶ。
     func restoreLast() {
