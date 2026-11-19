@@ -62,8 +62,9 @@ final class LoudnessCache {
     }
 
     private func identity(_ url: URL) -> String? {
-        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]), let size = values.fileSize, let date = values.contentModificationDate else { return nil }
-        return "\(url.path)|\(size)|\(Int(date.timeIntervalSince1970 * 1000))"
+        // URLの値の保持（キャッシュ）に頼らず、毎回ファイルから読む（ファイルが変わったことを見逃さない）
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path), let size = attributes[.size] as? NSNumber, let date = attributes[.modificationDate] as? Date else { return nil }
+        return "\(url.path)|\(size.int64Value)|\(Int(date.timeIntervalSince1970 * 1000))"
     }
 
     func cachedGain(_ url: URL) -> Double? {
