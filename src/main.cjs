@@ -34,6 +34,7 @@ const { ConvertWma } = require('./core/audio-import.cjs');
 const { BilibiliAccount } = require('./core/bilibili.cjs');
 const { Thumbnails, SmallImage, CoverImage, FlatImage, ImageData } = require('./core/thumbnail.cjs');
 const { SleepTimer } = require('./core/sleep-timer.cjs');
+const { ResumeStore } = require('./core/resume-point.cjs');
 const { APP_ID, ConfigureTaskbar, PreviousInstallRoots } = require('./core/windows-identity.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'favecus', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
@@ -45,7 +46,7 @@ app.setPath('sessionData', dataDirectory);
 let win, store, presence, remoteView, mini, volumeSaveTimer, backgroundMode, sync;
 let viewVisible = false;
 let current = null, playback = null;
-let thumbnails, thumbnail = null, sleepTimer = null;
+let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null;
 let visibleBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 let statuses = { discord: { code: 'off', text: 'Discord連携はオフです' }, taskbar: { code: 'off', text: '下向き矢印を押すと埋め込みを試します' } };
 let playCounts;
@@ -233,12 +234,23 @@ async function LoadThumbnail() {
 }
 function AcceptPlayback(data) {
   playback = data; playCounts?.Observe(data); Emit('playback', data); UpdatePresence();
+  // 前回の続きから再生：曲・再生範囲・位置を、この端末にだけ保存する（約10秒ごと・一時停止の瞬間）
+  if (current?.playlistId && queue?.playlistId) resumeStore?.Observe({ entryId: current.entryId, playlistId: current.playlistId, scope: queue.playlistId, position: data.position, duration: data.duration }, data.paused === true);
   if (current?.officialPlayer && !data.paused && data.position >= 3) { officialPreferred.add(current.entry.videoId); const season = playbackMetadata.get(current.entry.videoId)?.ugc_season?.id; if (season) officialPreferred.add(`season:${season}`); if (officialPreferred.size > 1000) officialPreferred.delete(officialPreferred.values().next().value); }
 }
 function StopPlayer() {
   loadRequest++;
   CloseView(); current = null; playback = null; thumbnail = null; queue.Clear();
-  Emit('current', null); Emit('playback', null); UpdatePresence(); backgroundMode?.Refresh();
+  Emit('current', null); Emit('playback', null); Emit('resume', ResumeOffer()); UpdatePresence(); backgroundMode?.Refresh();
+}
+// 「前回の続きから」の案内（再生中でなく、保存した曲がライブラリにあるときだけ）。位置は、規則で補正済み。
+function ResumeOffer() {
+  const saved = resumeStore?.Get();
+  if (!saved || current || !store) return null;
+  let entry = null;
+  try { entry = store.Entries(saved.scope).find(e => e.id === saved.entryId) || null; } catch {}
+  if (!entry) return null;
+  return { title: entry.title || entry.videoId || 'ローカル動画', position: saved.position, duration: saved.duration };
 }
 // factor：おやすみタイマーの終わりの音量の倍率（1＝設定の音量。設定の値は変えない）。
 function SetVolume(factor = 1) {
@@ -484,12 +496,12 @@ async function Configure() {
   await mini?.Configure?.();
 }
 function Resources(folder) { return app.isPackaged ? path.join(process.resourcesPath, folder) : path.join(app.getAppPath(), folder); }
-async function Play(playlistId, entryId) {
+async function Play(playlistId, entryId, resume = null) {
   const entries = store.Entries(playlistId), selected = entries.find(e => e.id === entryId) || (!entryId ? entries[0] : null);
   if (!selected) throw new Error('再生する曲がありません。');
   PlayableEntry(selected.playlistId, selected.id);
   queue.Start(playlistId, entries, selected.id, store.data.settings.shuffle);
-  return LoadEntry(selected.playlistId, selected.id);
+  return LoadEntry(selected.playlistId, selected.id, false, resume ? { resume } : {});
 }
 async function ShufflePlay(playlistId) {
   const entries = store.Entries(playlistId);
@@ -666,7 +678,7 @@ async function Start() {
     else throw new Error('対応していない操作です。');
     return sync.Status();
   });
-  Handle('app:state', () => ({ sleep: sleepTimer?.State() || { mode: 'off' }, state: store.Snapshot(), statuses, current, playback, thumbnail, queue: QueueState(), downloads: offline.Snapshot(), foreground: Foreground(), accounts: accountStatus, version: app.getVersion(), platform: process.platform }));
+  Handle('app:state', () => ({ sleep: sleepTimer?.State() || { mode: 'off' }, resume: ResumeOffer(), state: store.Snapshot(), statuses, current, playback, thumbnail, queue: QueueState(), downloads: offline.Snapshot(), foreground: Foreground(), accounts: accountStatus, version: app.getVersion(), platform: process.platform }));
   Handle('player:reset-counts', () => { playCounts.Reset(); return true; });
   Handle('downloads:state', () => offline.Snapshot());
   const downloadTarget = options => {
@@ -782,7 +794,12 @@ async function Start() {
     if (actual && value > 0) { actual.duration = value; store.Save(); }
     return value || null;
   });
-  Handle('player:play', Play);
+  Handle('player:play', (playlistId, entryId) => Play(playlistId, entryId));
+  Handle('player:resume-last', () => {
+    const saved = resumeStore?.Get();
+    if (!saved || !ResumeOffer()) throw new Error('前回の続きがありません。');
+    return Play(saved.scope, saved.entryId, saved.position > 0 ? { position: saved.position, paused: false } : null);
+  });
   Handle('player:shuffle', ShufflePlay);
   Handle('player:fullscreen', () => ToggleVideoFullscreen());
   Handle('player:all', AllPlay);
@@ -790,6 +807,7 @@ async function Start() {
   Handle('player:shortcut', Shortcut);
   Handle('player:volume', ChangeVolume);
   // おやすみタイマー（規則は core/sleep-timer.cjs。iPhone版と同じ）。終わりに、音量を下げて一時停止し、音量を戻す。
+  resumeStore = new ResumeStore(path.join(app.getPath('userData'), 'playback-resume.json'));
   sleepTimer = new SleepTimer({
     onFade: factor => SetVolume(factor),
     onExpire: () => SendToPlayer('media:command', { type: 'pause' }),
@@ -887,7 +905,7 @@ else {
 app.on('child-process-gone', (_event, details = {}) => PlayerDiagnostic('child-process-exited', { processType: details.type, exitReason: details.reason, exitCode: details.exitCode }));
 process.on?.('uncaughtExceptionMonitor', (error, origin) => PlayerDiagnostic('uncaught-exception', { origin, name: error.name, code: error.code, message: String(error.message).slice(0, 240), stack: String(error.stack || '').split('\n').slice(0, 8).join('\n').slice(0, 3000) }));
 app.on('before-quit', () => {
-  quitting = true; loadRequest++; sync?.Dispose(); offline?.CancelEstimate();
+  quitting = true; resumeStore?.Flush(); loadRequest++; sync?.Dispose(); offline?.CancelEstimate();
   offline?.Cancel();
   if (volumeSaveTimer) { clearTimeout(volumeSaveTimer); volumeSaveTimer = null; try { store?.Save(); } catch {} }
   biliBrowser?.Destroy(); backgroundMode?.Dispose(); mini?.Destroy(); mini = null; presence?.Stop(); CloseView(); for (const view of retiredPlayers.keys()) DisposePlayer(view); offline?.cleanup.Dispose();

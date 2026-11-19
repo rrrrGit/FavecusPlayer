@@ -351,4 +351,77 @@ final class PlaybackTests: XCTestCase {
         XCTAssertEqual(backend.duration, 1.0, accuracy: 0.2)
         backend.stop()
     }
+    // MARK: 前回の続きから再生（v0.7.3 F2）
+
+    private func resumeStore() -> ResumeStore {
+        ResumeStore(defaults: UserDefaults(suiteName: "favecus-resume-test-\(UUID().uuidString)")!)
+    }
+
+    func testPlayingSavesWhereYouLeftOffAndARestartShowsItPausedWithoutPlaying() async throws {
+        let (store, engine, backend) = try await prepare()
+        let saved = resumeStore()
+        engine.resume = saved
+        let a = try entry(store, "ローカルA")
+        let scope = try parentId(store)
+        await engine.play(entryId: a.id, scope: scope)
+        backend.position = 7
+        backend.onTick?()
+        engine.pause()
+        XCTAssertEqual(saved.get()?.entryId, a.id)
+        XCTAssertEqual(saved.get()?.position, 7)
+        // 再起動：新しいエンジンで、前回の曲を表示するだけ（鳴らさない・読み込まない）
+        let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let backend2 = FakeBackend()
+        let restarted = PlaybackEngine(core: core, store: store, backend: backend2)
+        restarted.resume = saved
+        restarted.restoreLast()
+        XCTAssertEqual(restarted.current?.title, "ローカルA")
+        XCTAssertFalse(restarted.isPlaying)
+        XCTAssertTrue(restarted.restoredPending)
+        XCTAssertEqual(restarted.position, 7)
+        XCTAssertTrue(backend2.loaded.isEmpty)
+        XCTAssertFalse(backend2.isPlaying)
+    }
+
+    func testPressingPlayAfterARestoreStartsFromTheSavedPosition() async throws {
+        let (store, engine, backend) = try await prepare()
+        let saved = resumeStore()
+        let a = try entry(store, "ローカルA")
+        saved.observe(ResumeRecord(entryId: a.id, playlistId: try parentId(store), scope: try parentId(store), position: 42, duration: 200), paused: true)
+        saved.flush()
+        engine.resume = saved
+        engine.restoreLast()
+        XCTAssertTrue(engine.restoredPending)
+        engine.resume()
+        try await waitFor { backend.isPlaying }
+        XCTAssertEqual(backend.loaded.last?.lastPathComponent, a.fileName)
+        XCTAssertEqual(backend.position, 42)
+        XCTAssertFalse(engine.restoredPending)
+    }
+
+    func testNextAfterARestorePlaysTheFollowingSongNotTheRestoredOne() async throws {
+        let (store, engine, backend) = try await prepare()
+        let saved = resumeStore()
+        let a = try entry(store, "ローカルA")
+        saved.observe(ResumeRecord(entryId: a.id, playlistId: try parentId(store), scope: try parentId(store), position: 30, duration: 200), paused: true)
+        saved.flush()
+        engine.resume = saved
+        engine.restoreLast()
+        await engine.goNext()
+        XCTAssertNotNil(engine.current)
+        XCTAssertNotEqual(engine.current?.entryId, a.id)
+        XCTAssertFalse(engine.restoredPending)
+        XCTAssertTrue(backend.isPlaying)
+    }
+
+    func testNothingIsRestoredWhenTheSavedSongIsGone() async throws {
+        let (store, engine, _) = try await prepare()
+        let saved = resumeStore()
+        saved.observe(ResumeRecord(entryId: "no-such-entry", playlistId: try parentId(store), scope: "*", position: 30, duration: 200), paused: true)
+        saved.flush()
+        engine.resume = saved
+        engine.restoreLast()
+        XCTAssertNil(engine.current)
+        XCTAssertFalse(engine.restoredPending)
+    }
 }

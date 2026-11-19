@@ -47,6 +47,8 @@ struct FavecusPlayerApp: App {
                     if phase == .active {
                         Task { await environment.downloads?.resume(); await environment.alarms.resync(); await environment.playPendingAlarm() }
                         environment.player?.sleepTimer.tick() // 画面ロック中に期限を過ぎていれば、すぐ止める
+                    } else {
+                        environment.player?.flushResume() // 背面へ移るとき、前回の続きの位置を確定する
                     }
                 }
                 .task { await environment.playPendingAlarm() }
@@ -123,6 +125,7 @@ final class AppEnvironment: ObservableObject {
             // 再生回数の台帳（同期が無効でも数える）。数え方・重みの規則は共通JS
             let playCounts = PlayCountStore(core: core, directory: store.syncDirectory.deletingLastPathComponent())
             engine.counts = playCounts
+            engine.resume = ResumeStore()
             player = engine
             // 同期は、再生などとは別のJavaScriptCoreで動かす。Keychainが使えない環境でも、起動は妨げない（同期の画面にエラーとして出る）。
             let vault = KeychainVault()

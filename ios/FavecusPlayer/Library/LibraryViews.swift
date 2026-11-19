@@ -63,6 +63,7 @@ struct LibraryRootView: View {
         .preferredColorScheme(.dark)
         .task {
             await store.load()
+            player?.restoreLast() // 前回の曲を、一時停止の状態で表示する（鳴らさない）
             await sync?.start() // 同期が有効なら、状態を読み込んで同期を始める
             await downloads?.start() // 保存の記録を読み込み、前回から続いている取得を引き継ぐ
             await downloads?.refreshKeys(entries: store.document?.playlists.flatMap(\.entries) ?? [])

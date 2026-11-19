@@ -26,6 +26,14 @@ function RenderSleep() {
   button.title = label; button.setAttribute('aria-label', label); button.setAttribute('aria-pressed', String(on)); button.classList.toggle('enabled', on);
   clearTimeout(sleepRefresh); sleepRefresh = sleepState?.mode === 'minutes' ? setTimeout(RenderSleep, 1000) : null;
 }
+// 前回の続きから（保存した曲があり、再生中でないときだけ、再生バーに出す）
+let resumeOffer = null;
+function RenderResume() {
+  const button = $('resume-last'); if (!button) return;
+  const show = !!resumeOffer && !current;
+  button.classList.toggle('hidden', !show);
+  if (show) { const text = `前回の続きから：${resumeOffer.title}（${Time(resumeOffer.position)}～）`; button.textContent = text; button.title = text; button.setAttribute('aria-label', text); }
+}
 let sleepRefresh = null; // 残り時間の表示を、1秒ごとに更新する（タイマーが動いている間だけ）
 const tree = window.FavecusTree;
 const expandedLists = new Set(), expandedEntryLists = new Set(), playlistDrag = { value: null };
@@ -1129,6 +1137,7 @@ function PlayingPath() {
   return playingLocation.path;
 }
 function UpdateTransport() {
+  RenderResume();
   const { internal, data, canStart, canSeek } = Transport();
   $('now-title').textContent = data?.title || (current?.entry ? EntryTitle(current.entry) : canStart ? List().name : '再生していません');
   $('now-title').title = $('now-title').textContent;
@@ -1243,6 +1252,7 @@ for (const event of ['pointerup', 'pointercancel']) document.addEventListener(ev
 $('shuffle-play').onclick = () => PlaybackAction(() => api.shufflePlay(ViewScope()));
 $('play-all').onclick = () => PlaybackAction(() => api.play(ViewScope()));
 $('shuffle').onclick = () => Run(() => Action({ type: 'settings', settings: { shuffle: !state.settings.shuffle } }));
+$('resume-last').onclick = () => Run(() => api.resumeLast());
 $('sleep').onclick = () => Run(async () => { sleepState = await api.sleepTimer(NextSleepCommand(sleepState)); RenderSleep(); });
 $('repeat').onclick = () => Run(() => Action({ type: 'settings', settings: { repeat: { off: 'all', all: 'one', one: 'off' }[state.settings.repeat] } }));
 for (const id of ['next', 'previous']) $(id).onclick = () => PlaybackAction(() => api.command(id));
@@ -1266,6 +1276,7 @@ if (api) {
     else if (event.type === 'shortcut-follow') queueFollower?.Resume();
     else if (event.type === 'duration') { UpdateDuration(event.value.entryId, event.value.duration); }
     else if (event.type === 'volume') SyncVolume(event.value);
+    else if (event.type === 'resume') { resumeOffer = event.value || null; RenderResume(); }
     else if (event.type === 'sleep') { sleepState = event.value || { mode: 'off' }; RenderSleep(); }
     else if (event.type === 'status') { statuses = event.value; UpdateStatus(); }
     else if (event.type === 'loaded') { loaded = true; RenderPlayer(); }
@@ -1287,5 +1298,5 @@ if (api) {
   });
   new ResizeObserver(SendBounds).observe($('player-slot'));
   new ResizeObserver(UpdateQueueTail).observe($('entries'));
-  Run(async () => { const initial = await api.state(); state = initial.state; current = initial.current; playback = initial.playback; thumbnail = initial.thumbnail; statuses = initial.statuses; queueInfo = initial.queue; foreground = initial.foreground === true; accounts = initial.accounts || {}; loaded = !!playback; sleepState = initial.sleep || { mode: 'off' }; RenderSleep(); UpdateDownloads(initial.downloads); $('version').textContent = initial.version; document.body.classList.toggle('mac', initial.platform === 'darwin'); Render(); queueFollower?.Request(); accounts = await api.accounts(); UpdateAccounts(); });
+  Run(async () => { const initial = await api.state(); state = initial.state; current = initial.current; playback = initial.playback; thumbnail = initial.thumbnail; statuses = initial.statuses; queueInfo = initial.queue; foreground = initial.foreground === true; accounts = initial.accounts || {}; loaded = !!playback; sleepState = initial.sleep || { mode: 'off' }; RenderSleep(); resumeOffer = initial.resume || null; UpdateDownloads(initial.downloads); $('version').textContent = initial.version; document.body.classList.toggle('mac', initial.platform === 'darwin'); Render(); queueFollower?.Request(); accounts = await api.accounts(); UpdateAccounts(); });
 } else Toast('この画面はFavecus Playerのアプリから開いてください。');

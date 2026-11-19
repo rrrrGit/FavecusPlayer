@@ -55,6 +55,11 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     /// おやすみタイマー（終わりに、音量を下げて一時停止する）。端末内の一時的な状態。
     let sleepTimer = SleepTimer()
+    /// 前回の続きから再生：最後の曲・位置の保存（端末内。同期しない）。なければ、保存も復元もしない。
+    var resume: ResumeStore?
+    /// 起動後に、前回の曲を「一時停止の状態」で表示しているだけ（まだ読み込んでいない）。再生を押すと、保存した位置から始める。
+    @Published private(set) var restoredPending = false
+    private var resumeSeek: (id: String, position: Double)?
     /// 再生回数の台帳（数える・抽選の重み）。なければ、数えず、均等に抽選する。
     var counts: PlayCountStore?
     /// アプリを開いている（前面にある）か。背面では、映像の層が外れるため、動画へ切り替えない（前面へ戻ったとき、切り替える）。テストでは差し替える。
@@ -143,10 +148,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         failureStreak = 0
         generation += 1
         let mine = generation
-        var request: [String: Any] = ["text": store.currentText, "scope": scope, "entryId": entryId ?? "", "shuffle": shuffle || entryId == nil, "playable": playableIds()]
-        if entryId == nil { request["randomStart"] = true; shuffle = true }
-        if shuffle, let weights = await shuffleWeights() { request["weights"] = weights } // 再生回数が少ない曲を優先する（設定がオンのとき）
-        guard let result = await queue("QueueStart", request),
+        guard let result = await startQueue(entryId: entryId, scope: scope),
               let id = result.id, let playlistId = result.playlistId else {
             if mine == generation { message = "この曲を再生キューに入れられません。" } // 失敗しても、再生中の曲・再生範囲は変えない
             return
@@ -154,6 +156,14 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         guard mine == generation else { return } // 待っている間に、別の曲を選ばれた・止められた
         self.scope = scope
         await load(id: id, playlistId: playlistId)
+    }
+
+    /// 再生キューだけを作る（読み込み・再生はしない）。entryId が nil のときは、シャッフルで、最初の曲もランダムに選ぶ。
+    private func startQueue(entryId: String?, scope: String) async -> QueueResult? {
+        var request: [String: Any] = ["text": store.currentText, "scope": scope, "entryId": entryId ?? "", "shuffle": shuffle || entryId == nil, "playable": playableIds()]
+        if entryId == nil { request["randomStart"] = true; shuffle = true }
+        if shuffle, let weights = await shuffleWeights() { request["weights"] = weights } // 再生回数が少ない曲を優先する（設定がオンのとき）
+        return await queue("QueueStart", request)
     }
 
     /// 再生回数が少ない曲を優先する：曲のID → 重み（1/(1+回数)）。設定がオフ・台帳がないときは nil（均等）。
@@ -186,9 +196,13 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     func previous() { Task { await goPrevious() } }
 
-    func goNext() async { await advance(direction: 1, automatic: false) }
+    func goNext() async {
+        if restoredPending { await prepareRestoredQueue() } // 起動直後の表示だけの状態：先に、前回の曲を基準に再生キューを作る
+        await advance(direction: 1, automatic: false)
+    }
 
     func goPrevious() async {
+        if restoredPending { await playRestored(fromStart: true); return } // 読み込み前：この曲の頭から再生する
         // 再生位置が数秒進んでいれば、前の曲ではなく、この曲の頭へ戻る（一般的なプレイヤーの動作）。
         if position > 3 { seek(to: 0); return }
         await advance(direction: -1, automatic: false)
@@ -196,6 +210,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     func resume() {
         guard current != nil else { return }
+        if restoredPending { Task { await playRestored(fromStart: false) }; return }
         backend.play()
         refresh()
     }
@@ -203,6 +218,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     func pause() {
         backend.pause()
         refresh()
+        saveResume()
     }
 
     func toggle() {
@@ -285,6 +301,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         system?.activate()
         generation += 1
         let mine = generation
+        restoredPending = false
         // 次の曲の準備中に、前の曲のファイルで動画に切り替えないよう、前の曲の動画の情報を消しておく
         videoMode = false
         videoAvailable = false
@@ -313,6 +330,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             isPreparing = false
         }
         backend.load(url: file)
+        if let seek = resumeSeek, seek.id == id { backend.seek(to: seek.position) } // 前回の続きから（位置は、再生を始める前に合わせる）
+        resumeSeek = nil
         backend.play()
         audioFile = file
         loadedFile = file
@@ -465,8 +484,45 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         Task { await advance(direction: 1, automatic: false) }
     }
 
+    /// 前回の続きから再生のために、いまの曲・位置を保存する（約10秒ごと・一時停止の瞬間。保存の間隔は ResumeStore が管理）。
+    private func saveResume() {
+        guard let resume, let current, !isPreparing, !restoredPending else { return }
+        resume.observe(ResumeRecord(entryId: current.entryId, playlistId: current.playlistId, scope: scope ?? "*", position: position, duration: duration), paused: !isPlaying)
+    }
+
+    /// アプリが背面へ移るとき・終了するときに、保存を確定する。
+    func flushResume() { resume?.flush() }
+
+    /// 起動後、前回の曲を、一時停止の状態で表示する（読み込まず、鳴らさない）。ライブラリの読み込みのあとに呼ぶ。
+    func restoreLast() {
+        guard current == nil, let record = resume?.get(), let target = entry(record.entryId), canPlay(target) else { return }
+        current = NowPlaying(entryId: record.entryId, playlistId: record.playlistId, title: target.title.isEmpty ? "（無題）" : target.title)
+        scope = record.scope
+        position = record.position
+        duration = record.duration
+        isPlaying = false
+        restoredPending = true
+    }
+
+    /// 表示だけの前回の曲を、実際に読み込んで再生する（保存した位置から。fromStart なら頭から）。
+    private func playRestored(fromStart: Bool) async {
+        guard restoredPending, let current else { return }
+        let start = fromStart ? 0 : position
+        resumeSeek = start > 0 ? (id: current.entryId, position: start) : nil
+        await play(entryId: current.entryId, scope: scope ?? "*")
+    }
+
+    /// 表示だけの前回の曲を基準に、再生キューだけを作る（次の曲へ進むため）。
+    private func prepareRestoredQueue() async {
+        guard restoredPending, let current else { return }
+        guard let result = await startQueue(entryId: current.entryId, scope: scope ?? "*"), result.id == current.entryId else { return }
+        restoredPending = false
+        self.current = NowPlaying(entryId: current.entryId, playlistId: result.playlistId ?? current.playlistId, title: current.title)
+    }
+
     private func tick() {
         refresh()
+        saveResume()
         if isPlaying && position > 0.5 { failureStreak = 0 } // 実際に再生できたら、失敗の連続を数え直す
         if let counts, current != nil, !isPreparing {
             let position = self.position, duration = self.duration, paused = !isPlaying
