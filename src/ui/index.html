@@ -31,7 +31,7 @@
         <p id="download-mini-label"></p><progress id="download-mini-gauge" max="100" value="0" aria-label="保存の進捗"></progress>
         <small id="download-mini-detail"></small><button id="download-mini-cancel" class="button secondary" type="button">キャンセル</button>
       </div><button id="downloads-status" class="button secondary downloads-status" type="button">動画・音声の保存</button>
-      <div class="version">Favecus Player <span id="version">0.7.2</span></div>
+      <div class="version">Favecus Player <span id="version">0.7.3</span></div>
     </div>
   </aside>
   <main>
@@ -60,7 +60,7 @@
     </section>
     </div>
   </main>
-  <footer class="transport"><div class="now-playing"><div id="now-icon" class="now-icon">♫</div><div class="now-copy"><div class="now-title-row"><strong id="now-title">再生していません</strong></div><span id="now-artist">動画を選んで再生</span></div><span id="now-saved" class="entry-type now-saved hidden" role="status" aria-live="polite"></span></div><div class="transport-controls">
+  <footer class="transport"><div class="now-playing"><div id="now-icon" class="now-icon">♫</div><div class="now-copy"><div class="now-title-row"><strong id="now-title">再生していません</strong></div><span id="now-artist">動画を選んで再生</span><button id="resume-last" class="resume-last hidden" type="button"></button></div><span id="now-saved" class="entry-type now-saved hidden" role="status" aria-live="polite"></span></div><div class="transport-controls">
     <button id="shuffle" class="icon-button" title="シャッフル" aria-label="シャッフル" aria-pressed="false">⤨</button>
     <button id="previous" class="icon-button" title="前の動画" aria-label="前の動画" disabled><svg aria-hidden="true"><use href="icons.svg#previous"/></svg></button>
     <button id="back-ten" class="icon-button skip-button" title="10秒戻す" aria-label="10秒戻す" disabled><svg aria-hidden="true"><use href="icons.svg#back-ten"/></svg></button>
@@ -68,6 +68,7 @@
     <button id="forward-ten" class="icon-button skip-button" title="10秒進める" aria-label="10秒進める" disabled><svg aria-hidden="true"><use href="icons.svg#forward-ten"/></svg></button>
     <button id="next" class="icon-button" title="次の動画" aria-label="次の動画" disabled><svg aria-hidden="true"><use href="icons.svg#next"/></svg></button>
     <button id="repeat" class="icon-button" title="リピート オフ" aria-label="リピート オフ" aria-pressed="false">↻</button>
+    <button id="sleep" class="icon-button" title="おやすみタイマー オフ（押すと15分）" aria-label="おやすみタイマー オフ（押すと15分）" aria-pressed="false">☾</button>
     <button id="stop" class="icon-button" title="停止" aria-label="停止" disabled><svg aria-hidden="true"><use href="icons.svg#stop"/></svg></button>
   </div><div class="progress-area"><span id="position">0:00</span><input id="progress" type="range" value="0" min="0" max="1" step="0.1" aria-label="再生位置" disabled><span id="duration">0:00</span></div><div class="transport-volume"><button id="mute" class="icon-button" type="button" aria-label="ミュート" title="ミュート"><svg aria-hidden="true"><use href="icons.svg#volume"/></svg></button><input id="transport-volume" type="range" min="0" max="100" step="1" value="100" aria-label="アプリの音量"><output id="transport-volume-value" for="transport-volume">100%</output></div></footer>
   <dialog id="modal" aria-labelledby="modal-title"><form id="modal-form"><div class="modal-heading"><button type="button" id="modal-back" class="button secondary hidden" aria-label="前の画面に戻る">← 戻る</button><h2 id="modal-title"></h2><button type="button" id="modal-close" class="icon-button" aria-label="閉じる">×</button></div><div id="modal-body"></div><p id="modal-notice" class="status-detail hidden" role="status" aria-live="polite"></p><div class="modal-footer"><button type="button" id="modal-cancel" class="button secondary">閉じる</button><span id="modal-actions" class="modal-actions"></span><button type="submit" id="modal-submit" class="button primary">保存</button></div></form></dialog>

@@ -36,7 +36,7 @@ struct SyncStatus: Equatable {
 
 /// iPhone版の同期の運用。規則（baseとの差分・受信は先にライブラリ・既定リストの扱い・空の状態の停止・整理）は共通JS（FavecusCore.Sync*）。
 /// ここは設定・サインイン・タイマー・状態の表示と、Swiftだけで決まること（Keychain・ファイル・通信）。
-/// 同期するのは、画面を開いている間（起動時・前面に戻ったとき・編集の後・5分ごと）。バックグラウンドでの同期はしない。
+/// 同期するのは、画面を開いている間（起動時・前面に戻ったとき・編集の後・設定画面の手動同期。定期同期はしない）。バックグラウンドでの同期はしない。
 @MainActor
 final class SyncCoordinator: ObservableObject {
     @Published private(set) var status = SyncStatus()
@@ -51,7 +51,6 @@ final class SyncCoordinator: ObservableObject {
     private var unblockable = false
     private var chain: Task<Void, Never>?
     private var debounce: Task<Void, Never>?
-    private var interval: Task<Void, Never>?
     private var observer: AnyCancellable?
     private var foreground: NSObjectProtocol?
 
@@ -154,17 +153,6 @@ final class SyncCoordinator: ObservableObject {
         guard await open() else { return }
         publish(state: .idle)
         request()
-        scheduleInterval()
-    }
-
-    private func scheduleInterval() {
-        interval?.cancel()
-        interval = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 5 * 60 * 1_000_000_000)
-                self?.request()
-            }
-        }
     }
 
     /// 同期のJSを開く（保存された状態の検証。未知の版・壊れた状態は、上書きせず停止）。
@@ -204,14 +192,12 @@ final class SyncCoordinator: ObservableObject {
         config.enabled = true
         try writeConfig()
         publish(state: .idle, summary: result)
-        scheduleInterval()
         _ = await syncNow()
     }
 
     func disable() {
         config.enabled = false
         try? writeConfig()
-        interval?.cancel()
         debounce?.cancel()
         publish(state: .off)
     }

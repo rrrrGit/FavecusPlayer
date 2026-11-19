@@ -8,8 +8,9 @@ const { ValidateIcon } = require('./playlist-icon-data.cjs');
 const { MAX_PLAYLISTS, MAX_ENTRIES, CleanText, ValidatePlaylistCount } = require('./library-data.cjs');
 const { LibraryMediaKey, PlanMediaIds } = require('./library-identity.cjs');
 const { ParseBilibili } = require('./urls.cjs');
+const Trash = require('./trash.cjs');
 
-const TYPES = new Set(['create', 'select', 'rename', 'playlist-properties', 'delete', 'playlist-move', 'playlist-attach', 'playlist-reorder', 'remove', 'title', 'move', 'reorder', 'add-video']);
+const TYPES = new Set(['create', 'select', 'rename', 'playlist-properties', 'delete', 'playlist-move', 'playlist-attach', 'playlist-reorder', 'remove', 'title', 'move', 'reorder', 'add-video', 'restore']);
 
 function Playlist(data, id) {
   const result = data.playlists.find(p => p.id === id);
@@ -35,6 +36,8 @@ function Parent(data, ctx, id, parentId, move) {
 // 対象の操作なら実行してtrueを返す。それ以外（または対象のリストがない場合）はfalse（呼び出し側が別の処理・エラーにする）。
 function Apply(data, action, ctx) {
   if (!action || typeof action !== 'object' || !TYPES.has(action.type)) return false;
+  // 最近削除からの復元（規則は trash.cjs）。全部成功か、例外（呼び出し側が操作前へ戻す）。
+  if (action.type === 'restore') { Trash.Restore(data, action.item); return true; }
   const p = action.playlistId ? Playlist(data, action.playlistId) : null;
   if (action.type === 'create') {
     ValidatePlaylistCount(data.playlists.length + 1);

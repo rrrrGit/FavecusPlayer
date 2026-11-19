@@ -85,7 +85,7 @@ test('URL additions use checkboxes and keep the modal open if no destination is 
 test('settings shows ordered category buttons and back persists only the edited section', async t => {
   const h = Harness(t); h.run('Settings()');
   const buttons = h.node('settings-sections').children;
-  assert.deepEqual(buttons.map(x => x.textContent), ['プレイリストの出力›', '使い方›', '自動消去単語設定›', 'Discordアクティビティ›', 'ミニプレイヤー、タスクバー›', '再生・表示›', 'キーコンフィグ›', 'シャッフルの再生回数›', 'バージョン更新›', 'プレイリストの同期›']);
+  assert.deepEqual(buttons.map(x => x.textContent), ['プレイリストの出力›', '使い方›', '自動消去単語設定›', 'Discordアクティビティ›', 'ミニプレイヤー、タスクバー›', '再生・表示›', 'キーコンフィグ›', 'シャッフルの再生回数›', 'バージョン更新›', 'プレイリストの同期›', '最近削除›']);
   assert.equal(h.node('discord-id'), undefined); assert.equal(h.node('taskbar-width'), undefined); assert.ok(h.node('master-volume')); assert.ok(h.node('bili-account-state'));
   await buttons[3].click(); assert.equal(h.node('modal-title').textContent, 'Discordアクティビティ'); assert.equal(h.node('modal-back').classList.contains('hidden'), false);
   h.node('discord-id').value = '123456789012345678'; h.node('discord-enabled').checked = true;
@@ -135,7 +135,7 @@ test('playback settings append after existing categories and save only the backg
   assert.equal(h.node('modal-title').textContent, '再生・表示'); assert.equal(h.node('auto-thumbnail').checked, true); assert.equal(h.node('auto-thumbnail-minutes').value, '5');
   h.node('auto-thumbnail-minutes').value = '12'; h.node('auto-thumbnail').checked = false;
   await h.node('modal-back').click(); assert.equal(h.node('modal-title').textContent, '設定・連携');
-  assert.deepEqual(h.calls.at(-1).settings, { autoThumbnailEnabled: false, autoThumbnailMinutes: 12 });
+  assert.deepEqual(h.calls.at(-1).settings, { volumeLeveling: true, autoThumbnailEnabled: false, autoThumbnailMinutes: 12 }); // 音量の自動調整（v0.7.3）：既定はオン
 });
 
 test('URL classification is explicit and a stale network response cannot reopen a closed dialog', async t => {

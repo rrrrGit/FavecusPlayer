@@ -44,8 +44,14 @@ struct FavecusPlayerApp: App {
         WindowGroup {
             LibraryRootView(store: environment.store, importer: environment.importer, exporter: environment.exporter, player: environment.player, sync: environment.sync, bilibili: environment.bilibili, downloads: environment.downloads, artwork: environment.artwork, observer: environment.observer)
                 .onChange(of: scenePhase) { phase in
-                    if phase == .active { Task { await environment.downloads?.resume() } }
+                    if phase == .active {
+                        Task { await environment.downloads?.resume(); await environment.alarms.resync(); await environment.playPendingAlarm() }
+                        environment.player?.sleepTimer.tick() // 画面ロック中に期限を過ぎていれば、すぐ止める
+                    } else {
+                        environment.player?.flushResume() // 背面へ移るとき、前回の続きの位置を確定する
+                    }
                 }
+                .task { await environment.playPendingAlarm() }
         }
     }
 }
@@ -63,8 +69,31 @@ final class AppEnvironment: ObservableObject {
     let bilibili: BilibiliAccount?
     let downloads: DownloadService?
     let artwork: ArtworkStore
+    /// アラーム（端末内だけ。同期しない）。保存先の準備に失敗しても、アラームの画面にだけ理由を出す。
+    let alarms: AlarmService
+
+    /// アラームの「曲を再生」で開かれたとき、そのアラームの曲の全体を再生する。ライブラリ・保存の読み込みを待つ（最大10秒）。
+    func playPendingAlarm() async {
+        guard let id = AlarmPlayRequest.take() else { return }
+        guard let alarm = alarms.alarms.first(where: { $0.id.uuidString == id }), let sound = alarm.sound else { return }
+        let catalog = AlarmSongCatalog(store: store, downloads: downloads)
+        for _ in 0..<50 {
+            if case .ready = store.state, let entryId = catalog.entryId(forKey: sound.mediaKey), let player {
+                OpenPlayer.request()
+                await player.play(entryId: entryId, scope: "*")
+                return
+            }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        alarms.notice = "アラームの曲を再生できませんでした（曲が見つかりません）"
+    }
 
     init() {
+        let alarmDirectory = (try? LibraryStore.defaultDirectory()) ?? FileManager.default.temporaryDirectory.appendingPathComponent("FavecusPlayer-unavailable")
+        let alarmService = AlarmService(store: AlarmStore(directory: alarmDirectory), scheduler: AlarmSchedulers.make())
+        // 作ったアラームの音は、Library/Sounds（アラームが探す場所）に置く
+        alarmService.soundsDirectory = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first?.appendingPathComponent("Sounds", isDirectory: true)
+        alarms = alarmService
         do {
             let directory = try LibraryStore.defaultDirectory()
             let core = try SharedCore(bundle: .main)
@@ -96,11 +125,14 @@ final class AppEnvironment: ObservableObject {
             // 再生回数の台帳（同期が無効でも数える）。数え方・重みの規則は共通JS
             let playCounts = PlayCountStore(core: core, directory: store.syncDirectory.deletingLastPathComponent())
             engine.counts = playCounts
+            engine.resumeStore = ResumeStore()
             player = engine
             // 同期は、再生などとは別のJavaScriptCoreで動かす。Keychainが使えない環境でも、起動は妨げない（同期の画面にエラーとして出る）。
             let vault = KeychainVault()
             let host = StoreSyncHost(store: store, directory: store.syncDirectory, vault: vault, counts: playCounts)
             sync = (try? SyncCore(bundle: .main, host: host)).map { SyncCoordinator(store: store, core: $0, host: host, vault: vault) }
+            let catalog = AlarmSongCatalog(store: store, downloads: downloadService)
+            alarmService.soundSource = { catalog.file(forKey: $0) }
         } catch {
             // 起動に必要な部品がない：保存データには触らず、画面に理由を出す。
             let fallback = FileManager.default.temporaryDirectory.appendingPathComponent("FavecusPlayer-unavailable")

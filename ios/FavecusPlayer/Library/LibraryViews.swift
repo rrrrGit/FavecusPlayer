@@ -24,6 +24,7 @@ struct LibraryRootView: View {
     @State private var showImport = false
     @State private var showExport = false
     @State private var showSync = false
+    @State private var alarmDemo: AlarmDemoMode?
     @State private var showBilibili = false
     @State private var showDiagnostics = false
 
@@ -44,12 +45,15 @@ struct LibraryRootView: View {
                     DownloadsTab(store: store, services: services, showPlayer: $showPlayer)
                         .tabItem { Label("保存", systemImage: "arrow.down.circle.fill") }
                         .tag(1)
+                    AlarmTab(store: store, services: services, showPlayer: $showPlayer)
+                        .tabItem { Label("アラーム", systemImage: "alarm.fill") }
+                        .tag(2)
                     SettingsTab(store: store, hasImporter: importer != nil, hasExporter: exporter != nil, hasSync: sync != nil, hasBilibili: bilibili != nil,
                                 services: services, showPlayer: $showPlayer,
                                 openPicker: { showPicker = true }, openExport: { showExport = true }, openSync: { showSync = true },
                                 openBilibili: { showBilibili = true }, openDiagnostics: { showDiagnostics = true })
                         .tabItem { Label("設定", systemImage: "gearshape.fill") }
-                        .tag(2)
+                        .tag(3)
                 }
             }
         }
@@ -59,6 +63,7 @@ struct LibraryRootView: View {
         .preferredColorScheme(.dark)
         .task {
             await store.load()
+            player?.restoreLast() // 前回の曲を、一時停止の状態で表示する（鳴らさない）
             await sync?.start() // 同期が有効なら、状態を読み込んで同期を始める
             await downloads?.start() // 保存の記録を読み込み、前回から続いている取得を引き継ぐ
             await downloads?.refreshKeys(entries: store.document?.playlists.flatMap(\.entries) ?? [])
@@ -70,6 +75,7 @@ struct LibraryRootView: View {
             }
             if defaults.object(forKey: "FavecusDemoTab") != nil { tab = defaults.integer(forKey: "FavecusDemoTab") }
             if defaults.bool(forKey: "FavecusDemoSync") { showSync = true }
+            if let raw = defaults.string(forKey: "FavecusDemoAlarm") { alarmDemo = AlarmDemoMode(rawValue: raw) }
             if defaults.bool(forKey: "FavecusDemoMini") { player?.showDemo(title: "朝のピアノ", position: 62, duration: 257) }
             if defaults.bool(forKey: "FavecusDemoPlayer") {
                 // 所在の表示を確かめるため、模擬ライブラリの深い階層のリスト（作業用BGM ＞ 集中 ＞ 試験前）を持つ曲として表示する
@@ -84,6 +90,7 @@ struct LibraryRootView: View {
             }
         }
         .sheet(isPresented: $showDiagnostics) { PlaceholderView() }
+        .sheet(item: $alarmDemo) { AlarmDemoView(mode: $0, store: store, downloads: downloads) }
         .fileImporter(isPresented: $showPicker, allowedContentTypes: [.zip]) { result in
             guard let importer else { return }
             switch result {
@@ -258,7 +265,10 @@ private struct LibraryTab: View {
                         card(list, index: index)
                     }
                 }
-                .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 90)
+                .padding(.horizontal, 16).padding(.top, 8)
+                // 自分のプレイリストの下：自動リスト（保存せず、その都度作る。曲の選び方は共通JS）
+                AutoListsSection(store: store, services: services)
+                    .padding(.horizontal, 16).padding(.top, 20).padding(.bottom, 90)
             }
         }
         .scrollDismissesKeyboard(.interactively)
@@ -307,6 +317,9 @@ private struct LibraryTab: View {
             .toolbar { ToolbarItem(placement: .navigationBarTrailing) { EditToggle(editing: $editing) } }
             .navigationDestination(for: String.self) { id in
                 PlaylistDetail(store: store, services: services, parentId: id, reveal: $reveal)
+            }
+            .navigationDestination(for: AutoListKind.self) { kind in
+                AutoListDetail(kind: kind, store: store, services: services)
             }
             .alert("新しいプレイリスト", isPresented: $creating) {
                 TextField("名前", text: $newName)

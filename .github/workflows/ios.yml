@@ -3,7 +3,7 @@ name: iOS build
 # macOSランナーは消費が大きいため、iOS関連の変更があるときだけ実行する。
 on:
   push:
-    branches: ["release/v0.7.0", "release/v0.7.1", "release/v0.7.2"]
+    branches: ["release/v0.7.0", "release/v0.7.1", "release/v0.7.2", "release/v0.7.3"]
     paths:
       - "ios/**"
       - "shared/**"
@@ -48,6 +48,8 @@ on:
       - "src/core/sync-counts.cjs"
       - "src/core/import-identity.cjs"
       - "src/core/playlist-icon-data.cjs"
+      - "src/core/auto-lists.cjs"
+      - "src/core/trash.cjs"
       - "src/core/queue.cjs"
       - "src/ui/library-tree.js"
       - "src/ui/library-search.js"
@@ -64,7 +66,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
     defaults:
       run:
@@ -74,6 +76,14 @@ jobs:
 
       - name: Record start time
         run: echo "JOB_START=$(date +%s)" >> "$GITHUB_ENV"
+        working-directory: .
+
+      # AlarmKit（iOS 26）を使うため、Xcode 26 以降があれば選ぶ（なければ既定のまま。その場合 AlarmKit のコードは除外される）
+      - name: Select Xcode 26 if available
+        run: |
+          NEW=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          echo "Xcode 26: ${NEW:-none}"
+          if [ -n "$NEW" ]; then sudo xcode-select -s "$NEW/Contents/Developer"; fi
         working-directory: .
 
       - name: Tool versions
@@ -178,7 +188,7 @@ jobs:
             xcrun simctl launch "$SIM_UDID" dev.favecus.player "$@" > /dev/null
             sleep 4
             xcrun simctl io "$SIM_UDID" screenshot "out/$NAME.png"
-            xcrun simctl terminate "$SIM_UDID" dev.favecus.player
+            xcrun simctl terminate "$SIM_UDID" dev.favecus.player || echo "（終了済み：起動中に終了した可能性）"
           }
           P1=00000001-0000-4000-8000-000000000001
           P2=00000001-0000-4000-8000-000000000002
@@ -186,7 +196,8 @@ jobs:
           shot 2-parent -FavecusDemoPath $P1
           shot 3-child -FavecusDemoPath $P1,$P2
           shot 4-downloads -FavecusDemoTab 1
-          shot 5-settings -FavecusDemoTab 2
+          shot 5-settings -FavecusDemoTab 3
+          shot 19-alarm-tab -FavecusDemoTab 2
           shot 6-player -FavecusDemoPlayer YES
           shot 7-menu -FavecusDemoPath $P1 -FavecusDemoMenu YES
           shot 8-edit -FavecusDemoPath $P1 -FavecusDemoEdit YES
@@ -196,6 +207,12 @@ jobs:
           shot 14-search -FavecusDemoSearch Lo-fi
           shot 10-home-edit -FavecusDemoHomeEdit YES
           shot 11-sync -FavecusDemoSync YES
+          shot 15-alarm-list -FavecusDemoAlarm list
+          shot 16-alarm-edit -FavecusDemoAlarm edit
+          shot 17-alarm-picker -FavecusDemoAlarm picker
+          shot 18-alarm-range -FavecusDemoAlarm range
+          # アプリが途中で終了していた場合の手がかり（クラッシュレポート）
+          for f in "$HOME"/Library/Logs/DiagnosticReports/FavecusPlayer*; do [ -f "$f" ] && { echo "== $f"; head -c 2500 "$f"; }; done || true
           ls -l out
 
       - name: Build unsigned IPA

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
   # このワークフロー自身を変更したときだけ実行（手動実行は、デフォルトブランチにない新しいワークフローではpushからの実行が必要なため）
   push:
-    branches: ["release/v0.7.0", "release/v0.7.1", "release/v0.7.2"]
+    branches: ["release/v0.7.0", "release/v0.7.1", "release/v0.7.2", "release/v0.7.3"]
     paths:
       - ".github/workflows/windows-build.yml"
 
@@ -23,6 +23,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 旧版のタグ（更新の確認 test/update-path.test.cjs が使う）を取得する
 
       - uses: actions/setup-node@v4
         with:
@@ -42,6 +44,8 @@ jobs:
           python3 scripts/extract-node-msi.py "$RUNNER_TEMP/work/node.msi" "$RUNNER_TEMP/work/node.exe"
 
       - name: Syntax check and Node tests
+        env:
+          FAVECUS_REQUIRE_TAGS: "1" # 旧版のタグが1つでもなければ、更新の確認を失敗にする
         run: |
           set -o pipefail
           V="$RUNNER_TEMP/verify"

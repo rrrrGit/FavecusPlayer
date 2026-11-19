@@ -11,12 +11,13 @@ const { ReadJSON, ExportJSON } = require('./library-json.cjs');
 const { ValidateTitleWords, TitleCleaner } = require('./title-cleanup.cjs');
 const { Repository, DriveURL } = require('./releases.cjs');
 const { VideoIdentity } = require('./media-identity.cjs');
+const Trash = require('./trash.cjs');
 const { IDENTITY_SCHEMA_VERSION, MEDIA_ID, IdentityError, ValidateIdentityVersion, PlanMediaIds, VideoAliases, LibraryMediaKey } = require('./library-identity.cjs');
 const LibraryData = require('./library-data.cjs');
 const Actions = require('./library-actions.cjs');
 const { MAX_PLAYLISTS, MAX_ENTRIES, MEDIA_NAME, CleanText, ValidatePlaylistCount } = LibraryData;
 const MAX_JSON = 32 * 1024 * 1024;
-const DEFAULT_SETTINGS = { releaseRepository: '', discordThumbnailSize: 'small', weightedShuffle: true, discordThumbnail: true, discordVideoLink: true, discordEnabled: false, discordClientId: '', discordImageKey: 'favecus_player_music', hideWhenPaused: true, thumbnailMode: false, autoThumbnailEnabled: true, autoThumbnailMinutes: 5, taskbarEmbed: true, taskbarWidth: 500, taskbarOffset: 0, repeat: 'off', shuffle: false, volume: 1, sidebarWidth: 218 };
+const DEFAULT_SETTINGS = { releaseRepository: '', discordThumbnailSize: 'small', weightedShuffle: true, volumeLeveling: true, discordThumbnail: true, discordVideoLink: true, discordEnabled: false, discordClientId: '', discordImageKey: 'favecus_player_music', hideWhenPaused: true, thumbnailMode: false, autoThumbnailEnabled: true, autoThumbnailMinutes: 5, taskbarEmbed: true, taskbarWidth: 500, taskbarOffset: 0, repeat: 'off', shuffle: false, volume: 1, sidebarWidth: 218 };
 
 function NewPlaylist(name = 'お気に入り') { return { id: randomUUID(), name: CleanText(name, 60) || '無題のリスト', icon: '', entries: [], childIds: [], createdAt: new Date().toISOString(), lastAddedAt: '', includeInAll: true }; }
 function Defaults() {
@@ -31,7 +32,7 @@ function ValidateSettings(input) {
   s.titleCleanupWords = ValidateTitleWords(input?.titleCleanupWords);
   s.keybindings = Keys.Validate(input?.keybindings);
   s.playlistSort = Tree.SortModes.includes(input?.playlistSort) ? input.playlistSort : 'manual';
-  for (const key of ['weightedShuffle', 'discordThumbnail', 'discordVideoLink', 'discordEnabled', 'hideWhenPaused', 'shuffle', 'thumbnailMode', 'autoThumbnailEnabled', 'taskbarEmbed']) if (typeof input?.[key] === 'boolean') s[key] = input[key];
+  for (const key of ['weightedShuffle', 'volumeLeveling', 'discordThumbnail', 'discordVideoLink', 'discordEnabled', 'hideWhenPaused', 'shuffle', 'thumbnailMode', 'autoThumbnailEnabled', 'taskbarEmbed']) if (typeof input?.[key] === 'boolean') s[key] = input[key];
   if (Number.isSafeInteger(input?.weightedShuffleAt) && input.weightedShuffleAt >= 0) s.weightedShuffleAt = input.weightedShuffleAt;
   if (Number.isFinite(input?.autoThumbnailMinutes)) s.autoThumbnailMinutes = Math.round(Math.max(1, Math.min(120, input.autoThumbnailMinutes)));
   if (Number.isFinite(input?.sidebarWidth)) s.sidebarWidth = Math.round(Math.max(170, Math.min(400, input.sidebarWidth)));
@@ -204,7 +205,15 @@ class Store {
   }
   Apply(action) {
     const before = structuredClone(this.data);
-    try { return this.ApplyAction(action); } catch (error) { this.data = before; throw error; }
+    try {
+      const result = this.ApplyAction(action);
+      this.KeepDeleted(before, action); // 削除（プレイリスト・曲）は、保存に成功したあとに、最近削除へ保管する
+      return result;
+    } catch (error) { this.data = before; throw error; }
+  }
+  KeepDeleted(before, action) {
+    if (!this.options.trash || !['delete', 'remove'].includes(action?.type)) return;
+    try { const item = Trash.Capture(before, this.data, action, new Date().toISOString()); if (item) this.options.trash(item); } catch { /* 保管できなくても、削除は成功のまま */ }
   }
   ActionContext() { return { createId: randomUUID, now: () => new Date().toISOString(), cleanTitle: value => this.CleanTitle(value) }; }
   ApplyAction(action) {

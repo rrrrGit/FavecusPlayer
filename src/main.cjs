@@ -33,6 +33,11 @@ const { MediaResponse } = require('./core/files.cjs');
 const { ConvertWma } = require('./core/audio-import.cjs');
 const { BilibiliAccount } = require('./core/bilibili.cjs');
 const { Thumbnails, SmallImage, CoverImage, FlatImage, ImageData } = require('./core/thumbnail.cjs');
+const { SleepTimer } = require('./core/sleep-timer.cjs');
+const { ResumeStore } = require('./core/resume-point.cjs');
+const AutoListsCore = require('./core/auto-lists.cjs');
+const { TrashStore } = require('./core/trash-store.cjs');
+const { LoudnessStore } = require('./core/loudness.cjs');
 const { APP_ID, ConfigureTaskbar, PreviousInstallRoots } = require('./core/windows-identity.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'favecus', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
@@ -44,7 +49,7 @@ app.setPath('sessionData', dataDirectory);
 let win, store, presence, remoteView, mini, volumeSaveTimer, backgroundMode, sync;
 let viewVisible = false;
 let current = null, playback = null;
-let thumbnails, thumbnail = null;
+let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null, trashStore = null, loudness = null, songGain = 1;
 let visibleBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 let statuses = { discord: { code: 'off', text: 'Discord連携はオフです' }, taskbar: { code: 'off', text: '下向き矢印を押すと埋め込みを試します' } };
 let playCounts;
@@ -63,14 +68,68 @@ const Emit = (type, value) => {
   }
   mini?.Update();
 };
+// 自動リスト（よく聴く曲・最近追加した曲・未再生）。保存せず、その都度、共通の規則（core/auto-lists.cjs）で選ぶ。
+// 再生するときは、そのときの曲の並び（スナップショット）を再生範囲（auto:…）にする。再生回数が増えても、再生中の並びは変わらない。
+const AUTO_NAMES = { 'auto:frequent': 'よく聴く曲', 'auto:recent': '最近追加した曲', 'auto:unplayed': '未再生' };
+const autoSnapshots = new Map();
+function BuildAutoLists() {
+  const keys = {}, counts = {};
+  for (const list of store.data.playlists) for (const entry of list.entries) {
+    const key = playCounts?.KeyOf(entry);
+    if (key) { keys[entry.id] = key; if (!(key in counts)) counts[key] = playCounts.Count(entry); }
+  }
+  return AutoListsCore.Select({ library: store.data, keys, counts });
+}
+function AutoEntries(kind) {
+  const scope = `auto:${kind}`;
+  if (!AUTO_NAMES[scope]) throw new Error('自動リストの種類が正しくありません。');
+  const owners = new Map();
+  for (const list of store.data.playlists) for (const entry of list.entries) if (!owners.has(entry.id)) owners.set(entry.id, { ...entry, playlistId: list.id });
+  const entries = (BuildAutoLists()[kind] || []).map(item => owners.get(item.id)).filter(Boolean);
+  autoSnapshots.set(scope, entries);
+  return entries;
+}
+const ScopeEntries = scope => AUTO_NAMES[scope]
+  ? (autoSnapshots.get(scope) || []).filter(e => store.data.playlists.some(p => p.id === e.playlistId && p.entries.some(x => x.id === e.id)))
+  : store.Entries(scope);
+async function AutoPlay(kind, entryId, shuffled) {
+  const entries = AutoEntries(kind), scope = `auto:${kind}`;
+  if (!entries.length) throw new Error('再生する曲がありません。');
+  if (shuffled) {
+    const nextQueue = new Queue(null, ShuffleWeight, randomInt), first = nextQueue.ShuffleStart(scope, entries), selected = entries.find(e => e.id === first);
+    PlayableEntry(selected.playlistId, first);
+    const settings = { shuffle: true };
+    if (store.data.settings.repeat === 'one') settings.repeat = 'off';
+    const state = store.Apply({ type: 'settings', settings }); queue = nextQueue; Emit('state', state);
+    return LoadEntry(selected.playlistId, first);
+  }
+  const selected = entries.find(e => e.id === entryId) || entries[0];
+  PlayableEntry(selected.playlistId, selected.id);
+  queue.Start(scope, entries, selected.id, store.data.settings.shuffle);
+  return LoadEntry(selected.playlistId, selected.id);
+}
+// 最近削除に保管中の曲も、保存済みメディアの整理では「参照されている」ものとして数える（元に戻したときに、保存済みの動画・音声が残るように）。
+function WithTrashedEntries(data) {
+  const extra = trashStore?.Entries() || [];
+  if (!data || !Array.isArray(data.playlists) || !extra.length) return data;
+  return { ...data, playlists: [...data.playlists, { id: 'trash', name: 'trash', entries: extra, childIds: [] }] };
+}
+// 保存済み・ローカルの曲の音量を測り（初めてだけ。結果は覚える）、大きい曲を下げる倍率を、再生中の音量に反映する。オンライン再生は、対象外。
+async function LevelCurrent(request, file) {
+  if (!file || !loudness || store.data.settings.volumeLeveling === false) return;
+  try {
+    const gain = await loudness.GainFor(file);
+    if (request === loadRequest && gain !== songGain) { songGain = gain; SetVolume(); }
+  } catch { /* 測れなくても、再生は妨げない */ }
+}
 function QueueState() {
   if (!current?.playlistId) return null;
-  const scope = queue.playlistId, entries = store.Entries(scope), nextId = queue.Peek(store.data.settings.repeat);
+  const scope = queue.playlistId, entries = ScopeEntries(scope), nextId = queue.Peek(store.data.settings.repeat);
   const next = entries.find(entry => entry.id === nextId);
   const timeline = queue.Timeline(store.data.settings.repeat);
   const byId = new Map(entries.map(e => [e.id, e]));
   const describe = id => { const e = byId.get(id) || queue.catalog.get(id); return e ? { id, playlistId: e.playlistId, title: e.title || e.videoId || 'ローカルファイル' } : { id, title: '一覧から削除された曲' }; };
-  return { playlistId: scope, name: scope === '*' ? '全プレイリスト' : store.Playlist(scope).name, shuffle: queue.shuffle, repeat: store.data.settings.repeat,
+  return { playlistId: scope, name: scope === '*' ? '全プレイリスト' : AUTO_NAMES[scope] || store.Playlist(scope).name, shuffle: queue.shuffle, repeat: store.data.settings.repeat,
     timeline: { history: timeline.history.map(describe), current: timeline.current ? describe(timeline.current) : null, upcoming: timeline.upcoming.map(describe) },
     next: next ? { id: next.id, playlistId: next.playlistId, title: next.title || next.videoId || 'ローカルファイル', index: entries.indexOf(next) + 1 } : null };
 }
@@ -232,15 +291,28 @@ async function LoadThumbnail() {
 }
 function AcceptPlayback(data) {
   playback = data; playCounts?.Observe(data); Emit('playback', data); UpdatePresence();
+  // 前回の続きから再生：曲・再生範囲・位置を、この端末にだけ保存する（約10秒ごと・一時停止の瞬間）
+  if (current?.playlistId && queue?.playlistId) resumeStore?.Observe({ entryId: current.entryId, playlistId: current.playlistId, scope: AUTO_NAMES[queue.playlistId] ? '*' : queue.playlistId, position: data.position, duration: data.duration }, data.paused === true);
   if (current?.officialPlayer && !data.paused && data.position >= 3) { officialPreferred.add(current.entry.videoId); const season = playbackMetadata.get(current.entry.videoId)?.ugc_season?.id; if (season) officialPreferred.add(`season:${season}`); if (officialPreferred.size > 1000) officialPreferred.delete(officialPreferred.values().next().value); }
 }
 function StopPlayer() {
   loadRequest++;
   CloseView(); current = null; playback = null; thumbnail = null; queue.Clear();
-  Emit('current', null); Emit('playback', null); UpdatePresence(); backgroundMode?.Refresh();
+  Emit('current', null); Emit('playback', null); Emit('resume', ResumeOffer()); UpdatePresence(); backgroundMode?.Refresh();
 }
-function SetVolume() {
-  const volume = store.data.settings.volume; biliBrowser?.SetVolume(volume);
+// 「前回の続きから」の案内（再生中でなく、保存した曲がライブラリにあるときだけ）。位置は、規則で補正済み。
+function ResumeOffer() {
+  const saved = resumeStore?.Get();
+  if (!saved || current || !store) return null;
+  let entry = null;
+  try { entry = store.Entries(saved.scope).find(e => e.id === saved.entryId) || null; } catch {}
+  if (!entry) return null;
+  return { title: entry.title || entry.videoId || 'ローカル動画', position: saved.position, duration: saved.duration };
+}
+// factor：おやすみタイマーの終わりの音量の倍率（1＝設定の音量。設定の値は変えない）。
+function SetVolume(factor = 1) {
+  // 曲ごとの自動調整（保存済み・ローカルの曲だけ。大きい曲を下げる。設定でオフにできる）
+  const volume = store.data.settings.volume * factor * (store.data.settings.volumeLeveling === false ? 1 : songGain); biliBrowser?.SetVolume(volume);
   for (const wc of [remoteView?.webContents, ...[...accountWindows.values()].map(w => w.webContents)].filter(Boolean)) {
     if (!wc.isDestroyed()) {
       const channel = mediaChannels.get(wc);
@@ -430,6 +502,7 @@ async function LoadEntry(playlistId, entryId, pageMode = false, { allowRecovery 
   }
   const gen = generation; view.resume = resume;
   if (!preserveCount) playCounts?.Begin(entry);
+  songGain = 1; void LevelCurrent(request, saved ? offline.ResolvePath(saved.file) : entry.type === 'local' ? path.join(store.media, entry.fileName) : null);
   current = { source, queuePlaylistId: queue.playlistId, playlistId, entryId, entry: structuredClone(entry), pageMode, officialPlayer, recoveryAttempt, offline: saved ? { token: saved.token, kind: saved.kind, height: saved.height } : null };
   PlayerDiagnostic('track-change', { source, saved: !!saved });
   playback = null; thumbnail = null; UpdatePresence(); UpdateForeground(); Emit('current', current); void LoadThumbnail(); backgroundMode?.Refresh();
@@ -447,7 +520,7 @@ async function Step(direction, automatic = false) {
   if (!current?.playlistId) return;
   const nextQueue = queue.Clone(), id = nextQueue.Move(direction, store.data.settings.repeat, automatic);
   if (!id) { if (automatic) { StopPlayer(); Notify('再生リストの最後まで再生しました。'); } return; }
-  const next = store.Entries(nextQueue.playlistId).find(e => e.id === id);
+  const next = ScopeEntries(nextQueue.playlistId).find(e => e.id === id);
   if (!next) return;
   PlayableEntry(next.playlistId, id); queue = nextQueue;
   await LoadEntry(next.playlistId, id);
@@ -457,8 +530,8 @@ function SyncPlayingQueue() {
   const list = store.data.playlists.find(p => p.id === current.playlistId);
   if (!list?.entries.some(e => e.id === current.entryId)) StopPlayer();
   else {
-    const scope = queue.playlistId === '*' || store.data.playlists.some(p => p.id === queue.playlistId) ? queue.playlistId : list.id;
-    const entries = store.Entries(scope);
+    const scope = queue.playlistId === '*' || AUTO_NAMES[queue.playlistId] || store.data.playlists.some(p => p.id === queue.playlistId) ? queue.playlistId : list.id;
+    const entries = ScopeEntries(scope);
     if (!entries.some(e => e.id === current.entryId)) { if (scope === '*') { StopPlayer(); return; } queue.Start(list.id, store.Entries(list.id), current.entryId, store.data.settings.shuffle); }
     else queue.Sync(scope, entries, current.entryId, store.data.settings.shuffle);
     current.queuePlaylistId = queue.playlistId;
@@ -482,12 +555,12 @@ async function Configure() {
   await mini?.Configure?.();
 }
 function Resources(folder) { return app.isPackaged ? path.join(process.resourcesPath, folder) : path.join(app.getAppPath(), folder); }
-async function Play(playlistId, entryId) {
+async function Play(playlistId, entryId, resume = null) {
   const entries = store.Entries(playlistId), selected = entries.find(e => e.id === entryId) || (!entryId ? entries[0] : null);
   if (!selected) throw new Error('再生する曲がありません。');
   PlayableEntry(selected.playlistId, selected.id);
   queue.Start(playlistId, entries, selected.id, store.data.settings.shuffle);
-  return LoadEntry(selected.playlistId, selected.id);
+  return LoadEntry(selected.playlistId, selected.id, false, resume ? { resume } : {});
 }
 async function ShufflePlay(playlistId) {
   const entries = store.Entries(playlistId);
@@ -542,7 +615,9 @@ async function Command(command, value) {
 
 async function Start() {
   const ffmpeg = process.env.FAVECUS_INSTALL_ROOT ? path.join(process.env.FAVECUS_INSTALL_ROOT, 'runtime', 'ffmpeg', 'ffmpeg.exe') : app.isPackaged ? path.join(process.resourcesPath, 'ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg') : path.join(app.getAppPath(), 'runtime', 'ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
-  store = new Store(app.getPath('userData'), { committed: () => { offline?.ScheduleCleanup(); sync?.Changed(); }, convertWma: (source, destination) => ConvertWma(ffmpeg, source, destination) });
+  trashStore = new TrashStore(path.join(app.getPath('userData'), 'trash.json'));
+  loudness = new LoudnessStore(path.join(app.getPath('userData'), 'loudness.json'), ffmpeg);
+  store = new Store(app.getPath('userData'), { trash: item => trashStore.Add(item), committed: () => { offline?.ScheduleCleanup(); sync?.Changed(); }, convertWma: (source, destination) => ConvertWma(ffmpeg, source, destination) });
 
   // プレイリストの同期（既定はオフ。利用者が設定で有効にしたときだけ動く）。library.jsonが正本で、同期の状態はuserData/sync/にある。
   const syncDirectory = path.join(app.getPath('userData'), 'sync');
@@ -580,7 +655,7 @@ async function Start() {
     try { biliSession.preconnect({ url, numSockets: 1 }); } catch {}
   }
   biliAccount = new BilibiliAccount((...args) => biliSession.fetch(...args));
-  offline = new OfflineLibrary({ directory: path.join(process.env.FAVECUS_INSTALL_ROOT || (app.isPackaged ? path.dirname(app.getPath('exe')) : app.getAppPath()), 'downloads'), previousDirectories: process.env.FAVECUS_INSTALL_ROOT ? PreviousInstallRoots(process.env.FAVECUS_INSTALL_ROOT).map(p => path.join(p, 'downloads')) : [], settingsFile: path.join(app.getPath('userData'), 'download-settings.json'), fetch: DownloadFetch(biliSession), ffmpeg, libraryData: () => store.data, referenceData: () => store.SavedData(), identify: RememberVideo, diagnostic: DownloadDiagnosticLog, changed: value => Emit('downloads', value) });
+  offline = new OfflineLibrary({ directory: path.join(process.env.FAVECUS_INSTALL_ROOT || (app.isPackaged ? path.dirname(app.getPath('exe')) : app.getAppPath()), 'downloads'), previousDirectories: process.env.FAVECUS_INSTALL_ROOT ? PreviousInstallRoots(process.env.FAVECUS_INSTALL_ROOT).map(p => path.join(p, 'downloads')) : [], settingsFile: path.join(app.getPath('userData'), 'download-settings.json'), fetch: DownloadFetch(biliSession), ffmpeg, libraryData: () => store.data, referenceData: () => WithTrashedEntries(store.SavedData()), identify: RememberVideo, diagnostic: DownloadDiagnosticLog, changed: value => Emit('downloads', value) });
   await offline.Organize(); archive = new LibraryArchive(store, offline);
   // 再生回数：台帳は play-ledger.json。以前の play-counts.json は、変更せずに1回だけ引き継ぐ（同期は、台帳の行だけを送る）
   playCounts = new PlayCounts(path.join(app.getPath('userData'), 'play-ledger.json'), Notify, { legacyFile: path.join(app.getPath('userData'), 'play-counts.json'), aliases: () => store?.data.videoAliases || [] });
@@ -664,7 +739,7 @@ async function Start() {
     else throw new Error('対応していない操作です。');
     return sync.Status();
   });
-  Handle('app:state', () => ({ state: store.Snapshot(), statuses, current, playback, thumbnail, queue: QueueState(), downloads: offline.Snapshot(), foreground: Foreground(), accounts: accountStatus, version: app.getVersion(), platform: process.platform }));
+  Handle('app:state', () => ({ sleep: sleepTimer?.State() || { mode: 'off' }, resume: ResumeOffer(), state: store.Snapshot(), statuses, current, playback, thumbnail, queue: QueueState(), downloads: offline.Snapshot(), foreground: Foreground(), accounts: accountStatus, version: app.getVersion(), platform: process.platform }));
   Handle('player:reset-counts', () => { playCounts.Reset(); return true; });
   Handle('downloads:state', () => offline.Snapshot());
   const downloadTarget = options => {
@@ -780,13 +855,48 @@ async function Start() {
     if (actual && value > 0) { actual.duration = value; store.Save(); }
     return value || null;
   });
-  Handle('player:play', Play);
+  Handle('player:play', (playlistId, entryId) => Play(playlistId, entryId));
+  // 自動リスト：kind なし＝3つの件数、kind あり＝その曲の一覧（開いた時点の並びを、再生範囲として覚える）
+  Handle('library:auto-list', kind => {
+    if (!kind) { const lists = BuildAutoLists(); return { frequent: lists.frequent.length, recent: lists.recent.length, unplayed: lists.unplayed.length }; }
+    return AutoEntries(kind).map(e => ({ id: e.id, playlistId: e.playlistId, title: e.title || e.videoId || 'ローカルファイル', type: e.type, count: playCounts?.Count(e) || 0 }));
+  });
+  Handle('player:auto-play', (kind, entryId, shuffled) => AutoPlay(kind, typeof entryId === 'string' ? entryId : null, shuffled === true));
+  // 最近削除（一覧・元に戻す・完全に削除）。元に戻すのは共通の規則（core/trash.cjs）。失敗したときは、保管を残して、理由を返す。
+  Handle('trash:list', () => { const list = trashStore.List(); if (trashStore.TakePruned()) offline?.ScheduleCleanup(); return list; });
+  Handle('trash:restore', id => {
+    const item = trashStore.Get(String(id));
+    if (!item) throw new Error('この項目は、すでに保管の期限が切れたか、なくなっています。');
+    const state = store.Apply({ type: 'restore', item });
+    trashStore.Remove(item.id); Emit('state', state);
+    return trashStore.List();
+  });
+  Handle('trash:delete', id => { trashStore.Remove(String(id)); offline?.ScheduleCleanup(); return trashStore.List(); }); // 完全に削除したあと、参照のなくなった保存済みメディアを整理する
+  Handle('trash:clear', () => { trashStore.Clear(); offline?.ScheduleCleanup(); return []; });
+  Handle('player:resume-last', () => {
+    const saved = resumeStore?.Get();
+    if (!saved || !ResumeOffer()) throw new Error('前回の続きがありません。');
+    return Play(saved.scope, saved.entryId, saved.position > 0 ? { position: saved.position, paused: false } : null);
+  });
   Handle('player:shuffle', ShufflePlay);
   Handle('player:fullscreen', () => ToggleVideoFullscreen());
   Handle('player:all', AllPlay);
   Handle('player:command', Command);
   Handle('player:shortcut', Shortcut);
   Handle('player:volume', ChangeVolume);
+  // おやすみタイマー（規則は core/sleep-timer.cjs。iPhone版と同じ）。終わりに、音量を下げて一時停止し、音量を戻す。
+  resumeStore = new ResumeStore(path.join(app.getPath('userData'), 'playback-resume.json'));
+  sleepTimer = new SleepTimer({
+    onFade: factor => SetVolume(factor),
+    onExpire: () => SendToPlayer('media:command', { type: 'pause' }),
+    onChange: state => Emit('sleep', state)
+  });
+  Handle('player:sleep', command => {
+    if (command?.cancel) sleepTimer.Cancel();
+    else if (command?.song) sleepTimer.StartEndOfSong();
+    else sleepTimer.Start(Number(command?.minutes));
+    return sleepTimer.State();
+  });
   Handle('window:mini', () => mini.Show());
   Handle('player:official', () => {
     if (current?.entry.type === 'bilibili') return shell.openExternal(ParseBilibili(current.entry.url).url);
@@ -852,6 +962,7 @@ async function Start() {
     AcceptPlayback(data);
     if (data.ended && current.playlistId) {
       SendToPlayer('media:command', { type: 'pause' });
+      if (sleepTimer?.ConsumeEndOfSong()) return; // 「曲の終わりまで」：次の曲へ進まず、ここで止める
       void Step(1, true).catch(error => { StopPlayer(); Notify(error.message); });
     }
   });
@@ -872,7 +983,7 @@ else {
 app.on('child-process-gone', (_event, details = {}) => PlayerDiagnostic('child-process-exited', { processType: details.type, exitReason: details.reason, exitCode: details.exitCode }));
 process.on?.('uncaughtExceptionMonitor', (error, origin) => PlayerDiagnostic('uncaught-exception', { origin, name: error.name, code: error.code, message: String(error.message).slice(0, 240), stack: String(error.stack || '').split('\n').slice(0, 8).join('\n').slice(0, 3000) }));
 app.on('before-quit', () => {
-  quitting = true; loadRequest++; sync?.Dispose(); offline?.CancelEstimate();
+  quitting = true; resumeStore?.Flush(); loadRequest++; sync?.Dispose(); offline?.CancelEstimate();
   offline?.Cancel();
   if (volumeSaveTimer) { clearTimeout(volumeSaveTimer); volumeSaveTimer = null; try { store?.Save(); } catch {} }
   biliBrowser?.Destroy(); backgroundMode?.Dispose(); mini?.Destroy(); mini = null; presence?.Stop(); CloseView(); for (const view of retiredPlayers.keys()) DisposePlayer(view); offline?.cleanup.Dispose();

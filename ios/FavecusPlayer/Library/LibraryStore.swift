@@ -40,9 +40,13 @@ final class LibraryStore: ObservableObject {
         return target.lastPathComponent
     }
 
+    /// 最近削除（削除したプレイリスト・曲を30日間保管する。端末内だけ）。
+    let trash: TrashStore
+
     init(core: SharedCore?, directory: URL, startupError: String? = nil) {
         self.core = core
         self.directory = directory
+        trash = TrashStore(directory: directory)
         if let startupError { state = .blocked(startupError) }
     }
 
@@ -171,24 +175,42 @@ final class LibraryStore: ObservableObject {
     /// 直前に積んだ操作がすべて終わるまで待つ（テスト・終了処理用）。
     func waitUntilIdle() async { await chain?.value }
 
-    private func run(_ action: [String: Any]) async {
-        guard let core, state == .ready else { return }
+    /// 最近削除から元に戻す。成功したときだけ、保管から外す（失敗したときは、保管を残し、理由を知らせる）。
+    func restoreFromTrash(id: String) {
+        let previous = chain
+        chain = Task { [weak self] in
+            await previous?.value
+            guard let self else { return }
+            guard let item = self.trash.item(id: id) else { self.notice = "この項目は、保管の期限が切れたか、なくなっています。"; return }
+            if await self.run(["type": "restore", "item": item]) {
+                self.trash.remove(id: id)
+                self.notice = "元に戻しました。"
+            }
+        }
+    }
+
+    @discardableResult
+    private func run(_ action: [String: Any]) async -> Bool {
+        guard let core, state == .ready else { return false }
         do {
-            let request: [String: Any] = ["text": text, "action": action, "ids": Self.freshIds(), "now": Self.now()]
+            let request: [String: Any] = ["text": text, "action": action, "ids": Self.freshIds(), "now": Self.now(), "keepTrash": true]
             let response = try await core.callAsync("LibraryApply", try Self.json(request))
             let result = try JSONDecoder().decode(ApplyResult.self, from: Data(response.utf8))
             if let message = result.error {
                 notice = message
-                return
+                return false
             }
             guard let updated = result.text else {
                 notice = "編集結果を取得できません。"
-                return
+                return false
             }
             try persist(updated) // 保存できなければ、画面も更新しない
             try show(updated)
+            if let kept = result.trash { trash.add(json: kept) } // 削除は、保存に成功したあとに、最近削除へ保管する
+            return true
         } catch {
             notice = "保存できません：\(ErrorText.safe(error))"
+            return false
         }
     }
 
@@ -203,6 +225,8 @@ final class LibraryStore: ObservableObject {
     private struct ApplyResult: Decodable {
         var text: String?
         var error: String?
+        /// 削除（プレイリスト・曲）のとき、最近削除へ保管する内容（JSON文字列）。`keepTrash` を渡したときだけ。
+        var trash: String?
     }
 
     private func open(_ core: SharedCore, _ fileText: String?) async throws -> OpenResult {

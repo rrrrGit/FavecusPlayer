@@ -4,6 +4,97 @@ let state, current = null, playback = null, thumbnail = null, statuses = {}, que
 let submitModal = null, toastTimer, loaded = false, seeking = false, accounts = {}, dragged = null, lastVolume = 1, modalEpoch = 0, pendingModal = null, cancelModal = null;
 const { HasPlayback, TransportState } = window.FavecusTransport;
 const api = window.favecusApp;
+// おやすみタイマー（規則は core/sleep-timer.cjs。ここは表示と、押したときの次の指定だけ）。
+let sleepState = { mode: 'off' };
+const SLEEP_MINUTES = [15, 30, 45, 60, 90];
+function NextSleepCommand(value) {
+  const index = value?.mode === 'minutes' ? SLEEP_MINUTES.indexOf(value.minutes) : value?.mode === 'song' ? SLEEP_MINUTES.length : SLEEP_MINUTES.length + 1;
+  const next = (index + 1) % (SLEEP_MINUTES.length + 2);
+  return next < SLEEP_MINUTES.length ? { minutes: SLEEP_MINUTES[next] } : next === SLEEP_MINUTES.length ? { song: true } : { cancel: true };
+}
+function SleepDescription(value) {
+  if (value?.mode === 'minutes') { const left = Math.max(0, Math.ceil((value.deadline - Date.now()) / 60000)); return `おやすみタイマー ${value.minutes}分（残り約${left}分）`; }
+  if (value?.mode === 'song') return 'おやすみタイマー この曲の終わりまで';
+  return 'おやすみタイマー オフ';
+}
+function RenderSleep() {
+  const button = $('sleep'); if (!button) return;
+  const on = sleepState?.mode === 'minutes' || sleepState?.mode === 'song', next = NextSleepCommand(sleepState);
+  const nextText = next.cancel ? 'オフ' : next.song ? 'この曲の終わりまで' : `${next.minutes}分`;
+  const label = `${SleepDescription(sleepState)}（押すと${nextText}）`;
+  button.textContent = sleepState?.mode === 'minutes' ? `☾${Math.max(0, Math.ceil((sleepState.deadline - Date.now()) / 60000))}` : sleepState?.mode === 'song' ? '☾曲' : '☾';
+  button.title = label; button.setAttribute('aria-label', label); button.setAttribute('aria-pressed', String(on)); button.classList.toggle('enabled', on);
+  clearTimeout(sleepRefresh); sleepRefresh = sleepState?.mode === 'minutes' ? setTimeout(RenderSleep, 1000) : null;
+}
+// 最近削除（設定の中）。削除したプレイリスト・曲を30日間保管し、元に戻せる。規則は共通（core/trash.cjs）、ここは表示と操作だけ。
+function TrashSettings() {
+  OpenModal('最近削除', `<p class="form-note">削除したプレイリストと、「このリストから外す」で外した曲を、30日間、このPCに保管します（同期はしません）。元に戻すと、元の場所へ戻り、ほかの端末にも反映されます。保管中は、保存済みの動画・音声も残します。</p><div class="trash-list"></div><div class="settings-actions"><button type="button" class="button secondary trash-clear">すべて完全に削除</button></div>`, null, '保存', () => Settings());
+  const body = $('modal-body'), listElement = body.querySelector('.trash-list'), clear = body.querySelector('.trash-clear');
+  const paint = items => {
+    listElement.replaceChildren(); clear.disabled = !items.length;
+    if (!items.length) listElement.append(Element('p', 'form-note', '削除した項目は、ありません。'));
+    for (const item of items) {
+      const row = Element('div', 'trash-row'), text = Element('div', 'trash-text');
+      text.append(Element('strong', '', item.label), Element('span', 'auto-note', `${new Date(item.deletedAt).toLocaleDateString('ja-JP')}に削除・残り${item.daysLeft}日`));
+      row.append(text,
+        Button('元に戻す', 'button primary', async () => { paint(await api.trashRestore(item.id)); Toast('元に戻しました。'); }),
+        Button('完全に削除', 'button secondary', async () => { paint(await api.trashDelete(item.id)); }));
+      listElement.append(row);
+    }
+  };
+  clear.addEventListener('click', () => Run(async () => { if (confirm('保管中の項目をすべて完全に削除します。元に戻せません。')) { await api.trashClear(); paint([]); } }));
+  Run(async () => paint(await api.trashList()));
+}
+// 自動リスト（ホームの、自分のプレイリストの下）。曲の選び方は main 側（共通の規則）。ここは表示と、押したときの操作だけ。
+const AUTO_LIST_KINDS = [
+  { kind: 'frequent', title: 'よく聴く曲', note: '再生回数の多い順（上位50曲）' },
+  { kind: 'recent', title: '最近追加した曲', note: '登録の新しい順（50曲）' },
+  { kind: 'unplayed', title: '未再生', note: 'まだ聴いていない曲（登録の新しい順）' }
+];
+function MakeAutoLists() {
+  if (!api?.autoList || !api?.autoPlay) return null;
+  const section = Element('section', 'auto-lists'); section.setAttribute('aria-label', '自動リスト');
+  section.append(Element('h2', '', '自動リスト'));
+  const cards = Element('div', 'auto-cards'); section.append(cards);
+  const counts = new Map();
+  for (const meta of AUTO_LIST_KINDS) {
+    const card = Element('button', 'auto-card'); card.type = 'button';
+    const name = Element('strong', '', meta.title), note = Element('span', 'auto-note', meta.note), count = Element('span', 'auto-count', '');
+    card.append(name, note, count); counts.set(meta.kind, count);
+    card.addEventListener('click', () => Run(() => OpenAutoList(meta)));
+    cards.append(card);
+  }
+  void api.autoList().then(result => { for (const meta of AUTO_LIST_KINDS) { const n = result?.[meta.kind] ?? 0; counts.get(meta.kind).textContent = `${n}曲`; } }).catch(() => {});
+  return section;
+}
+async function OpenAutoList(meta) {
+  const rows = await api.autoList(meta.kind);
+  OpenModal(meta.title, `<p class="form-note"></p><div class="auto-actions"></div><ol class="auto-rows"></ol>`, null);
+  const body = $('modal-body'); body.querySelector('.form-note').textContent = `${meta.note}。曲を押すと、この一覧の順で再生します。`;
+  const actions = body.querySelector('.auto-actions'), list = body.querySelector('.auto-rows');
+  actions.append(
+    Button('▶ 再生', 'button', async () => { CloseModal(); await PlaybackAction(() => api.autoPlay(meta.kind, null, false)); }),
+    Button('⤨ シャッフル再生', 'button secondary', async () => { CloseModal(); await PlaybackAction(() => api.autoPlay(meta.kind, null, true)); })
+  );
+  actions.querySelectorAll('button').forEach(b => { b.disabled = !rows.length; });
+  if (!rows.length) list.append(Element('li', 'form-note', 'まだ曲がありません。'));
+  rows.forEach((row, index) => {
+    const item = Element('li', 'auto-row'), button = Element('button', 'auto-row-button'); button.type = 'button';
+    button.append(Element('span', 'auto-row-number', String(index + 1).padStart(2, '0')), Element('span', 'auto-row-title', row.title));
+    if (meta.kind === 'frequent') button.append(Element('span', 'auto-row-count', `${row.count}回`));
+    button.addEventListener('click', () => { CloseModal(); void PlaybackAction(() => api.autoPlay(meta.kind, row.id, false)); });
+    item.append(button); list.append(item);
+  });
+}
+// 前回の続きから（保存した曲があり、再生中でないときだけ、再生バーに出す）
+let resumeOffer = null;
+function RenderResume() {
+  const button = $('resume-last'); if (!button) return;
+  const show = !!resumeOffer && !current;
+  button.classList.toggle('hidden', !show);
+  if (show) { const text = `前回の続きから：${resumeOffer.title}（${Time(resumeOffer.position)}～）`; button.textContent = text; button.title = text; button.setAttribute('aria-label', text); }
+}
+let sleepRefresh = null; // 残り時間の表示を、1秒ごとに更新する（タイマーが動いている間だけ）
 const tree = window.FavecusTree;
 const expandedLists = new Set(), expandedEntryLists = new Set(), playlistDrag = { value: null };
 let allListsView = false, timelineManual = false, timelineOpen = false, playingLocation = null;
@@ -491,7 +582,7 @@ function Settings() {
     </section>
     <nav id="settings-sections" class="settings-sections" aria-label="設定項目"></nav>`, null);
   // 新しい設定カテゴリはこの配列の末尾へ追加する。
-  for (const [name, open] of [['プレイリストの出力', Transfer], ['使い方', () => api.help()], ['自動消去単語設定', TitleWordsSettings], ['Discordアクティビティ', DiscordSettings], ['ミニプレイヤー、タスクバー', TaskbarSettings], ['再生・表示', PlaybackSettings], ['キーコンフィグ', KeySettings], ['シャッフルの再生回数', ShuffleSettings], ['バージョン更新', ReleaseSettings], ['プレイリストの同期', SyncSettings]]) {
+  for (const [name, open] of [['プレイリストの出力', Transfer], ['使い方', () => api.help()], ['自動消去単語設定', TitleWordsSettings], ['Discordアクティビティ', DiscordSettings], ['ミニプレイヤー、タスクバー', TaskbarSettings], ['再生・表示', PlaybackSettings], ['キーコンフィグ', KeySettings], ['シャッフルの再生回数', ShuffleSettings], ['バージョン更新', ReleaseSettings], ['プレイリストの同期', SyncSettings], ['最近削除', TrashSettings]]) {
     const button = Button(name, 'settings-category', open); button.append(Element('span', '', '›')); $('settings-sections').append(button);
   }
   SyncVolume(state.settings.volume); $('master-volume').oninput = () => VolumeInput($('master-volume'));
@@ -669,18 +760,21 @@ function PlaybackSettings() {
   const s = state.settings;
   const save = async () => {
     if (!$('modal-form').reportValidity()) return false;
-    const epoch = modalEpoch, settings = { autoThumbnailEnabled: $('auto-thumbnail').checked, autoThumbnailMinutes: Number($('auto-thumbnail-minutes').value) };
+    const epoch = modalEpoch, settings = { volumeLeveling: $('volume-leveling').checked, autoThumbnailEnabled: $('auto-thumbnail').checked, autoThumbnailMinutes: Number($('auto-thumbnail-minutes').value) };
     UpdateDownloads(await api.preferSaved($('playback-source').value === 'saved'));
     return SaveSettingsSection(settings, epoch);
   };
   OpenModal('再生・表示', `
     <label class="field">再生するデータの優先<select id="playback-source"><option value="saved">保存済みの動画・音声を優先</option><option value="online">オンラインを優先</option></select><small>保存済みを優先すると、対応するファイルがある曲はPCから再生します。変更は次の曲の読み込みから反映します。</small></label>
     <label class="field">プレイリスト欄の幅<input id="sidebar-width" type="range" min="170" max="400" step="1"><output id="sidebar-width-value"></output><small>変更はすぐに反映・保存されます。</small></label>
+    <label class="check-row"><input id="volume-leveling" type="checkbox">曲ごとの音量差を自動で揃える（大きい曲を下げます）</label>
+    <p class="form-note">保存済みの音声・動画と、ローカルの曲が対象です（オンライン再生は対象外）。初めて再生する曲は、音量を測るため、数秒だけ遅れて反映されます。曲を上げることはしません。</p>
     <label class="check-row"><input id="auto-thumbnail" type="checkbox">アプリを前面で使っていない間は、自動で曲モードにする</label>
     <label class="field">切り替えまでの時間（分）<input id="auto-thumbnail-minutes" type="number" min="1" max="120" step="1" required><small>初期値5分。最小化・タスクバー表示中や、別のアプリを操作している間を数えます。前面に戻すと待ち時間をリセットします。</small></label>
     <p class="form-note">音声と再生位置は保ちます。自動切り替え後は「動画」で戻せます。同じ再生画面を再表示・再描画し、通常はページを再読み込みしません。</p>
     <p class="form-note">左上の「戻る」または「保存して戻る」で保存します。×・閉じるは変更を保存せず閉じます。</p>`, save, '保存して戻る', save);
   $('playback-source').value = downloadInfo.preferSaved === false ? 'online' : 'saved';
+  $('volume-leveling').checked = s.volumeLeveling !== false;
   $('sidebar-width').value = s.sidebarWidth; $('sidebar-width-value').textContent = `${s.sidebarWidth}px`;
   $('sidebar-width').oninput = () => { const width = Number($('sidebar-width').value); $('sidebar-width-value').textContent = `${width}px`; document.body.style.setProperty('--sidebar-width', `${width}px`); Run(() => Action({ type: 'settings', settings: { sidebarWidth: width } })); };
   $('auto-thumbnail').checked = s.autoThumbnailEnabled; $('auto-thumbnail-minutes').value = s.autoThumbnailMinutes;
@@ -998,6 +1092,7 @@ function RenderHome() {
     onInclude: (id, value) => Run(async () => { try { await Action({ type: 'playlist-properties', playlistId: id, includeInAll: value }); } finally { RenderHome(); } })
   });
   homePath = view.path.map(p => p.id); homePage = view.page;
+  if (!homePath.length) { const auto = MakeAutoLists(); if (auto) $('home').append(auto); } // 自分のプレイリストの下に、自動リスト
   homeArtwork?.SetEnabled(foreground && !$('modal').open);
   if (restore) $('home').scrollTop = homeScrollTop;
 }
@@ -1106,6 +1201,7 @@ function PlayingPath() {
   return playingLocation.path;
 }
 function UpdateTransport() {
+  RenderResume();
   const { internal, data, canStart, canSeek } = Transport();
   $('now-title').textContent = data?.title || (current?.entry ? EntryTitle(current.entry) : canStart ? List().name : '再生していません');
   $('now-title').title = $('now-title').textContent;
@@ -1220,6 +1316,8 @@ for (const event of ['pointerup', 'pointercancel']) document.addEventListener(ev
 $('shuffle-play').onclick = () => PlaybackAction(() => api.shufflePlay(ViewScope()));
 $('play-all').onclick = () => PlaybackAction(() => api.play(ViewScope()));
 $('shuffle').onclick = () => Run(() => Action({ type: 'settings', settings: { shuffle: !state.settings.shuffle } }));
+$('resume-last').onclick = () => Run(() => api.resumeLast());
+$('sleep').onclick = () => Run(async () => { sleepState = await api.sleepTimer(NextSleepCommand(sleepState)); RenderSleep(); });
 $('repeat').onclick = () => Run(() => Action({ type: 'settings', settings: { repeat: { off: 'all', all: 'one', one: 'off' }[state.settings.repeat] } }));
 for (const id of ['next', 'previous']) $(id).onclick = () => PlaybackAction(() => api.command(id));
 for (const id of ['stop', 'reload', 'back-ten', 'forward-ten']) $(id).onclick = () => Run(() => api.command(id));
@@ -1242,6 +1340,8 @@ if (api) {
     else if (event.type === 'shortcut-follow') queueFollower?.Resume();
     else if (event.type === 'duration') { UpdateDuration(event.value.entryId, event.value.duration); }
     else if (event.type === 'volume') SyncVolume(event.value);
+    else if (event.type === 'resume') { resumeOffer = event.value || null; RenderResume(); }
+    else if (event.type === 'sleep') { sleepState = event.value || { mode: 'off' }; RenderSleep(); }
     else if (event.type === 'status') { statuses = event.value; UpdateStatus(); }
     else if (event.type === 'loaded') { loaded = true; RenderPlayer(); }
     else if (event.type === 'notice') Toast(event.value);
@@ -1262,5 +1362,5 @@ if (api) {
   });
   new ResizeObserver(SendBounds).observe($('player-slot'));
   new ResizeObserver(UpdateQueueTail).observe($('entries'));
-  Run(async () => { const initial = await api.state(); state = initial.state; current = initial.current; playback = initial.playback; thumbnail = initial.thumbnail; statuses = initial.statuses; queueInfo = initial.queue; foreground = initial.foreground === true; accounts = initial.accounts || {}; loaded = !!playback; UpdateDownloads(initial.downloads); $('version').textContent = initial.version; document.body.classList.toggle('mac', initial.platform === 'darwin'); Render(); queueFollower?.Request(); accounts = await api.accounts(); UpdateAccounts(); });
+  Run(async () => { const initial = await api.state(); state = initial.state; current = initial.current; playback = initial.playback; thumbnail = initial.thumbnail; statuses = initial.statuses; queueInfo = initial.queue; foreground = initial.foreground === true; accounts = initial.accounts || {}; loaded = !!playback; sleepState = initial.sleep || { mode: 'off' }; RenderSleep(); resumeOffer = initial.resume || null; UpdateDownloads(initial.downloads); $('version').textContent = initial.version; document.body.classList.toggle('mac', initial.platform === 'darwin'); Render(); queueFollower?.Request(); accounts = await api.accounts(); UpdateAccounts(); });
 } else Toast('この画面はFavecus Playerのアプリから開いてください。');

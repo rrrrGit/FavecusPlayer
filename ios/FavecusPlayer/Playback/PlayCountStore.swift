@@ -75,6 +75,13 @@ final class PlayCountStore {
         return weights
     }
 
+    /// 曲のキー → 再生回数（共通JS）。自動リストの選び方に使う。
+    func counts(for keys: [String]) async -> [String: Int] {
+        guard !text.isEmpty, !keys.isEmpty,
+              let result = try? await call("LedgerCounts", ["text": text, "keys": keys]), let counts = result["counts"] as? [String: Int] else { return [:] }
+        return counts
+    }
+
     func count(for key: String) async -> Int {
         guard !text.isEmpty, let result = try? await call("LedgerCounts", ["text": text, "keys": [key]]), let counts = result["counts"] as? [String: Int] else { return 0 }
         return counts[key] ?? 0

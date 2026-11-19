@@ -17,6 +17,7 @@ const Storage = require('./sync-storage.cjs');
 const { ContextOf, MergeView, Compose } = require('./sync-merge.cjs');
 
 const DAY = 24 * 60 * 60 * 1000;
+const INTERVAL_MS = 60 * 60 * 1000; // 定期同期の間隔（変更の1.5秒後・起動5秒後の同期とは別）
 
 // Storeとの接続。Library()：同期用の形の現在のライブラリ。Apply(view)：同期後の表示をStoreへ反映（変化がなければ何もしない）。
 function StoreAdapter(store, { validateLibrary }) {
@@ -94,17 +95,17 @@ class SyncService {
   }
   Start() {
     this.Load();
-    if (this.config.enabled && !this.blocked && this.device) { this.Emit('idle'); this.Schedule(5 * 1000); this.interval = this.timers.set(() => this.Tick(), 5 * 60 * 1000); this.interval.unref?.(); }
+    if (this.config.enabled && !this.blocked && this.device) { this.Emit('idle'); this.Schedule(5 * 1000); this.interval = this.timers.set(() => this.Tick(), INTERVAL_MS); this.interval.unref?.(); }
     else this.Emit(this.blocked ? 'blocked' : 'off');
   }
-  Tick() { if (this.disposed) return; this.Request().catch(() => {}); this.interval = this.timers.set(() => this.Tick(), 5 * 60 * 1000); this.interval.unref?.(); }
+  Tick() { if (this.disposed) return; this.Request().catch(() => {}); this.interval = this.timers.set(() => this.Tick(), INTERVAL_MS); this.interval.unref?.(); }
   async Enable() {
     this.Load(); // Start前でも、既存の同期データを確認してから始める
     if (this.blocked) throw new Error(this.blocked);
     if (!this.Session()) throw new Error('先にサインインしてください。');
     if (!this.device) await this.session.Enable({ url: this.config.url, userId: this.Session().userId });
     this.config = { ...this.config, enabled: true }; Storage.WriteConfig(this.dir, this.config);
-    this.Emit('idle'); this.interval = this.interval || this.timers.set(() => this.Tick(), 5 * 60 * 1000); this.interval.unref?.();
+    this.Emit('idle'); this.interval = this.interval || this.timers.set(() => this.Tick(), INTERVAL_MS); this.interval.unref?.();
     return this.SyncNow();
   }
   // 停止の解除（利用者の選択）。mode：'restore'＝同期した内容でこの端末を復元／'keep'＝この端末の内容を正として同期（削除も送る）。
