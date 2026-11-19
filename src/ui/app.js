@@ -26,6 +26,47 @@ function RenderSleep() {
   button.title = label; button.setAttribute('aria-label', label); button.setAttribute('aria-pressed', String(on)); button.classList.toggle('enabled', on);
   clearTimeout(sleepRefresh); sleepRefresh = sleepState?.mode === 'minutes' ? setTimeout(RenderSleep, 1000) : null;
 }
+// 自動リスト（ホームの、自分のプレイリストの下）。曲の選び方は main 側（共通の規則）。ここは表示と、押したときの操作だけ。
+const AUTO_LIST_KINDS = [
+  { kind: 'frequent', title: 'よく聴く曲', note: '再生回数の多い順（上位50曲）' },
+  { kind: 'recent', title: '最近追加した曲', note: '登録の新しい順（50曲）' },
+  { kind: 'unplayed', title: '未再生', note: 'まだ聴いていない曲（登録の新しい順）' }
+];
+function MakeAutoLists() {
+  if (!api?.autoList || !api?.autoPlay) return null;
+  const section = Element('section', 'auto-lists'); section.setAttribute('aria-label', '自動リスト');
+  section.append(Element('h2', '', '自動リスト'));
+  const cards = Element('div', 'auto-cards'); section.append(cards);
+  const counts = new Map();
+  for (const meta of AUTO_LIST_KINDS) {
+    const card = Element('button', 'auto-card'); card.type = 'button';
+    const name = Element('strong', '', meta.title), note = Element('span', 'auto-note', meta.note), count = Element('span', 'auto-count', '');
+    card.append(name, note, count); counts.set(meta.kind, count);
+    card.addEventListener('click', () => Run(() => OpenAutoList(meta)));
+    cards.append(card);
+  }
+  void api.autoList().then(result => { for (const meta of AUTO_LIST_KINDS) { const n = result?.[meta.kind] ?? 0; counts.get(meta.kind).textContent = `${n}曲`; } }).catch(() => {});
+  return section;
+}
+async function OpenAutoList(meta) {
+  const rows = await api.autoList(meta.kind);
+  OpenModal(meta.title, `<p class="form-note"></p><div class="auto-actions"></div><ol class="auto-rows"></ol>`, null);
+  const body = $('modal-body'); body.querySelector('.form-note').textContent = `${meta.note}。曲を押すと、この一覧の順で再生します。`;
+  const actions = body.querySelector('.auto-actions'), list = body.querySelector('.auto-rows');
+  actions.append(
+    Button('▶ 再生', 'button', async () => { CloseModal(); await PlaybackAction(() => api.autoPlay(meta.kind, null, false)); }),
+    Button('⤨ シャッフル再生', 'button secondary', async () => { CloseModal(); await PlaybackAction(() => api.autoPlay(meta.kind, null, true)); })
+  );
+  actions.querySelectorAll('button').forEach(b => { b.disabled = !rows.length; });
+  if (!rows.length) list.append(Element('li', 'form-note', 'まだ曲がありません。'));
+  rows.forEach((row, index) => {
+    const item = Element('li', 'auto-row'), button = Element('button', 'auto-row-button'); button.type = 'button';
+    button.append(Element('span', 'auto-row-number', String(index + 1).padStart(2, '0')), Element('span', 'auto-row-title', row.title));
+    if (meta.kind === 'frequent') button.append(Element('span', 'auto-row-count', `${row.count}回`));
+    button.addEventListener('click', () => { CloseModal(); void PlaybackAction(() => api.autoPlay(meta.kind, row.id, false)); });
+    item.append(button); list.append(item);
+  });
+}
 // 前回の続きから（保存した曲があり、再生中でないときだけ、再生バーに出す）
 let resumeOffer = null;
 function RenderResume() {
@@ -1029,6 +1070,7 @@ function RenderHome() {
     onInclude: (id, value) => Run(async () => { try { await Action({ type: 'playlist-properties', playlistId: id, includeInAll: value }); } finally { RenderHome(); } })
   });
   homePath = view.path.map(p => p.id); homePage = view.page;
+  if (!homePath.length) { const auto = MakeAutoLists(); if (auto) $('home').append(auto); } // 自分のプレイリストの下に、自動リスト
   homeArtwork?.SetEnabled(foreground && !$('modal').open);
   if (restore) $('home').scrollTop = homeScrollTop;
 }

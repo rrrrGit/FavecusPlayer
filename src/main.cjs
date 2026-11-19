@@ -35,6 +35,7 @@ const { BilibiliAccount } = require('./core/bilibili.cjs');
 const { Thumbnails, SmallImage, CoverImage, FlatImage, ImageData } = require('./core/thumbnail.cjs');
 const { SleepTimer } = require('./core/sleep-timer.cjs');
 const { ResumeStore } = require('./core/resume-point.cjs');
+const AutoListsCore = require('./core/auto-lists.cjs');
 const { APP_ID, ConfigureTaskbar, PreviousInstallRoots } = require('./core/windows-identity.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'favecus', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
@@ -65,14 +66,54 @@ const Emit = (type, value) => {
   }
   mini?.Update();
 };
+// 自動リスト（よく聴く曲・最近追加した曲・未再生）。保存せず、その都度、共通の規則（core/auto-lists.cjs）で選ぶ。
+// 再生するときは、そのときの曲の並び（スナップショット）を再生範囲（auto:…）にする。再生回数が増えても、再生中の並びは変わらない。
+const AUTO_NAMES = { 'auto:frequent': 'よく聴く曲', 'auto:recent': '最近追加した曲', 'auto:unplayed': '未再生' };
+const autoSnapshots = new Map();
+function BuildAutoLists() {
+  const keys = {}, counts = {};
+  for (const list of store.data.playlists) for (const entry of list.entries) {
+    const key = playCounts?.KeyOf(entry);
+    if (key) { keys[entry.id] = key; if (!(key in counts)) counts[key] = playCounts.Count(entry); }
+  }
+  return AutoListsCore.Select({ library: store.data, keys, counts });
+}
+function AutoEntries(kind) {
+  const scope = `auto:${kind}`;
+  if (!AUTO_NAMES[scope]) throw new Error('自動リストの種類が正しくありません。');
+  const owners = new Map();
+  for (const list of store.data.playlists) for (const entry of list.entries) if (!owners.has(entry.id)) owners.set(entry.id, { ...entry, playlistId: list.id });
+  const entries = (BuildAutoLists()[kind] || []).map(item => owners.get(item.id)).filter(Boolean);
+  autoSnapshots.set(scope, entries);
+  return entries;
+}
+const ScopeEntries = scope => AUTO_NAMES[scope]
+  ? (autoSnapshots.get(scope) || []).filter(e => store.data.playlists.some(p => p.id === e.playlistId && p.entries.some(x => x.id === e.id)))
+  : store.Entries(scope);
+async function AutoPlay(kind, entryId, shuffled) {
+  const entries = AutoEntries(kind), scope = `auto:${kind}`;
+  if (!entries.length) throw new Error('再生する曲がありません。');
+  if (shuffled) {
+    const nextQueue = new Queue(null, ShuffleWeight, randomInt), first = nextQueue.ShuffleStart(scope, entries), selected = entries.find(e => e.id === first);
+    PlayableEntry(selected.playlistId, first);
+    const settings = { shuffle: true };
+    if (store.data.settings.repeat === 'one') settings.repeat = 'off';
+    const state = store.Apply({ type: 'settings', settings }); queue = nextQueue; Emit('state', state);
+    return LoadEntry(selected.playlistId, first);
+  }
+  const selected = entries.find(e => e.id === entryId) || entries[0];
+  PlayableEntry(selected.playlistId, selected.id);
+  queue.Start(scope, entries, selected.id, store.data.settings.shuffle);
+  return LoadEntry(selected.playlistId, selected.id);
+}
 function QueueState() {
   if (!current?.playlistId) return null;
-  const scope = queue.playlistId, entries = store.Entries(scope), nextId = queue.Peek(store.data.settings.repeat);
+  const scope = queue.playlistId, entries = ScopeEntries(scope), nextId = queue.Peek(store.data.settings.repeat);
   const next = entries.find(entry => entry.id === nextId);
   const timeline = queue.Timeline(store.data.settings.repeat);
   const byId = new Map(entries.map(e => [e.id, e]));
   const describe = id => { const e = byId.get(id) || queue.catalog.get(id); return e ? { id, playlistId: e.playlistId, title: e.title || e.videoId || 'ローカルファイル' } : { id, title: '一覧から削除された曲' }; };
-  return { playlistId: scope, name: scope === '*' ? '全プレイリスト' : store.Playlist(scope).name, shuffle: queue.shuffle, repeat: store.data.settings.repeat,
+  return { playlistId: scope, name: scope === '*' ? '全プレイリスト' : AUTO_NAMES[scope] || store.Playlist(scope).name, shuffle: queue.shuffle, repeat: store.data.settings.repeat,
     timeline: { history: timeline.history.map(describe), current: timeline.current ? describe(timeline.current) : null, upcoming: timeline.upcoming.map(describe) },
     next: next ? { id: next.id, playlistId: next.playlistId, title: next.title || next.videoId || 'ローカルファイル', index: entries.indexOf(next) + 1 } : null };
 }
@@ -235,7 +276,7 @@ async function LoadThumbnail() {
 function AcceptPlayback(data) {
   playback = data; playCounts?.Observe(data); Emit('playback', data); UpdatePresence();
   // 前回の続きから再生：曲・再生範囲・位置を、この端末にだけ保存する（約10秒ごと・一時停止の瞬間）
-  if (current?.playlistId && queue?.playlistId) resumeStore?.Observe({ entryId: current.entryId, playlistId: current.playlistId, scope: queue.playlistId, position: data.position, duration: data.duration }, data.paused === true);
+  if (current?.playlistId && queue?.playlistId) resumeStore?.Observe({ entryId: current.entryId, playlistId: current.playlistId, scope: AUTO_NAMES[queue.playlistId] ? '*' : queue.playlistId, position: data.position, duration: data.duration }, data.paused === true);
   if (current?.officialPlayer && !data.paused && data.position >= 3) { officialPreferred.add(current.entry.videoId); const season = playbackMetadata.get(current.entry.videoId)?.ugc_season?.id; if (season) officialPreferred.add(`season:${season}`); if (officialPreferred.size > 1000) officialPreferred.delete(officialPreferred.values().next().value); }
 }
 function StopPlayer() {
@@ -461,7 +502,7 @@ async function Step(direction, automatic = false) {
   if (!current?.playlistId) return;
   const nextQueue = queue.Clone(), id = nextQueue.Move(direction, store.data.settings.repeat, automatic);
   if (!id) { if (automatic) { StopPlayer(); Notify('再生リストの最後まで再生しました。'); } return; }
-  const next = store.Entries(nextQueue.playlistId).find(e => e.id === id);
+  const next = ScopeEntries(nextQueue.playlistId).find(e => e.id === id);
   if (!next) return;
   PlayableEntry(next.playlistId, id); queue = nextQueue;
   await LoadEntry(next.playlistId, id);
@@ -471,8 +512,8 @@ function SyncPlayingQueue() {
   const list = store.data.playlists.find(p => p.id === current.playlistId);
   if (!list?.entries.some(e => e.id === current.entryId)) StopPlayer();
   else {
-    const scope = queue.playlistId === '*' || store.data.playlists.some(p => p.id === queue.playlistId) ? queue.playlistId : list.id;
-    const entries = store.Entries(scope);
+    const scope = queue.playlistId === '*' || AUTO_NAMES[queue.playlistId] || store.data.playlists.some(p => p.id === queue.playlistId) ? queue.playlistId : list.id;
+    const entries = ScopeEntries(scope);
     if (!entries.some(e => e.id === current.entryId)) { if (scope === '*') { StopPlayer(); return; } queue.Start(list.id, store.Entries(list.id), current.entryId, store.data.settings.shuffle); }
     else queue.Sync(scope, entries, current.entryId, store.data.settings.shuffle);
     current.queuePlaylistId = queue.playlistId;
@@ -795,6 +836,12 @@ async function Start() {
     return value || null;
   });
   Handle('player:play', (playlistId, entryId) => Play(playlistId, entryId));
+  // 自動リスト：kind なし＝3つの件数、kind あり＝その曲の一覧（開いた時点の並びを、再生範囲として覚える）
+  Handle('library:auto-list', kind => {
+    if (!kind) { const lists = BuildAutoLists(); return { frequent: lists.frequent.length, recent: lists.recent.length, unplayed: lists.unplayed.length }; }
+    return AutoEntries(kind).map(e => ({ id: e.id, playlistId: e.playlistId, title: e.title || e.videoId || 'ローカルファイル', type: e.type, count: playCounts?.Count(e) || 0 }));
+  });
+  Handle('player:auto-play', (kind, entryId, shuffled) => AutoPlay(kind, typeof entryId === 'string' ? entryId : null, shuffled === true));
   Handle('player:resume-last', () => {
     const saved = resumeStore?.Get();
     if (!saved || !ResumeOffer()) throw new Error('前回の続きがありません。');

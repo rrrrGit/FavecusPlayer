@@ -8,6 +8,7 @@ const { ValidateIdentityVersion, LibrarySyncKey } = require('./library-identity.
 const Transfer = require('./library-transfer.cjs');
 const { Queue } = require('./queue.cjs');
 const Ledger = require('./play-ledger.cjs');
+const AutoListsCore = require('./auto-lists.cjs');
 
 const ID = /^[a-f0-9-]{36}$/;
 function Context(options) {
@@ -97,7 +98,18 @@ function Rng(seed) { // テスト用の決定的な乱数（mulberry32）
 let queue = new Queue();
 function PlayableEntries(options) {
   const library = JSON.parse(options.text), playable = new Set(options.playable || []);
+  // entryIds：自動リスト（よく聴く曲など）の再生。リストの曲のID（順番どおり）を直接指定する。scope は、表示用の名前（auto:…）として使う。
+  if (Array.isArray(options.entryIds)) {
+    const owners = new Map();
+    for (const list of library.playlists || []) for (const entry of list.entries || []) if (!owners.has(entry.id)) owners.set(entry.id, { ...entry, playlistId: list.id });
+    return options.entryIds.map(id => owners.get(id)).filter(entry => entry && playable.has(entry.id));
+  }
   return Tree.Entries(library, options.scope).filter(entry => playable.has(entry.id));
+}
+// 自動リストの選び方（共通：src/core/auto-lists.cjs）。options：{ text（ライブラリのJSON）, keys, counts, limits }
+function AutoLists(options) {
+  try { return AutoListsCore.Select({ library: JSON.parse(options.text), keys: options.keys, counts: options.counts, limits: options.limits }); }
+  catch (error) { return { error: String(error && error.message || error) }; }
 }
 const Found = (entries, id) => { const entry = entries.find(e => e.id === id); return { id: id || null, playlistId: entry ? entry.playlistId : null }; };
 function QueueApply(target, options) {
@@ -245,4 +257,4 @@ function MediaKeys(options) {
     return { keys: (options.entries || []).map(entry => { try { return keyOf({ type: 'bilibili', url: entry.url }); } catch { return null; } }) };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
-module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueRun, PlaylistPath, LedgerOpen, LedgerCounts, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };
+module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueRun, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };

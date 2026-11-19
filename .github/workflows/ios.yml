@@ -48,6 +48,7 @@ on:
       - "src/core/sync-counts.cjs"
       - "src/core/import-identity.cjs"
       - "src/core/playlist-icon-data.cjs"
+      - "src/core/auto-lists.cjs"
       - "src/core/queue.cjs"
       - "src/ui/library-tree.js"
       - "src/ui/library-search.js"
