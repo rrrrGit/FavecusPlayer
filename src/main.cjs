@@ -36,6 +36,7 @@ const { Thumbnails, SmallImage, CoverImage, FlatImage, ImageData } = require('./
 const { SleepTimer } = require('./core/sleep-timer.cjs');
 const { ResumeStore } = require('./core/resume-point.cjs');
 const AutoListsCore = require('./core/auto-lists.cjs');
+const { TrashStore } = require('./core/trash-store.cjs');
 const { APP_ID, ConfigureTaskbar, PreviousInstallRoots } = require('./core/windows-identity.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'favecus', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
@@ -47,7 +48,7 @@ app.setPath('sessionData', dataDirectory);
 let win, store, presence, remoteView, mini, volumeSaveTimer, backgroundMode, sync;
 let viewVisible = false;
 let current = null, playback = null;
-let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null;
+let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null, trashStore = null;
 let visibleBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 let statuses = { discord: { code: 'off', text: 'Discord連携はオフです' }, taskbar: { code: 'off', text: '下向き矢印を押すと埋め込みを試します' } };
 let playCounts;
@@ -105,6 +106,12 @@ async function AutoPlay(kind, entryId, shuffled) {
   PlayableEntry(selected.playlistId, selected.id);
   queue.Start(scope, entries, selected.id, store.data.settings.shuffle);
   return LoadEntry(selected.playlistId, selected.id);
+}
+// 最近削除に保管中の曲も、保存済みメディアの整理では「参照されている」ものとして数える（元に戻したときに、保存済みの動画・音声が残るように）。
+function WithTrashedEntries(data) {
+  const extra = trashStore?.Entries() || [];
+  if (!data || !Array.isArray(data.playlists) || !extra.length) return data;
+  return { ...data, playlists: [...data.playlists, { id: 'trash', name: 'trash', entries: extra, childIds: [] }] };
 }
 function QueueState() {
   if (!current?.playlistId) return null;
@@ -597,7 +604,8 @@ async function Command(command, value) {
 
 async function Start() {
   const ffmpeg = process.env.FAVECUS_INSTALL_ROOT ? path.join(process.env.FAVECUS_INSTALL_ROOT, 'runtime', 'ffmpeg', 'ffmpeg.exe') : app.isPackaged ? path.join(process.resourcesPath, 'ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg') : path.join(app.getAppPath(), 'runtime', 'ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
-  store = new Store(app.getPath('userData'), { committed: () => { offline?.ScheduleCleanup(); sync?.Changed(); }, convertWma: (source, destination) => ConvertWma(ffmpeg, source, destination) });
+  trashStore = new TrashStore(path.join(app.getPath('userData'), 'trash.json'));
+  store = new Store(app.getPath('userData'), { trash: item => trashStore.Add(item), committed: () => { offline?.ScheduleCleanup(); sync?.Changed(); }, convertWma: (source, destination) => ConvertWma(ffmpeg, source, destination) });
 
   // プレイリストの同期（既定はオフ。利用者が設定で有効にしたときだけ動く）。library.jsonが正本で、同期の状態はuserData/sync/にある。
   const syncDirectory = path.join(app.getPath('userData'), 'sync');
@@ -635,7 +643,7 @@ async function Start() {
     try { biliSession.preconnect({ url, numSockets: 1 }); } catch {}
   }
   biliAccount = new BilibiliAccount((...args) => biliSession.fetch(...args));
-  offline = new OfflineLibrary({ directory: path.join(process.env.FAVECUS_INSTALL_ROOT || (app.isPackaged ? path.dirname(app.getPath('exe')) : app.getAppPath()), 'downloads'), previousDirectories: process.env.FAVECUS_INSTALL_ROOT ? PreviousInstallRoots(process.env.FAVECUS_INSTALL_ROOT).map(p => path.join(p, 'downloads')) : [], settingsFile: path.join(app.getPath('userData'), 'download-settings.json'), fetch: DownloadFetch(biliSession), ffmpeg, libraryData: () => store.data, referenceData: () => store.SavedData(), identify: RememberVideo, diagnostic: DownloadDiagnosticLog, changed: value => Emit('downloads', value) });
+  offline = new OfflineLibrary({ directory: path.join(process.env.FAVECUS_INSTALL_ROOT || (app.isPackaged ? path.dirname(app.getPath('exe')) : app.getAppPath()), 'downloads'), previousDirectories: process.env.FAVECUS_INSTALL_ROOT ? PreviousInstallRoots(process.env.FAVECUS_INSTALL_ROOT).map(p => path.join(p, 'downloads')) : [], settingsFile: path.join(app.getPath('userData'), 'download-settings.json'), fetch: DownloadFetch(biliSession), ffmpeg, libraryData: () => store.data, referenceData: () => WithTrashedEntries(store.SavedData()), identify: RememberVideo, diagnostic: DownloadDiagnosticLog, changed: value => Emit('downloads', value) });
   await offline.Organize(); archive = new LibraryArchive(store, offline);
   // 再生回数：台帳は play-ledger.json。以前の play-counts.json は、変更せずに1回だけ引き継ぐ（同期は、台帳の行だけを送る）
   playCounts = new PlayCounts(path.join(app.getPath('userData'), 'play-ledger.json'), Notify, { legacyFile: path.join(app.getPath('userData'), 'play-counts.json'), aliases: () => store?.data.videoAliases || [] });
@@ -842,6 +850,17 @@ async function Start() {
     return AutoEntries(kind).map(e => ({ id: e.id, playlistId: e.playlistId, title: e.title || e.videoId || 'ローカルファイル', type: e.type, count: playCounts?.Count(e) || 0 }));
   });
   Handle('player:auto-play', (kind, entryId, shuffled) => AutoPlay(kind, typeof entryId === 'string' ? entryId : null, shuffled === true));
+  // 最近削除（一覧・元に戻す・完全に削除）。元に戻すのは共通の規則（core/trash.cjs）。失敗したときは、保管を残して、理由を返す。
+  Handle('trash:list', () => trashStore.List());
+  Handle('trash:restore', id => {
+    const item = trashStore.Get(String(id));
+    if (!item) throw new Error('この項目は、すでに保管の期限が切れたか、なくなっています。');
+    const state = store.Apply({ type: 'restore', item });
+    trashStore.Remove(item.id); Emit('state', state);
+    return trashStore.List();
+  });
+  Handle('trash:delete', id => { trashStore.Remove(String(id)); return trashStore.List(); });
+  Handle('trash:clear', () => { trashStore.Clear(); return []; });
   Handle('player:resume-last', () => {
     const saved = resumeStore?.Get();
     if (!saved || !ResumeOffer()) throw new Error('前回の続きがありません。');

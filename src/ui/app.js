@@ -26,6 +26,25 @@ function RenderSleep() {
   button.title = label; button.setAttribute('aria-label', label); button.setAttribute('aria-pressed', String(on)); button.classList.toggle('enabled', on);
   clearTimeout(sleepRefresh); sleepRefresh = sleepState?.mode === 'minutes' ? setTimeout(RenderSleep, 1000) : null;
 }
+// 最近削除（設定の中）。削除したプレイリスト・曲を30日間保管し、元に戻せる。規則は共通（core/trash.cjs）、ここは表示と操作だけ。
+function TrashSettings() {
+  OpenModal('最近削除', `<p class="form-note">削除したプレイリストと、「このリストから外す」で外した曲を、30日間、このPCに保管します（同期はしません）。元に戻すと、元の場所へ戻り、ほかの端末にも反映されます。保管中は、保存済みの動画・音声も残します。</p><div class="trash-list"></div><div class="settings-actions"><button type="button" class="button secondary trash-clear">すべて完全に削除</button></div>`, null, '保存', () => Settings());
+  const body = $('modal-body'), listElement = body.querySelector('.trash-list'), clear = body.querySelector('.trash-clear');
+  const paint = items => {
+    listElement.replaceChildren(); clear.disabled = !items.length;
+    if (!items.length) listElement.append(Element('p', 'form-note', '削除した項目は、ありません。'));
+    for (const item of items) {
+      const row = Element('div', 'trash-row'), text = Element('div', 'trash-text');
+      text.append(Element('strong', '', item.label), Element('span', 'auto-note', `${new Date(item.deletedAt).toLocaleDateString('ja-JP')}に削除・残り${item.daysLeft}日`));
+      row.append(text,
+        Button('元に戻す', 'button primary', async () => { paint(await api.trashRestore(item.id)); Toast('元に戻しました。'); }),
+        Button('完全に削除', 'button secondary', async () => { paint(await api.trashDelete(item.id)); }));
+      listElement.append(row);
+    }
+  };
+  clear.addEventListener('click', () => Run(async () => { if (confirm('保管中の項目をすべて完全に削除します。元に戻せません。')) { await api.trashClear(); paint([]); } }));
+  Run(async () => paint(await api.trashList()));
+}
 // 自動リスト（ホームの、自分のプレイリストの下）。曲の選び方は main 側（共通の規則）。ここは表示と、押したときの操作だけ。
 const AUTO_LIST_KINDS = [
   { kind: 'frequent', title: 'よく聴く曲', note: '再生回数の多い順（上位50曲）' },
@@ -563,7 +582,7 @@ function Settings() {
     </section>
     <nav id="settings-sections" class="settings-sections" aria-label="設定項目"></nav>`, null);
   // 新しい設定カテゴリはこの配列の末尾へ追加する。
-  for (const [name, open] of [['プレイリストの出力', Transfer], ['使い方', () => api.help()], ['自動消去単語設定', TitleWordsSettings], ['Discordアクティビティ', DiscordSettings], ['ミニプレイヤー、タスクバー', TaskbarSettings], ['再生・表示', PlaybackSettings], ['キーコンフィグ', KeySettings], ['シャッフルの再生回数', ShuffleSettings], ['バージョン更新', ReleaseSettings], ['プレイリストの同期', SyncSettings]]) {
+  for (const [name, open] of [['プレイリストの出力', Transfer], ['使い方', () => api.help()], ['自動消去単語設定', TitleWordsSettings], ['Discordアクティビティ', DiscordSettings], ['ミニプレイヤー、タスクバー', TaskbarSettings], ['再生・表示', PlaybackSettings], ['キーコンフィグ', KeySettings], ['シャッフルの再生回数', ShuffleSettings], ['バージョン更新', ReleaseSettings], ['プレイリストの同期', SyncSettings], ['最近削除', TrashSettings]]) {
     const button = Button(name, 'settings-category', open); button.append(Element('span', '', '›')); $('settings-sections').append(button);
   }
   SyncVolume(state.settings.volume); $('master-volume').oninput = () => VolumeInput($('master-volume'));

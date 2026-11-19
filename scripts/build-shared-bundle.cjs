@@ -33,6 +33,7 @@ const MODULES = {
   'core/import-identity.cjs': 'src/core/import-identity.cjs',
   'core/playlist-icon-data.cjs': 'src/core/playlist-icon-data.cjs',
   'core/auto-lists.cjs': 'src/core/auto-lists.cjs',
+  'core/trash.cjs': 'src/core/trash.cjs',
   'core/queue.cjs': 'src/core/queue.cjs',
   'ui/library-tree.js': 'src/ui/library-tree.js',
   'ui/library-search.js': 'src/ui/library-search.js',

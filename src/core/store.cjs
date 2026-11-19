@@ -11,6 +11,7 @@ const { ReadJSON, ExportJSON } = require('./library-json.cjs');
 const { ValidateTitleWords, TitleCleaner } = require('./title-cleanup.cjs');
 const { Repository, DriveURL } = require('./releases.cjs');
 const { VideoIdentity } = require('./media-identity.cjs');
+const Trash = require('./trash.cjs');
 const { IDENTITY_SCHEMA_VERSION, MEDIA_ID, IdentityError, ValidateIdentityVersion, PlanMediaIds, VideoAliases, LibraryMediaKey } = require('./library-identity.cjs');
 const LibraryData = require('./library-data.cjs');
 const Actions = require('./library-actions.cjs');
@@ -204,7 +205,15 @@ class Store {
   }
   Apply(action) {
     const before = structuredClone(this.data);
-    try { return this.ApplyAction(action); } catch (error) { this.data = before; throw error; }
+    try {
+      const result = this.ApplyAction(action);
+      this.KeepDeleted(before, action); // 削除（プレイリスト・曲）は、保存に成功したあとに、最近削除へ保管する
+      return result;
+    } catch (error) { this.data = before; throw error; }
+  }
+  KeepDeleted(before, action) {
+    if (!this.options.trash || !['delete', 'remove'].includes(action?.type)) return;
+    try { const item = Trash.Capture(before, this.data, action, new Date().toISOString()); if (item) this.options.trash(item); } catch { /* 保管できなくても、削除は成功のまま */ }
   }
   ActionContext() { return { createId: randomUUID, now: () => new Date().toISOString(), cleanTitle: value => this.CleanTitle(value) }; }
   ApplyAction(action) {

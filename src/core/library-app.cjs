@@ -9,6 +9,7 @@ const Transfer = require('./library-transfer.cjs');
 const { Queue } = require('./queue.cjs');
 const Ledger = require('./play-ledger.cjs');
 const AutoListsCore = require('./auto-lists.cjs');
+const Trash = require('./trash.cjs');
 
 const ID = /^[a-f0-9-]{36}$/;
 function Context(options) {
@@ -53,11 +54,13 @@ function Open(options) {
 // 編集操作を1つ適用する。失敗したときは { error } を返し、元のライブラリは変えない（呼び出し側は保存しない）。
 function Apply(options) {
   try {
-    const library = JSON.parse(options.text), ctx = Context(options);
+    const library = JSON.parse(options.text), ctx = Context(options), before = JSON.parse(options.text);
     if (!Actions.Apply(library, options.action, ctx)) throw new Error('対応していない操作です。');
     Tree.ValidateGraph(library.playlists, library.rootPlaylistIds);
     if (!library.playlists.some(p => p.id === library.activePlaylistId)) library.activePlaylistId = library.rootPlaylistIds[0] || library.playlists[0].id;
-    return { text: Pretty(library) };
+    // 削除（プレイリスト・曲）は、最近削除へ保管する内容を添える（保管は、保存に成功したあとに、呼び出し側が行う）。JSON文字列で返す。
+    const trash = Trash.Capture(before, library, options.action, ctx.now());
+    return trash ? { text: Pretty(library), trash: JSON.stringify(trash) } : { text: Pretty(library) };
   } catch (error) { return { error: error instanceof TypeError || error instanceof SyntaxError ? '編集を適用できません（保存データの形式が正しくありません）。' : String(error && error.message || error) }; }
 }
 // ---- ZIPの出力・取り込み（入れ物・暗号・ファイル操作はSwift、規則はlibrary-transfer.cjs）
