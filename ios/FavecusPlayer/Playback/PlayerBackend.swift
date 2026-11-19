@@ -11,6 +11,8 @@ protocol PlayerBackend: AnyObject {
     var position: Double { get }
     var duration: Double { get }
     var isPlaying: Bool { get }
+    /// 音量（0〜1）。おやすみタイマーの終わりのフェードに使う。
+    var volume: Float { get set }
     func load(url: URL)
     func play()
     func pause()
@@ -22,6 +24,10 @@ protocol PlayerBackend: AnyObject {
 
 extension PlayerBackend {
     var videoPlayer: AVPlayer? { nil }
+    var volume: Float {
+        get { 1 }
+        set {}
+    }
 }
 
 @MainActor
@@ -50,6 +56,11 @@ final class AVPlayerBackend: PlayerBackend {
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         if let failObserver { NotificationCenter.default.removeObserver(failObserver) }
+    }
+
+    var volume: Float {
+        get { player.volume }
+        set { player.volume = max(0, min(1, newValue)) }
     }
 
     var position: Double {

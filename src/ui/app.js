@@ -4,6 +4,29 @@ let state, current = null, playback = null, thumbnail = null, statuses = {}, que
 let submitModal = null, toastTimer, loaded = false, seeking = false, accounts = {}, dragged = null, lastVolume = 1, modalEpoch = 0, pendingModal = null, cancelModal = null;
 const { HasPlayback, TransportState } = window.FavecusTransport;
 const api = window.favecusApp;
+// おやすみタイマー（規則は core/sleep-timer.cjs。ここは表示と、押したときの次の指定だけ）。
+let sleepState = { mode: 'off' };
+const SLEEP_MINUTES = [15, 30, 45, 60, 90];
+function NextSleepCommand(value) {
+  const index = value?.mode === 'minutes' ? SLEEP_MINUTES.indexOf(value.minutes) : value?.mode === 'song' ? SLEEP_MINUTES.length : SLEEP_MINUTES.length + 1;
+  const next = (index + 1) % (SLEEP_MINUTES.length + 2);
+  return next < SLEEP_MINUTES.length ? { minutes: SLEEP_MINUTES[next] } : next === SLEEP_MINUTES.length ? { song: true } : { cancel: true };
+}
+function SleepDescription(value) {
+  if (value?.mode === 'minutes') { const left = Math.max(0, Math.ceil((value.deadline - Date.now()) / 60000)); return `おやすみタイマー ${value.minutes}分（残り約${left}分）`; }
+  if (value?.mode === 'song') return 'おやすみタイマー この曲の終わりまで';
+  return 'おやすみタイマー オフ';
+}
+function RenderSleep() {
+  const button = $('sleep'); if (!button) return;
+  const on = sleepState?.mode === 'minutes' || sleepState?.mode === 'song', next = NextSleepCommand(sleepState);
+  const nextText = next.cancel ? 'オフ' : next.song ? 'この曲の終わりまで' : `${next.minutes}分`;
+  const label = `${SleepDescription(sleepState)}（押すと${nextText}）`;
+  button.textContent = sleepState?.mode === 'minutes' ? `☾${Math.max(0, Math.ceil((sleepState.deadline - Date.now()) / 60000))}` : sleepState?.mode === 'song' ? '☾曲' : '☾';
+  button.title = label; button.setAttribute('aria-label', label); button.setAttribute('aria-pressed', String(on)); button.classList.toggle('enabled', on);
+  clearTimeout(sleepRefresh); sleepRefresh = sleepState?.mode === 'minutes' ? setTimeout(RenderSleep, 1000) : null;
+}
+let sleepRefresh = null; // 残り時間の表示を、1秒ごとに更新する（タイマーが動いている間だけ）
 const tree = window.FavecusTree;
 const expandedLists = new Set(), expandedEntryLists = new Set(), playlistDrag = { value: null };
 let allListsView = false, timelineManual = false, timelineOpen = false, playingLocation = null;
@@ -1220,6 +1243,7 @@ for (const event of ['pointerup', 'pointercancel']) document.addEventListener(ev
 $('shuffle-play').onclick = () => PlaybackAction(() => api.shufflePlay(ViewScope()));
 $('play-all').onclick = () => PlaybackAction(() => api.play(ViewScope()));
 $('shuffle').onclick = () => Run(() => Action({ type: 'settings', settings: { shuffle: !state.settings.shuffle } }));
+$('sleep').onclick = () => Run(async () => { sleepState = await api.sleepTimer(NextSleepCommand(sleepState)); RenderSleep(); });
 $('repeat').onclick = () => Run(() => Action({ type: 'settings', settings: { repeat: { off: 'all', all: 'one', one: 'off' }[state.settings.repeat] } }));
 for (const id of ['next', 'previous']) $(id).onclick = () => PlaybackAction(() => api.command(id));
 for (const id of ['stop', 'reload', 'back-ten', 'forward-ten']) $(id).onclick = () => Run(() => api.command(id));
@@ -1242,6 +1266,7 @@ if (api) {
     else if (event.type === 'shortcut-follow') queueFollower?.Resume();
     else if (event.type === 'duration') { UpdateDuration(event.value.entryId, event.value.duration); }
     else if (event.type === 'volume') SyncVolume(event.value);
+    else if (event.type === 'sleep') { sleepState = event.value || { mode: 'off' }; RenderSleep(); }
     else if (event.type === 'status') { statuses = event.value; UpdateStatus(); }
     else if (event.type === 'loaded') { loaded = true; RenderPlayer(); }
     else if (event.type === 'notice') Toast(event.value);
@@ -1262,5 +1287,5 @@ if (api) {
   });
   new ResizeObserver(SendBounds).observe($('player-slot'));
   new ResizeObserver(UpdateQueueTail).observe($('entries'));
-  Run(async () => { const initial = await api.state(); state = initial.state; current = initial.current; playback = initial.playback; thumbnail = initial.thumbnail; statuses = initial.statuses; queueInfo = initial.queue; foreground = initial.foreground === true; accounts = initial.accounts || {}; loaded = !!playback; UpdateDownloads(initial.downloads); $('version').textContent = initial.version; document.body.classList.toggle('mac', initial.platform === 'darwin'); Render(); queueFollower?.Request(); accounts = await api.accounts(); UpdateAccounts(); });
+  Run(async () => { const initial = await api.state(); state = initial.state; current = initial.current; playback = initial.playback; thumbnail = initial.thumbnail; statuses = initial.statuses; queueInfo = initial.queue; foreground = initial.foreground === true; accounts = initial.accounts || {}; loaded = !!playback; sleepState = initial.sleep || { mode: 'off' }; RenderSleep(); UpdateDownloads(initial.downloads); $('version').textContent = initial.version; document.body.classList.toggle('mac', initial.platform === 'darwin'); Render(); queueFollower?.Request(); accounts = await api.accounts(); UpdateAccounts(); });
 } else Toast('この画面はFavecus Playerのアプリから開いてください。');

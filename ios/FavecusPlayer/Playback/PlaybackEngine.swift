@@ -53,6 +53,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     @Published var repeatMode: RepeatMode = .off
     @Published var message: String?
 
+    /// おやすみタイマー（終わりに、音量を下げて一時停止する）。端末内の一時的な状態。
+    let sleepTimer = SleepTimer()
     /// 再生回数の台帳（数える・抽選の重み）。なければ、数えず、均等に抽選する。
     var counts: PlayCountStore?
     /// アプリを開いている（前面にある）か。背面では、映像の層が外れるため、動画へ切り替えない（前面へ戻ったとき、切り替える）。テストでは差し替える。
@@ -89,6 +91,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         backend.onEnded = { [weak self] in self?.ended() }
         backend.onFailed = { [weak self] reason in self?.failed(reason) }
         backend.onTick = { [weak self] in self?.tick() }
+        sleepTimer.onFade = { [weak self] factor in self?.backend.volume = Float(factor) }
+        sleepTimer.onExpire = { [weak self] in self?.pause() }
         // ライブラリの編集・削除・同期の反映で、再生中の曲がなくなったら止める（Windows版と同じ規則を共通JSで判断）。
         libraryObserver = store.$document.dropFirst().sink { [weak self] _ in
             Task { @MainActor in await self?.resync() }
@@ -422,6 +426,11 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         if let counts { // 短い曲は、終わりまで聞いたときに数える
             let duration = self.duration
             Task { await counts.observe(position: duration, duration: duration, paused: false, ended: true) }
+        }
+        if sleepTimer.consumeEndOfSong() { // 「この曲の終わりまで」：次の曲へ進まず、ここで止める
+            backend.pause()
+            refresh()
+            return
         }
         Task { await advance(direction: 1, automatic: true) }
     }

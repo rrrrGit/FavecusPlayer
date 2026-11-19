@@ -33,6 +33,7 @@ const { MediaResponse } = require('./core/files.cjs');
 const { ConvertWma } = require('./core/audio-import.cjs');
 const { BilibiliAccount } = require('./core/bilibili.cjs');
 const { Thumbnails, SmallImage, CoverImage, FlatImage, ImageData } = require('./core/thumbnail.cjs');
+const { SleepTimer } = require('./core/sleep-timer.cjs');
 const { APP_ID, ConfigureTaskbar, PreviousInstallRoots } = require('./core/windows-identity.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'favecus', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
@@ -44,7 +45,7 @@ app.setPath('sessionData', dataDirectory);
 let win, store, presence, remoteView, mini, volumeSaveTimer, backgroundMode, sync;
 let viewVisible = false;
 let current = null, playback = null;
-let thumbnails, thumbnail = null;
+let thumbnails, thumbnail = null, sleepTimer = null;
 let visibleBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 let statuses = { discord: { code: 'off', text: 'Discord連携はオフです' }, taskbar: { code: 'off', text: '下向き矢印を押すと埋め込みを試します' } };
 let playCounts;
@@ -239,8 +240,9 @@ function StopPlayer() {
   CloseView(); current = null; playback = null; thumbnail = null; queue.Clear();
   Emit('current', null); Emit('playback', null); UpdatePresence(); backgroundMode?.Refresh();
 }
-function SetVolume() {
-  const volume = store.data.settings.volume; biliBrowser?.SetVolume(volume);
+// factor：おやすみタイマーの終わりの音量の倍率（1＝設定の音量。設定の値は変えない）。
+function SetVolume(factor = 1) {
+  const volume = store.data.settings.volume * factor; biliBrowser?.SetVolume(volume);
   for (const wc of [remoteView?.webContents, ...[...accountWindows.values()].map(w => w.webContents)].filter(Boolean)) {
     if (!wc.isDestroyed()) {
       const channel = mediaChannels.get(wc);
@@ -664,7 +666,7 @@ async function Start() {
     else throw new Error('対応していない操作です。');
     return sync.Status();
   });
-  Handle('app:state', () => ({ state: store.Snapshot(), statuses, current, playback, thumbnail, queue: QueueState(), downloads: offline.Snapshot(), foreground: Foreground(), accounts: accountStatus, version: app.getVersion(), platform: process.platform }));
+  Handle('app:state', () => ({ sleep: sleepTimer?.State() || { mode: 'off' }, state: store.Snapshot(), statuses, current, playback, thumbnail, queue: QueueState(), downloads: offline.Snapshot(), foreground: Foreground(), accounts: accountStatus, version: app.getVersion(), platform: process.platform }));
   Handle('player:reset-counts', () => { playCounts.Reset(); return true; });
   Handle('downloads:state', () => offline.Snapshot());
   const downloadTarget = options => {
@@ -787,6 +789,18 @@ async function Start() {
   Handle('player:command', Command);
   Handle('player:shortcut', Shortcut);
   Handle('player:volume', ChangeVolume);
+  // おやすみタイマー（規則は core/sleep-timer.cjs。iPhone版と同じ）。終わりに、音量を下げて一時停止し、音量を戻す。
+  sleepTimer = new SleepTimer({
+    onFade: factor => SetVolume(factor),
+    onExpire: () => SendToPlayer('media:command', { type: 'pause' }),
+    onChange: state => Emit('sleep', state)
+  });
+  Handle('player:sleep', command => {
+    if (command?.cancel) sleepTimer.Cancel();
+    else if (command?.song) sleepTimer.StartEndOfSong();
+    else sleepTimer.Start(Number(command?.minutes));
+    return sleepTimer.State();
+  });
   Handle('window:mini', () => mini.Show());
   Handle('player:official', () => {
     if (current?.entry.type === 'bilibili') return shell.openExternal(ParseBilibili(current.entry.url).url);
@@ -852,6 +866,7 @@ async function Start() {
     AcceptPlayback(data);
     if (data.ended && current.playlistId) {
       SendToPlayer('media:command', { type: 'pause' });
+      if (sleepTimer?.ConsumeEndOfSong()) return; // 「曲の終わりまで」：次の曲へ進まず、ここで止める
       void Step(1, true).catch(error => { StopPlayer(); Notify(error.message); });
     }
   });

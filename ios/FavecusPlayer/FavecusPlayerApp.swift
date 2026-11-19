@@ -44,7 +44,10 @@ struct FavecusPlayerApp: App {
         WindowGroup {
             LibraryRootView(store: environment.store, importer: environment.importer, exporter: environment.exporter, player: environment.player, sync: environment.sync, bilibili: environment.bilibili, downloads: environment.downloads, artwork: environment.artwork, observer: environment.observer)
                 .onChange(of: scenePhase) { phase in
-                    if phase == .active { Task { await environment.downloads?.resume(); await environment.alarms.resync(); await environment.playPendingAlarm() } }
+                    if phase == .active {
+                        Task { await environment.downloads?.resume(); await environment.alarms.resync(); await environment.playPendingAlarm() }
+                        environment.player?.sleepTimer.tick() // 画面ロック中に期限を過ぎていれば、すぐ止める
+                    }
                 }
                 .task { await environment.playPendingAlarm() }
         }

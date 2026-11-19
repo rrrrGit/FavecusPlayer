@@ -443,6 +443,7 @@ struct FullPlayerView: View {
         VStack(spacing: 4) {
             controlRow
             Text(toggleNote ?? " ").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.accent).frame(height: 14)
+            SleepTimerMenu(timer: player.sleepTimer)
         }
     }
 
@@ -569,5 +570,44 @@ private struct QueuePanel: View {
             .environment(\.editMode, .constant(.active)) // 右端に「≡」（並べ替え）を出す
         }
         .task { await player.refreshQueue() }
+    }
+}
+
+/// おやすみタイマーの入口（再生画面の操作の下）。時間か「この曲の終わりまで」を選ぶ。設定中は、残り時間を表示する。
+struct SleepTimerMenu: View {
+    @ObservedObject var timer: SleepTimer
+
+    var body: some View {
+        Menu {
+            ForEach(SleepTimerRules.minutes, id: \.self) { minutes in
+                Button("\(minutes)分") { timer.start(minutes: minutes) }
+            }
+            Button("この曲の終わりまで") { timer.startEndOfSong() }
+            if timer.isOn {
+                Divider()
+                Button("解除", role: .destructive) { timer.cancel() }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: timer.isOn ? "moon.zzz.fill" : "moon.zzz")
+                Text(label)
+            }
+            .font(.system(size: 13))
+            .foregroundStyle(timer.isOn ? Theme.accent : Theme.muted)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel("おやすみタイマー")
+        .accessibilityValue(label)
+    }
+
+    private var label: String {
+        switch timer.mode {
+        case .off: return "おやすみタイマー"
+        case .endOfSong: return "この曲の終わりまで"
+        case .minutes:
+            let total = Int(timer.remaining.rounded(.up))
+            return String(format: "残り %d:%02d", total / 60, total % 60)
+        }
     }
 }
