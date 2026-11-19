@@ -430,7 +430,7 @@ final class PlaybackTests: XCTestCase {
     func testAutoListsAreChosenByTheSharedRule() async throws {
         let (store, engine, _) = try await prepare()
         let lists = try XCTUnwrap(await engine.autoLists())
-        let total = Set((store.document?.playlists ?? []).flatMap(.entries).map(.id)).count
+        let total = Set((store.document?.playlists ?? []).flatMap { $0.entries }.map { $0.id }).count
         XCTAssertTrue(lists.frequent.isEmpty, "再生回数が0なら、よく聴く曲は空")
         XCTAssertEqual(lists.unplayed.count, min(total, 200))
         XCTAssertEqual(lists.recent.count, min(total, 50))
