@@ -57,6 +57,8 @@ v0.7.0（配布済み・main）の工程・検証記録は、本ファイルの�
 
   - **更新の確認の強化（2026-11-19、ユーザー指示：Node.jsは93MB程度で重くないため、軽量化より、いくつからでも最新版まで確実に更新できることを優先。Patchの形式は変えない＝アプリ全体＋Node.jsを含む）**：実際の旧版（gitのタグ v0.6.6・v0.6.7・v0.7.0・v0.7.1・v0.7.2）の中身で、旧版をSetupで入れ、いまのソースのPatchを直接当てる確認（`test/update-path.test.cjs`）を追加：Patchが成功／アプリが最新の版へ置き換わる／利用者のデータ（保存済みメディア・ローカルメディア・個人のファイル）が1バイトも変わらない／起動に必要なファイルがそろう／一時ファイルが残らない／**旧版のコードで作ったライブラリを、いまのコードで開ける（曲・並びが同じ）**／同じ版のPatchを重ねて当てても成功。Windowsビルドの確認では、全タグを取得し（fetch-depth: 0）、タグが1つでもなければ失敗にする（FAVECUS_REQUIRE_TAGS=1）。Windowsビルド run 44538093954（4bb3073）成功。注：v0.6.2のタグは、READMEだけで、ソースがない（ソースのある最古のタグはv0.6.6）。0.1.0〜0.4.xの形式は、既存の test/revision.test.cjs（模擬の構成）で確認。**確認できていないこと：実際のPatch.exe（ネイティブの起動部分・PowerShellでの展開・Node.jsの実行・Electron/ffmpegの取得・デスクトップのショートカット）の、実機での0.6.6→最新の更新**。Electron（44.2.0）とffmpeg（6.1.1）は、0.6.6から同じ版のため、再ダウンロードは起きない見込み（固定のハッシュで確認する設計）。
 
+  - **v0.7.3 のRelease（2026-11-20、ユーザー指示）**：タグ v0.7.3 を、Windowsビルド（run 44538093954）のソース 4bb3073 に作成し、GitHub Release「FavecusPlayer v0.7.3」を公開（https://github.com/rrrrGit/FavecusPlayer/releases/tag/v0.7.3 。最新版・先行公開でない）。添付6件（Guide.html・Patch.exe・Release-Notes.txt・SHA256SUMS.txt・Validation.json・FavecusPlayer_v0.7.3_Patch.zip）。Patch.exe の SHA-256：a60868058399d83e6bb5beb0e818cef66e3a26d207fd47ba0dac8f5b25f829b8（GitHubの表示と一致）。検証：Nodeテスト 663/663・各ファイルのハッシュ一致。全成果物は、リポジトリ外 C:DevFavecusPlayer-release-0.7.3 と、Googleドライブ `windows .7.3-4bb3073-run44538093954`（23ファイル、Patchのハッシュ一致）。iPhone版のIPAは、Releaseに含めず、Driveの `ios .7.3` に保管（最新：a7b446a の run 44529328319）。**未実施：mainへの統合・ブランチ削除（指示待ち）**。未確認：Windows実機での更新（特に0.6.6から）・動作、iPhone実機の動作（アラーム・F1〜F5）。Release後のコミット：bbea52c（文書のみ）。
+
 - **C. 持ち越し**：E1（動画のみ保存の失敗3本。失敗の文待ち）、iPhone実機の確認結果による修正。
 
 ## v0.7.2の計画（Step0：修正点の整理、2026-11-15）
