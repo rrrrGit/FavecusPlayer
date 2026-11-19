@@ -59,7 +59,7 @@ function Apply(options) {
     Tree.ValidateGraph(library.playlists, library.rootPlaylistIds);
     if (!library.playlists.some(p => p.id === library.activePlaylistId)) library.activePlaylistId = library.rootPlaylistIds[0] || library.playlists[0].id;
     // 削除（プレイリスト・曲）は、最近削除へ保管する内容を添える（保管は、保存に成功したあとに、呼び出し側が行う）。JSON文字列で返す。
-    const trash = Trash.Capture(before, library, options.action, ctx.now());
+    const trash = options.keepTrash === true ? Trash.Capture(before, library, options.action, ctx.now()) : null; // keepTrash を渡した呼び出し（iPhone版）だけ。共通テストデータの出力は変えない
     return trash ? { text: Pretty(library), trash: JSON.stringify(trash) } : { text: Pretty(library) };
   } catch (error) { return { error: error instanceof TypeError || error instanceof SyntaxError ? '編集を適用できません（保存データの形式が正しくありません）。' : String(error && error.message || error) }; }
 }
