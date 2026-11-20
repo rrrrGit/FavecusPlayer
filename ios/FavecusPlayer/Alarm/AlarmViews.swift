@@ -23,7 +23,7 @@ struct AlarmListView: View {
                             Text(Self.timeText(item)).font(.system(size: 32, weight: .regular)).monospacedDigit()
                             HStack(spacing: 6) {
                                 Text(Self.summary(item))
-                                if item.sound != nil { Image(systemName: "music.note").imageScale(.small) }
+                                if item.hasSound { Image(systemName: item.randomSound ? "dice" : "music.note").imageScale(.small) }
                             }
                             .font(.footnote).foregroundStyle(Theme.muted)
                         }
@@ -151,7 +151,7 @@ struct AlarmEditor: View {
                             HStack {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("曲と範囲").foregroundStyle(Theme.text)
-                                    Text(Self.soundText(item.sound, catalog)).font(.footnote).foregroundStyle(Theme.muted).lineLimit(2)
+                                    Text(item.randomSound ? "ランダム（保存済みの曲の最初の30秒）" : Self.soundText(item.sound, catalog)).font(.footnote).foregroundStyle(Theme.muted).lineLimit(2)
                                 }
                                 Spacer()
                                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.faint)
@@ -171,10 +171,16 @@ struct AlarmEditor: View {
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(isPresented: $showSoundPicker) {
                 if let catalog {
-                    AlarmSoundPicker(catalog: catalog, current: item.sound) { picked in
+                    AlarmSoundPicker(catalog: catalog, current: item.randomSound ? nil : item.sound, randomSelected: item.randomSound, onPick: { picked in
                         item.sound = picked
+                        item.randomSound = false
+                        item.rolledFor = nil
                         showSoundPicker = false
-                    }
+                    }, onRandom: {
+                        item.randomSound = true // 曲は、保存のときに抽選して決まる
+                        item.sound = nil
+                        showSoundPicker = false
+                    })
                 }
             }
             .toolbar {
