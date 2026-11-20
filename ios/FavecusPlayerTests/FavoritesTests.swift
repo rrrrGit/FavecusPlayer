@@ -50,8 +50,9 @@ final class FavoritesTests: XCTestCase {
         let suite = defaults()
         suite.set(["ok:1", "bad key", String(repeating: "x", count: 300)], forKey: "favoriteKeys")
         XCTAssertEqual(FavoritesStore(defaults: suite, directory: directory).keys, ["ok:1"])
+        let other = directory.appendingPathComponent("second") // 保存のファイルがまだない場所では、古い保存の形式が不正なら、空
         suite.set("not an array", forKey: "favoriteKeys")
-        XCTAssertTrue(FavoritesStore(defaults: suite, directory: directory).keys.isEmpty)
+        XCTAssertTrue(FavoritesStore(defaults: suite, directory: other).keys.isEmpty)
     }
 
     /// 重みの倍率は、共通JS（PC版と同じ1.5倍）。お気に入りだけに掛かる。
