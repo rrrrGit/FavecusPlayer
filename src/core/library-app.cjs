@@ -9,6 +9,7 @@ const Transfer = require('./library-transfer.cjs');
 const { Queue } = require('./queue.cjs');
 const Ledger = require('./play-ledger.cjs');
 const AutoListsCore = require('./auto-lists.cjs');
+const LibrarySearch = require('../ui/library-search.js');
 const Trash = require('./trash.cjs');
 
 const ID = /^[a-f0-9-]{36}$/;
@@ -110,6 +111,13 @@ function PlayableEntries(options) {
   return Tree.Entries(library, options.scope).filter(entry => playable.has(entry.id));
 }
 // 自動リストの選び方（共通：src/core/auto-lists.cjs）。options：{ text（ライブラリのJSON）, keys, counts, limits }
+// 検索（PC版の一覧と同じ規則：全角半角・大小・ひらがな/カタカナを同一視、空白区切りのAND、所属リストの経路も対象、50件ごと）。
+function Search(options) {
+  try {
+    const result = LibrarySearch.Page(LibrarySearch.Index(JSON.parse(options.text)), String(options.query || ''), options.page);
+    return { total: result.total, page: result.page, pages: result.pages, items: result.items.map(item => ({ playlistId: item.playlistId, entryId: item.entry.id, path: item.pathText })) };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
 function AutoLists(options) {
   try { return AutoListsCore.Select({ library: JSON.parse(options.text), keys: options.keys, counts: options.counts, limits: options.limits }); }
   catch (error) { return { error: String(error && error.message || error) }; }
@@ -261,4 +269,4 @@ function MediaKeys(options) {
     return { keys: (options.entries || []).map(entry => { try { return keyOf({ type: 'bilibili', url: entry.url }); } catch { return null; } }) };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
-module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueRun, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };
+module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueRun, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };

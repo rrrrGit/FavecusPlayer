@@ -217,6 +217,10 @@ private struct LibraryTab: View {
     @State private var pendingDelete: PlaylistItem?
     @State private var dragging: String?
     @State private var query = ""
+    @State private var hits: [LibrarySearchHit] = []
+    @State private var hitTotal = 0
+    @State private var hitPage = 0
+    @State private var hitPages = 1
 
     private var document: LibraryDocument? { store.document }
     private var roots: [PlaylistItem] { document?.children(of: nil) ?? [] }
@@ -229,9 +233,29 @@ private struct LibraryTab: View {
 
     private var trimmedQuery: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
 
-    /// 検索の結果：曲名・リスト名・動画ID・URLに含まれる曲（所属ごとに1行。上限100件）。再生は、その行のリストの範囲で行う。
+    /// 検索の結果（所属ごとに1行）。規則は共通の処理（50件ごと）。再生は、その行のリストの範囲で行う。
     private var results: [(entry: EntryItem, list: PlaylistItem, key: String)] {
         guard !trimmedQuery.isEmpty else { return [] }
+        guard services.player != nil else { return fallbackResults }
+        var lists: [String: PlaylistItem] = [:]
+        for list in document?.playlists ?? [] { lists[list.id] = list }
+        return hits.compactMap { hit in
+            guard let list = lists[hit.playlistId], let entry = list.entries.first(where: { $0.id == hit.entryId }) else { return nil }
+            return (entry, list, hit.playlistId + "/" + hit.entryId)
+        }
+    }
+
+    /// 検索の入力・ライブラリの変化で、先頭の50件を取り直す（入力が続く間は待つ）。
+    private func runSearch(page: Int) async {
+        guard !trimmedQuery.isEmpty, let player = services.player else { hits = []; hitTotal = 0; hitPage = 0; hitPages = 1; return }
+        if page == 0 { try? await Task.sleep(nanoseconds: 200_000_000); if Task.isCancelled { return } }
+        guard let result = await player.search(query: trimmedQuery, page: page), !Task.isCancelled else { return }
+        hits = page == 0 ? result.items : hits + result.items
+        hitTotal = result.total; hitPage = result.page; hitPages = result.pages
+    }
+
+    /// 曲の再生の準備がない画面確認用の、簡易な検索。
+    private var fallbackResults: [(entry: EntryItem, list: PlaylistItem, key: String)] {
         var found: [(EntryItem, PlaylistItem, String)] = []
         for list in document?.playlists ?? [] {
             let listMatches = list.name.localizedStandardContains(trimmedQuery)
@@ -280,7 +304,7 @@ private struct LibraryTab: View {
         List {
             HStack(spacing: 8) {
                 SectionLabel(text: "検索結果")
-                Text(results.count >= 100 ? "100件まで表示" : "\(results.count)件").font(.system(size: 12)).foregroundStyle(Theme.mint)
+                Text("\(services.player == nil ? results.count : hitTotal)件").font(.system(size: 12)).foregroundStyle(Theme.mint)
             }
             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 0, trailing: 16))
             .listRowSeparator(.hidden)
@@ -289,10 +313,14 @@ private struct LibraryTab: View {
             ForEach(results, id: \.key) { item in
                 SongRow(entry: item.entry, scope: item.list.id, services: services, context: item.list.name)
             }
+            if services.player != nil, hitPage + 1 < hitPages {
+                Button("さらに表示") { Task { await runSearch(page: hitPage + 1) } }.listRowBackground(Theme.background)
+            }
             Color.clear.frame(height: 80).listRowBackground(Theme.background).listRowSeparator(.hidden)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        .task(id: SearchTrigger(query: trimmedQuery, document: document)) { await runSearch(page: 0) }
         .scrollDismissesKeyboard(.interactively)
         .background(Theme.background)
     }

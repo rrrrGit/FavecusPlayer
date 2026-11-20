@@ -93,6 +93,7 @@ ${parts.join(',\n')}
     QueueSync: function (json) { return runner().QueueSync(json); },
     QueuePeek: function (json) { return runner().QueuePeek(json); },
     QueueList: function (json) { return runner().QueueList(json); },
+    Search: function (json) { return runner().Search(json); },
     AutoLists: function (json) { return runner().AutoLists(json); },
     QueueReorder: function (json) { return runner().QueueReorder(json); },
     QueueJump: function (json) { return runner().QueueJump(json); },

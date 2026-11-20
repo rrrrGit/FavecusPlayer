@@ -560,6 +560,15 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         return result
     }
 
+    /// 検索（PC版と同じ共通の規則：全角半角・大小・ひらがな/カタカナを同一視、空白区切りのAND、所属リストの経路も対象。50件ごと）。
+    func search(query: String, page: Int) async -> LibrarySearchResult? {
+        let request: [String: Any] = ["text": store.currentText, "query": query, "page": page]
+        guard let data = try? JSONSerialization.data(withJSONObject: request),
+              let reply = try? await core.callAsync("Search", String(decoding: data, as: UTF8.self)),
+              let result = try? JSONDecoder().decode(LibrarySearchResult.self, from: Data(reply.utf8)) else { return nil }
+        return result
+    }
+
     /// 起動後、前回の曲を、一時停止の状態で表示する（読み込まず、鳴らさない）。ライブラリの読み込みのあとに呼ぶ。
     func restoreLast() {
         guard current == nil, let record = resumeStore?.get(), let target = entry(record.entryId), canPlay(target) else { return }
