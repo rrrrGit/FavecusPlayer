@@ -537,6 +537,9 @@ function EntryMenu(entry, draft = undefined) {
   }
   const favorite = IsFavorite(entry.id);
   $('entry-actions').append(Button(favorite ? '♥ お気に入りから外す' : '♡ お気に入りにする', 'button secondary', async () => { await SetFavorite(p.id, entry.id, !favorite); CloseModal(); Toast(favorite ? 'お気に入りから外しました。' : 'お気に入りにしました。シャッフル再生で、少しだけ選ばれやすくなります。'); }));
+  for (const [label, where, done] of [['次に再生', 'next', '次に再生します。'], ['キューの最後に追加', 'end', 'キューの最後に追加しました。']]) {
+    $('entry-actions').append(Button(label, 'button secondary', async () => { const r = await api.queueInsert(p.id, entry.id, where); CloseModal(); Toast(r?.ok ? done : r?.idle ? '再生中のときに使えます。' : '追加できませんでした。'); }));
+  }
   $('entry-actions').append(Button('別のリストへ移動・追加', 'button secondary', () => { CloseModal(); TransferEntry(p.id, entry); }));
   $('entry-actions').append(Button('リストから外す', 'button secondary danger', async () => { await Action({ type: 'remove', playlistId: p.id, entryId: entry.id }); CloseModal(); }));
 }

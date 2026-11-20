@@ -89,6 +89,13 @@ func formatTime(_ seconds: Double) -> String {
 // MARK: 曲の行
 
 /// 曲の「…」を押したときの操作（アイコン・名前・実行）。
+/// 「次に再生」「キューの最後に追加」（再生中のキューへ足す）。
+@MainActor
+func queueActions(entry: EntryItem, scope: String, player: PlaybackEngine) -> [RowAction] {
+    [RowAction(icon: "text.insert", title: "次に再生") { Task { await player.enqueue(entry, listId: scope, where: "next") } },
+     RowAction(icon: "text.append", title: "キューの最後に追加") { Task { await player.enqueue(entry, listId: scope, where: "end") } }]
+}
+
 struct RowAction: Identifiable {
     let id = UUID()
     let icon: String
@@ -277,6 +284,7 @@ private struct LocalSongRow: View {
         let playable = player.canPlay(entry)
         var actions: [RowAction] = []
         if playable { actions.append(RowAction(icon: "play.fill", title: "再生") { OpenPlayer.request(after: 0.45); Task { await player.play(entryId: entry.id, scope: scope) } }) }
+        if playable { actions.append(contentsOf: queueActions(entry: entry, scope: scope, player: player)) }
         _ = player.favoriteRevision // お気に入りが変わったら、表示を更新する
         if let favorite = player.favoriteAction(key: key) { actions.append(favorite) }
         if let onRemove { actions.append(RowAction(icon: "minus.circle", title: "このリストから外す", destructive: true, run: onRemove)) }
@@ -307,6 +315,7 @@ private struct BiliSongRow: View {
 
     private var actions: [RowAction] {
         var result = [RowAction(icon: "play.fill", title: "再生") { OpenPlayer.request(after: 0.45); Task { await player.play(entryId: entry.id, scope: scope) } }]
+        if player.canPlay(entry) { result.append(contentsOf: queueActions(entry: entry, scope: scope, player: player)) }
         _ = player.favoriteRevision // お気に入りが変わったら、表示を更新する
         if let favorite = player.favoriteAction(key: key) { result.append(favorite) }
         if let key {

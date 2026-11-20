@@ -5,7 +5,7 @@ class Queue {
   get ids() { return this.cycles[this.cycleIndex]?.ids || []; }
   Clone() {
     const copy = new Queue(this.random);
-    Object.assign(copy, this, { available: [...this.available], history: [...this.history], catalog: new Map(this.catalog), cycles: this.cycles.map(c => ({ ...c, ids: [...c.ids], seen: new Set(c.seen) })) });
+    Object.assign(copy, this, { available: [...this.available], history: [...this.history], catalog: new Map(this.catalog), extra: new Set(this.extra), cycles: this.cycles.map(c => ({ ...c, ids: [...c.ids], seen: new Set(c.seen) })) });
     return copy;
   }
   Index(max) { return this.random ? Math.floor(this.random() * max) : this.randomIndex ? this.randomIndex(max) : Math.floor(Math.random() * max); }
@@ -40,6 +40,9 @@ class Queue {
     if (playlistId !== this.playlistId || !this.ids.includes(id)) return this.Start(playlistId, entries, id, shuffle);
     for (const e of entries) this.catalog.set(e.id, { ...e });
     const available = [...new Set(entries.map(e => e.id))], valid = new Set(available), cycle = this.cycles[this.cycleIndex];
+    // 「次に再生」「最後に追加」で足した、ほかのリストの曲は、再生範囲に入っていなくても残す
+    const extras = [...this.extra].filter(x => this.catalog.has(x));
+    for (const x of extras) valid.add(x);
     if (!valid.has(id)) { this.Clear(); return null; }
     if (!!shuffle !== this.shuffle) {
       const seen = new Set([...cycle.seen].filter(x => valid.has(x))); seen.add(id);
@@ -63,6 +66,12 @@ class Queue {
       this.cycles = this.cycles.filter(c => c === cycle || c.ids.length);
       this.cycleIndex = this.cycles.indexOf(cycle);
     }
+    for (const x of extras) {
+      const ids = this.cycles[this.cycleIndex].ids;
+      if (ids.includes(x)) continue;
+      if (x === id) ids.unshift(x); else ids.push(x);
+    }
+    this.extra = new Set(extras);
     this.available = available; this.shuffle = !!shuffle; this.index = this.ids.indexOf(id);
     const future = this.cycles[this.cycleIndex + 1];
     if (future && future.seen.size <= 1 && future.anchor !== this.ids.at(-1)) this.cycles.splice(this.cycleIndex + 1);
@@ -124,6 +133,20 @@ class Queue {
     this.Remember(previous);
     return id;
   }
+  // 「次に再生」：この曲を、いま再生中の曲の次へ入れる（すでにキューにあれば、動かす）。再生中の曲は、そのまま。
+  PlayNext(entry) { return this.Insert(entry, 'next'); }
+  // 「キューの最後に追加」：この周の最後へ入れる（すでにキューにあれば、動かす）。
+  AddToEnd(entry) { return this.Insert(entry, 'end'); }
+  Insert(entry, where) {
+    const id = entry?.id;
+    if (this.index < 0 || typeof id !== 'string' || !id || id === this.ids[this.index]) return false;
+    const cycle = this.cycles[this.cycleIndex], at = cycle.ids.indexOf(id);
+    if (at >= 0) { cycle.ids.splice(at, 1); if (at < this.index) this.index--; }
+    else { this.catalog.set(id, { ...entry }); if (!this.available.includes(id)) this.extra.add(id); }
+    if (where === 'next') cycle.ids.splice(this.index + 1, 0, id); else cycle.ids.push(id);
+    cycle.custom = true;
+    return true;
+  }
   Remember(id) { this.history.push(id); if (this.history.length > 1000) this.history.shift(); }
   Timeline(repeat) {
     if (this.index < 0) return { history: [], current: null, upcoming: [] };
@@ -137,7 +160,7 @@ class Queue {
     }
     return { history: [...this.history], current, upcoming };
   }
-  Clear() { this.cycles = []; this.cycleIndex = 0; this.index = -1; this.playlistId = null; this.available = []; this.shuffle = false; this.history = []; this.catalog = new Map(); }
+  Clear() { this.cycles = []; this.cycleIndex = 0; this.index = -1; this.playlistId = null; this.available = []; this.shuffle = false; this.history = []; this.catalog = new Map(); this.extra = new Set(); }
 }
 
 module.exports = { Queue };

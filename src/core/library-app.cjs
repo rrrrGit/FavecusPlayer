@@ -189,6 +189,13 @@ function QueueJump(options) {
     return id === null ? { id: null, playlistId: null } : { id, playlistId: (queue.catalog.get(id) || {}).playlistId || null };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
+// 再生キューへの追加：「次に再生」（next）・「最後に追加」（end）。
+function QueueInsert(options) {
+  try {
+    const entry = options.entry || {}, ok = options.where === 'end' ? queue.AddToEnd(entry) : queue.PlayNext(entry);
+    return { ok, upcoming: queue.Upcoming() };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
 function QueuePeek(options) {
   try {
     const id = queue.Peek(options.repeat, options.automatic !== false);
@@ -269,4 +276,4 @@ function MediaKeys(options) {
     return { keys: (options.entries || []).map(entry => { try { return keyOf({ type: 'bilibili', url: entry.url }); } catch { return null; } }) };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
-module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueRun, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };
+module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueInsert, QueueRun, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };

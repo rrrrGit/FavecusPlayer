@@ -431,6 +431,26 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         await refreshQueue()
     }
 
+    /// 曲を持つリストのID（自動リスト・すべて、のときも、実際の所属を使う）。
+    private func ownerListId(of item: EntryItem) -> String? {
+        store.document?.playlists.first { $0.entries.contains { $0.id == item.id } }?.id
+    }
+
+    /// 「次に再生」（where: "next"）・「キューの最後に追加」（where: "end"）。再生していないときは、何もしない。
+    @discardableResult
+    func enqueue(_ item: EntryItem, listId: String, where position: String) async -> Bool {
+        guard current != nil, canPlay(item) else { message = "再生中の曲があるときに使えます"; return false }
+        let entry: [String: Any] = ["id": item.id, "playlistId": ownerListId(of: item) ?? listId, "title": item.title, "type": item.type]
+        let request: [String: Any] = ["entry": entry, "where": position]
+        guard let text = try? String(decoding: JSONSerialization.data(withJSONObject: request), as: UTF8.self),
+              let reply = try? await core.callAsync("QueueInsert", text),
+              let object = (try? JSONSerialization.jsonObject(with: Data(reply.utf8))) as? [String: Any], object["error"] == nil else { return false }
+        await refreshQueue()
+        let ok = object["ok"] as? Bool ?? false
+        message = ok ? (position == "end" ? "キューの最後に追加しました" : "次に再生します") : "追加できませんでした"
+        return ok
+    }
+
     /// 再生キューの曲を選んだ：その曲へ移る。
     func playQueued(_ id: String) async {
         guard let canPlayEntry = entry(id), canPlay(canPlayEntry) else { return }

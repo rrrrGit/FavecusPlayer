@@ -529,7 +529,7 @@ async function Step(direction, automatic = false) {
   if (!current?.playlistId) return;
   const nextQueue = queue.Clone(), id = nextQueue.Move(direction, store.data.settings.repeat, automatic);
   if (!id) { if (automatic) { StopPlayer(); Notify('再生リストの最後まで再生しました。'); } return; }
-  const next = ScopeEntries(nextQueue.playlistId).find(e => e.id === id);
+  const next = ScopeEntries(nextQueue.playlistId).find(e => e.id === id) || nextQueue.catalog.get(id); // 「次に再生」で足した、ほかのリストの曲も
   if (!next) return;
   PlayableEntry(next.playlistId, id); queue = nextQueue;
   await LoadEntry(next.playlistId, id);
@@ -914,11 +914,19 @@ async function Start() {
     if (ok) { queue = next; win?.webContents.send('app:event', { type: 'queue', value: QueueState() }); }
     return { ok };
   });
+  // 「次に再生」「最後に追加」：再生中のキューへ、この曲を足す（再生していないときは、何もしない）
+  Handle('queue:insert', (playlistId, entryId, where) => {
+    if (!current?.playlistId) return { ok: false, idle: true };
+    const entry = PlayableEntry(String(playlistId), String(entryId)), next = queue.Clone();
+    const ok = where === 'end' ? next.AddToEnd({ ...entry, playlistId: String(playlistId) }) : next.PlayNext({ ...entry, playlistId: String(playlistId) });
+    if (ok) { queue = next; win?.webContents.send('app:event', { type: 'queue', value: QueueState() }); }
+    return { ok };
+  });
   Handle('queue:jump', async id => {
     if (!current?.playlistId) return { ok: false };
     const next = queue.Clone(), target = next.JumpTo(String(id));
     if (!target) return { ok: false };
-    const entry = ScopeEntries(next.playlistId).find(e => e.id === target);
+    const entry = ScopeEntries(next.playlistId).find(e => e.id === target) || next.catalog.get(target);
     if (!entry) return { ok: false };
     PlayableEntry(entry.playlistId, target); queue = next;
     await LoadEntry(entry.playlistId, target);

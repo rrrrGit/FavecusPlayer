@@ -97,6 +97,7 @@ ${parts.join(',\n')}
     AutoLists: function (json) { return runner().AutoLists(json); },
     QueueReorder: function (json) { return runner().QueueReorder(json); },
     QueueJump: function (json) { return runner().QueueJump(json); },
+    QueueInsert: function (json) { return runner().QueueInsert(json); },
     PlaylistPath: function (json) { return runner().PlaylistPath(json); },
     LedgerOpen: function (json) { return runner().LedgerOpen(json); },
     LedgerCounts: function (json) { return runner().LedgerCounts(json); },

@@ -29,6 +29,12 @@ v0.7.0（配布済み・main）の工程・検証記録は、本ファイルの�
   - iPhone：お気に入り（favorites.json）と音量の記録（loudness.json）を、UserDefaultsから Application Support/FavecusPlayer のファイル（原子的に書く）へ移した。お気に入りは初回だけ移行（書けたことを確かめてから古い保存を消す。壊れたファイルは別名で残す）。音量の記録は、識別をパスではなくファイル名・大きさ・更新時刻にし、2000件を超えたら最後に測った時刻が古いものから消す（以前の記録は、パスつきで引き継げないため捨てる）。
   - 検証：PCのテスト追加（queue-controls・shared-search）。iPhone側（検索・保存先の移行）は、iOS CIで確認する。
 
+- **改善計画 Step4（2026-11-20、着手分）：「次に再生」「キューの最後に追加」**
+  - 共通：Queue.PlayNext / AddToEnd（core/queue.cjs）。すでにキューにある曲は動かし、再生中の曲は動かさない。ほかのリストの曲も足せ（extra）、再生範囲の同期（Sync）のあとも残る。共通の入口：QueueInsert。
+  - PC：曲の操作画面に「次に再生」「キューの最後に追加」（IPC queue:insert）。曲送りは、足したほかのリストの曲も再生できる。iPhone：曲の「…」に同じ操作（PlaybackEngine.enqueue）。
+  - 検証：PCのテスト 680件（失敗0・スキップ12）。iPhone側は、iOS CIで確認する。実機での操作感は未確認。
+
+
 
 
 ## v0.7.3の計画（2026-11-16、ユーザー指示。詳細は各Stepで決める）
