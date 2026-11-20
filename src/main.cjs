@@ -907,6 +907,23 @@ async function Start() {
     onExpire: () => SendToPlayer('media:command', { type: 'pause' }),
     onChange: state => Emit('sleep', state)
   });
+  // 再生キュー：これから再生する曲の並べ替え・任意の曲へのジャンプ（共通の Queue.Reorder / Queue.JumpTo）
+  Handle('queue:reorder', (from, to) => {
+    if (!current?.playlistId) return { ok: false };
+    const next = queue.Clone(), ok = next.Reorder(Number(from), Number(to));
+    if (ok) { queue = next; win?.webContents.send('app:event', { type: 'queue', value: QueueState() }); }
+    return { ok };
+  });
+  Handle('queue:jump', async id => {
+    if (!current?.playlistId) return { ok: false };
+    const next = queue.Clone(), target = next.JumpTo(String(id));
+    if (!target) return { ok: false };
+    const entry = ScopeEntries(next.playlistId).find(e => e.id === target);
+    if (!entry) return { ok: false };
+    PlayableEntry(entry.playlistId, target); queue = next;
+    await LoadEntry(entry.playlistId, target);
+    return { ok: true };
+  });
   Handle('player:sleep', command => {
     if (command?.cancel) sleepTimer.Cancel();
     else if (command?.song) sleepTimer.StartEndOfSong();

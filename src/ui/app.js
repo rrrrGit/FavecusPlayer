@@ -1021,7 +1021,16 @@ function RenderTimeline(focusNext = false) {
   for (const track of data.history) row(track, '再生済み', 'timeline-history');
   if (data.current) row(data.current, '現在の曲', 'timeline-current');
   let first;
-  for (const [index, track] of data.upcoming.entries()) { const line = row(track, `次の${index + 1}曲目`, 'timeline-future'); if (!first) first = line; }
+  for (const [index, track] of data.upcoming.entries()) {
+    const line = row(track, `次の${index + 1}曲目`, 'timeline-future'); if (!first) first = line;
+    // 並べ替え・この曲へ移る（1曲リピート中は、同じ曲が並ぶだけなので出さない）
+    if (queueInfo.repeat !== 'one' && track.id) {
+      const actions = Element('span', 'timeline-actions');
+      const make = (text, label, run, disabled) => { const b = Button(text, 'timeline-action', () => { queueFollower?.Interact(); return run(); }, label); b.disabled = !!disabled; return b; };
+      actions.append(make('▲', '1つ前へ', () => api.queueReorder(index, index - 1), index === 0), make('▼', '1つ後ろへ', () => api.queueReorder(index, index + 1), index >= data.upcoming.length - 1), make('▶', 'この曲へ移る', () => PlaybackAction(() => api.queueJump(track.id))));
+      line.append(actions);
+    }
+  }
   if (!data.upcoming.length) list.append(Element('p', 'form-note', 'この曲で再生リストが終了します。'));
   if (focusNext && first) list.scrollTop += first.getBoundingClientRect().top - list.getBoundingClientRect().top;
   else list.scrollTop = previousTop;
