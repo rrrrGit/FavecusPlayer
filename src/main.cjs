@@ -79,7 +79,7 @@ const Emit = (type, value) => {
 };
 // 自動リスト（よく聴く曲・最近追加した曲・未再生）。保存せず、その都度、共通の規則（core/auto-lists.cjs）で選ぶ。
 // 再生するときは、そのときの曲の並び（スナップショット）を再生範囲（auto:…）にする。再生回数が増えても、再生中の並びは変わらない。
-const AUTO_NAMES = { 'auto:frequent': 'よく聴く曲', 'auto:recent': '最近追加した曲', 'auto:unplayed': '未再生' };
+const AUTO_NAMES = { 'auto:frequent': 'よく聴く曲', 'auto:recent': '最近追加した曲', 'auto:unplayed': '未再生', 'auto:favorites': 'お気に入り' };
 const autoSnapshots = new Map();
 function BuildAutoLists() {
   const keys = {}, counts = {};
@@ -87,7 +87,7 @@ function BuildAutoLists() {
     const key = playCounts?.KeyOf(entry);
     if (key) { keys[entry.id] = key; if (!(key in counts)) counts[key] = playCounts.Count(entry); }
   }
-  return AutoListsCore.Select({ library: store.data, keys, counts });
+  return AutoListsCore.Select({ library: store.data, keys, counts, favorites: favorites ? favorites.List() : [] });
 }
 function AutoEntries(kind) {
   const scope = `auto:${kind}`;
@@ -868,7 +868,7 @@ async function Start() {
   Handle('player:play', (playlistId, entryId) => Play(playlistId, entryId));
   // 自動リスト：kind なし＝3つの件数、kind あり＝その曲の一覧（開いた時点の並びを、再生範囲として覚える）
   Handle('library:auto-list', kind => {
-    if (!kind) { const lists = BuildAutoLists(); return { frequent: lists.frequent.length, recent: lists.recent.length, unplayed: lists.unplayed.length }; }
+    if (!kind) { const lists = BuildAutoLists(); return { frequent: lists.frequent.length, recent: lists.recent.length, unplayed: lists.unplayed.length, favorites: lists.favorites.length }; }
     return AutoEntries(kind).map(e => ({ id: e.id, playlistId: e.playlistId, title: e.title || e.videoId || 'ローカルファイル', type: e.type, count: playCounts?.Count(e) || 0 }));
   });
   Handle('player:auto-play', (kind, entryId, shuffled) => AutoPlay(kind, typeof entryId === 'string' ? entryId : null, shuffled === true));

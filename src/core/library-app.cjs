@@ -110,7 +110,6 @@ function PlayableEntries(options) {
   }
   return Tree.Entries(library, options.scope).filter(entry => playable.has(entry.id));
 }
-// 自動リストの選び方（共通：src/core/auto-lists.cjs）。options：{ text（ライブラリのJSON）, keys, counts, limits }
 // 検索（PC版の一覧と同じ規則：全角半角・大小・ひらがな/カタカナを同一視、空白区切りのAND、所属リストの経路も対象、50件ごと）。
 function Search(options) {
   try {
@@ -118,8 +117,9 @@ function Search(options) {
     return { total: result.total, page: result.page, pages: result.pages, items: result.items.map(item => ({ playlistId: item.playlistId, entryId: item.entry.id, path: item.pathText })) };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
+// 自動リストの選び方（共通：src/core/auto-lists.cjs）。options：{ text（ライブラリのJSON）, keys, counts, limits, favorites（お気に入りのメディアキー） }
 function AutoLists(options) {
-  try { return AutoListsCore.Select({ library: JSON.parse(options.text), keys: options.keys, counts: options.counts, limits: options.limits }); }
+  try { return AutoListsCore.Select({ library: JSON.parse(options.text), keys: options.keys, counts: options.counts, limits: options.limits, favorites: options.favorites }); }
   catch (error) { return { error: String(error && error.message || error) }; }
 }
 const Found = (entries, id) => { const entry = entries.find(e => e.id === id); return { id: id || null, playlistId: entry ? entry.playlistId : null }; };

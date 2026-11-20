@@ -11,6 +11,7 @@ final class FakeBackend: PlayerBackend {
     var position: Double = 0
     var duration: Double = 10
     var isPlaying = false
+    var speed: Float = 1
     private(set) var loaded: [URL] = []
     private(set) var stopped = false
 

@@ -3,13 +3,14 @@ import SwiftUI
 /// 自動リスト（v0.7.3 F3）：よく聴く曲・最近追加した曲・未再生。PC版と同じ選び方（共通JS：src/core/auto-lists.cjs）。
 /// 保存せず、ライブラリと再生回数から、その都度作る（同期しない・編集しない）。
 enum AutoListKind: String, CaseIterable, Hashable, Identifiable {
-    case frequent, recent, unplayed
+    case frequent, recent, unplayed, favorites
     var id: String { rawValue }
     var title: String {
         switch self {
         case .frequent: return "よく聴く曲"
         case .recent: return "最近追加した曲"
         case .unplayed: return "未再生"
+        case .favorites: return "お気に入り"
         }
     }
     var note: String {
@@ -17,6 +18,7 @@ enum AutoListKind: String, CaseIterable, Hashable, Identifiable {
         case .frequent: return "再生回数の多い順（上位50曲）"
         case .recent: return "登録の新しい順（50曲）"
         case .unplayed: return "まだ聴いていない曲（登録の新しい順）"
+        case .favorites: return "お気に入りにした曲（登録の新しい順）"
         }
     }
     var icon: String {
@@ -24,6 +26,7 @@ enum AutoListKind: String, CaseIterable, Hashable, Identifiable {
         case .frequent: return "chart.bar"
         case .recent: return "clock"
         case .unplayed: return "sparkles"
+        case .favorites: return "heart"
         }
     }
     /// 再生範囲の名前（共通JSの再生キューでは、曲のIDの並びを直接渡し、この名前は表示用）。
@@ -40,12 +43,14 @@ struct AutoListsResult: Decodable, Equatable {
     var frequent: [AutoListItem] = []
     var recent: [AutoListItem] = []
     var unplayed: [AutoListItem] = []
+    var favorites: [AutoListItem] = []
 
     func items(_ kind: AutoListKind) -> [AutoListItem] {
         switch kind {
         case .frequent: return frequent
         case .recent: return recent
         case .unplayed: return unplayed
+        case .favorites: return favorites
         }
     }
 }

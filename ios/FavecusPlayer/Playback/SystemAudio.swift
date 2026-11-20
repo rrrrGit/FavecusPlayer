@@ -7,7 +7,7 @@ import MediaPlayer
 @MainActor
 protocol SystemAudioHooks: AnyObject {
     func activate()
-    func update(title: String?, position: Double, duration: Double, playing: Bool, artwork: UIImage?)
+    func update(title: String?, position: Double, duration: Double, playing: Bool, artwork: UIImage?, rate: Double)
     func clear()
 }
 
@@ -108,7 +108,7 @@ final class SystemAudio: SystemAudioHooks {
     private var artworkSource: UIImage?
     private var artworkItem: MPMediaItemArtwork?
 
-    func update(title: String?, position: Double, duration: Double, playing: Bool, artwork: UIImage?) {
+    func update(title: String?, position: Double, duration: Double, playing: Bool, artwork: UIImage?, rate: Double) {
         guard let title else { artworkSource = nil; artworkItem = nil; clear(); return }
         if artwork !== artworkSource {
             artworkSource = artwork
@@ -119,7 +119,7 @@ final class SystemAudio: SystemAudioHooks {
             MPMediaItemPropertyTitle: title,
             MPMediaItemPropertyPlaybackDuration: duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
-            MPNowPlayingInfoPropertyPlaybackRate: playing ? 1.0 : 0.0
+            MPNowPlayingInfoPropertyPlaybackRate: playing ? rate : 0.0
         ]
         if let artworkItem { info[MPMediaItemPropertyArtwork] = artworkItem }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info

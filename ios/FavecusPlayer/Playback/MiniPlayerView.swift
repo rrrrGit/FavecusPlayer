@@ -446,6 +446,7 @@ struct FullPlayerView: View {
             HStack(spacing: 24) {
                 FavoriteToggle(player: player)
                 SleepTimerMenu(timer: player.sleepTimer)
+                SpeedMenu(player: player)
             }
         }
     }
@@ -577,6 +578,32 @@ private struct QueuePanel: View {
 }
 
 /// おやすみタイマーの入口（再生画面の操作の下）。時間か「この曲の終わりまで」を選ぶ。設定中は、残り時間を表示する。
+/// 再生速度の選択（0.5〜2.0倍）。
+struct SpeedMenu: View {
+    @ObservedObject var player: PlaybackEngine
+
+    var body: some View {
+        Menu {
+            ForEach(PlaybackSpeed.options, id: \.self) { value in
+                Button { player.setSpeed(value) } label: {
+                    if abs(player.speed - value) < 0.001 { Label(PlaybackSpeed.text(value), systemImage: "checkmark") } else { Text(PlaybackSpeed.text(value)) }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "speedometer")
+                Text(PlaybackSpeed.text(player.speed))
+            }
+            .font(.system(size: 13))
+            .foregroundStyle(abs(player.speed - 1) < 0.001 ? Theme.muted : Theme.accent)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel("再生速度")
+        .accessibilityValue(PlaybackSpeed.text(player.speed))
+    }
+}
+
 struct SleepTimerMenu: View {
     @ObservedObject var timer: SleepTimer
 

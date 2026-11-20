@@ -48,6 +48,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     /// 利用者が動画を選んでいる（次の曲に動画があれば、続けて動画で映す）。サムネイルを選ぶ・動画の再生に失敗すると解除する。
     @Published private(set) var prefersVideo = false
     @Published var shuffle = false
+    /// 再生速度（利用者の設定。この端末内だけ。次の曲にも引き継ぐ）。
+    @Published private(set) var speed = PlaybackSpeed.stored()
     /// 再生キュー：いまの周で、これから再生する曲（共通JSのQueueList）。
     @Published private(set) var upcoming: [EntryItem] = []
     @Published var repeatMode: RepeatMode = .off
@@ -99,6 +101,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         self.core = core
         self.store = store
         self.backend = backend
+        backend.speed = Float(speed)
         system = makeSystem?(self)
         backend.onEnded = { [weak self] in self?.ended() }
         backend.onFailed = { [weak self] reason in self?.failed(reason) }
@@ -573,11 +576,20 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         var keyMap: [String: String] = [:]
         for (entry, key) in zip(unique, keys) { if let key { keyMap[entry.id] = key } }
         let countMap = await counts?.counts(for: Array(Set(keyMap.values))) ?? [:]
-        let request: [String: Any] = ["text": store.currentText, "keys": keyMap, "counts": countMap]
+        let request: [String: Any] = ["text": store.currentText, "keys": keyMap, "counts": countMap, "favorites": Array(favorites.keys)]
         guard let data = try? JSONSerialization.data(withJSONObject: request),
               let reply = try? await core.callAsync("AutoLists", String(decoding: data, as: UTF8.self)),
               let result = try? JSONDecoder().decode(AutoListsResult.self, from: Data(reply.utf8)) else { return nil }
         return result
+    }
+
+    /// 再生速度を変える（決められた値のなかから）。再生中なら、すぐ反映する。
+    func setSpeed(_ value: Double) {
+        let next = PlaybackSpeed.nearest(value)
+        speed = next
+        backend.speed = Float(next)
+        PlaybackSpeed.store(next)
+        refresh()
     }
 
     /// 検索（PC版と同じ共通の規則：全角半角・大小・ひらがな/カタカナを同一視、空白区切りのAND、所属リストの経路も対象。50件ごと）。
@@ -668,6 +680,6 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         isPlaying = backend.isPlaying
         position = backend.position
         duration = backend.duration
-        system?.update(title: current?.title, position: position, duration: duration, playing: isPlaying, artwork: currentArtwork())
+        system?.update(title: current?.title, position: position, duration: duration, playing: isPlaying, artwork: currentArtwork(), rate: speed)
     }
 }

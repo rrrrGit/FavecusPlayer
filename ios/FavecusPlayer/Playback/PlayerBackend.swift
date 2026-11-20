@@ -15,6 +15,8 @@ protocol PlayerBackend: AnyObject {
     var volume: Float { get set }
     /// 曲ごとの音量の自動調整の倍率（0〜1。1＝そのまま）。実際の音量は、volume × gain。
     var gain: Float { get set }
+    /// 再生速度（0.5〜2.0。1＝そのまま）。音の高さは変えない。
+    var speed: Float { get set }
     func load(url: URL)
     func play()
     func pause()
@@ -31,6 +33,10 @@ extension PlayerBackend {
         set {}
     }
     var gain: Float {
+        get { 1 }
+        set {}
+    }
+    var speed: Float {
         get { 1 }
         set {}
     }
@@ -93,6 +99,7 @@ final class AVPlayerBackend: PlayerBackend {
     func load(url: URL) {
         removeItemObservers()
         let item = AVPlayerItem(url: url)
+        item.audioTimePitchAlgorithm = .spectral // 速度を変えても、音の高さを変えない
         failureReported = false
         // 通知は、いま読み込んでいる曲（item）のものだけを扱う。差し替え前の古い通知で、新しい曲を送らない。
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
@@ -116,6 +123,14 @@ final class AVPlayerBackend: PlayerBackend {
             }
         }
         player.replaceCurrentItem(with: item)
+    }
+
+    /// 再生速度。再生中なら、すぐ反映する。一時停止中は、次に再生するとき（defaultRate）から。
+    var speed: Float = 1 {
+        didSet {
+            player.defaultRate = speed
+            if player.rate > 0 { player.rate = speed }
+        }
     }
 
     func play() { player.play() }
