@@ -1,6 +1,7 @@
 'use strict';
 // v0.7.3 F1：おやすみタイマーの規則（時刻は偽の時計で進める）。
 const { test } = require('node:test');
+const { readMain } = require('./support-source.cjs');
 const assert = require('node:assert/strict');
 const { SleepTimer, FADE_MS } = require('../src/core/sleep-timer.cjs');
 
@@ -83,7 +84,7 @@ test('the player bar, preload and main process are wired to the timer', () => {
   const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
   assert.match(read('src/ui/index.html'), /id="sleep"/);
   assert.match(read('src/preloads/ui.cjs'), /sleepTimer: invoke\('player:sleep'\)/);
-  const main = read('src/main.cjs');
+  const main = readMain();
   assert.match(main, /Handle\('player:sleep'/);
   assert.match(main, /ConsumeEndOfSong\(\)/, '曲の終わりまで：次の曲へ進まない');
   assert.match(main, /function SetVolume\(factor = 1\)/, 'フェードは設定の音量を変えない');

@@ -622,6 +622,29 @@ async function Command(command, value) {
   else if (command === 'page-mode' && current?.source === 'bilibili') await LoadEntry(current.playlistId, current.entryId, !current.pageMode, { forceNew: true });
 }
 
+// src/main/ipc-*.cjs へ渡す文脈。状態（再代入される変数）は、読むたびに最新の値を返す（queue だけは、書き込みもできる）。
+function MakeContext() {
+  return {
+    get additionReview() { return additionReview; },
+    get archive() { return archive; },
+    get backgroundMode() { return backgroundMode; },
+    get biliAccount() { return biliAccount; },
+    get biliBrowser() { return biliBrowser; },
+    get current() { return current; },
+    get favorites() { return favorites; },
+    get mini() { return mini; },
+    get offline() { return offline; },
+    get playCounts() { return playCounts; },
+    get playback() { return playback; },
+    get queue() { return queue; }, set queue(value) { queue = value; },
+    get store() { return store; },
+    get thumbnail() { return thumbnail; },
+    get thumbnails() { return thumbnails; },
+    get trashStore() { return trashStore; },
+    get win() { return win; },
+    AcceptPlayback, Accounts, AutoEntries, AutoPlay, BuildAutoLists, Configure, CoverImage, DriveURL, Emit, FavoriteIds, Handle, LoadEntry, LoadThumbnail, LocalDuration, MEDIA_EXTENSIONS, OpenAccount, OpenHelp, ParseBilibili, PlayableEntry, QueueState, RefreshVideo, Resources, ScopeEntries, ShareMode, SmallImage, SyncPlayingQueue, SyncShortcuts, ViewBounds, dialog, fs, nativeImage, path, shell
+  };
+}
 async function Start() {
   const ffmpeg = process.env.FAVECUS_INSTALL_ROOT ? path.join(process.env.FAVECUS_INSTALL_ROOT, 'runtime', 'ffmpeg', 'ffmpeg.exe') : app.isPackaged ? path.join(process.resourcesPath, 'ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg') : path.join(app.getAppPath(), 'runtime', 'ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
   trashStore = new TrashStore(path.join(app.getPath('userData'), 'trash.json'));
@@ -751,144 +774,12 @@ async function Start() {
   });
   Handle('app:state', () => ({ favorites: FavoriteIds(), sleep: sleepTimer?.State() || { mode: 'off' }, resume: ResumeOffer(), state: store.Snapshot(), statuses, current, playback, thumbnail, queue: QueueState(), downloads: offline.Snapshot(), foreground: Foreground(), accounts: accountStatus, version: app.getVersion(), platform: process.platform }));
   Handle('player:reset-counts', () => { playCounts.Reset(); return true; });
-  Handle('downloads:state', () => offline.Snapshot());
-  const downloadTarget = options => {
-    if (!options || typeof options.includeChildren !== 'boolean') throw new Error('保存対象を指定してください。');
-    const list = store.Playlist(options.playlistId), selected = { kind: options.kind, height: options.height, playlistId: list.id, playlistName: list.name, estimateId: options.estimateId };
-    if (Object.hasOwn(options, 'entryId') || Object.hasOwn(options, 'entryURL')) {
-      if (options.includeChildren || typeof options.entryId !== 'string' || typeof options.entryURL !== 'string') throw new Error('保存する1曲を指定してください。');
-      const entry = store.Entry(list.id, options.entryId);
-      if (entry.type !== 'bilibili' || ParseBilibili(options.entryURL).url !== entry.url) throw new Error('保存対象が変更されました。動画の編集を開き直してください。');
-      return { entries: [{ ...entry, playlistId: list.id }], options: { ...selected, entryId: entry.id, entryURL: entry.url } };
-    }
-    return { entries: options.includeChildren ? store.Entries(list.id) : list.entries.map(e => ({ ...e, playlistId: list.id })), options: selected };
-  };
-  Handle('downloads:estimate', options => { const target = downloadTarget(options); return offline.Estimate(target.entries, target.options); });
-  Handle('downloads:estimate-cancel', () => offline.CancelEstimate());
-  Handle('downloads:start', options => { const target = downloadTarget(options); return offline.Start(target.entries, target.options); });
-  Handle('downloads:cancel', () => offline.Cancel());
-  Handle('downloads:prefer', value => offline.PreferSaved(value));
-  Handle('downloads:directory', async () => { if (offline.controller) throw new Error('保存中は保存先を変更できません。'); const result = await dialog.showOpenDialog(win, { title: '動画・音声の保存先', defaultPath: offline.directory, properties: ['openDirectory', 'createDirectory'] }); return result.canceled ? offline.Snapshot() : offline.SetDirectory(result.filePaths[0]); });
-  Handle('downloads:open', async () => { fs.mkdirSync(offline.directory, { recursive: true }); if (await shell.openPath(offline.directory)) throw new Error('保存先を開けませんでした。'); return true; });
-  Handle('library:thumbnail', async (playlistId, entryId, scope = store.data.activePlaylistId, variant = 'small') => {
-    const entry = structuredClone(store.Entry(playlistId, entryId)); variant = variant === 'cover' ? 'cover' : 'small';
-    const saved = offline.Find(entry);
-    if (saved) {
-      let cover = offline.Cover(entry);
-      // 保存済みのサムネイルが一色に近い場合は、保存済みの動画（なければオンライン）の60秒付近の場面に置き換えて表示する（保存データは変えない）。
-      if (cover) cover = await thumbnails.Improve(entry, cover, saved.kind === 'video' ? saved.path : '');
-      return cover ? (variant === 'cover' ? CoverImage : SmallImage)(cover, nativeImage) : null;
-    }
-    const active = () => !!win && !win.isDestroyed() && (scope === '*' || scope === store.data.activePlaylistId && store.Entries(scope).some(e => e.id === entryId)) && !!store.data.playlists.find(p => p.id === playlistId)?.entries.some(e => e.id === entryId);
-    return thumbnails.GetPreview(entry, active, variant);
-  });
-  Handle('library:action', async action => {
-    const state = store.Apply(action);
-    if (current?.playlistId && !['select', 'rename', 'title', 'settings'].includes(action.type)) SyncPlayingQueue();
-    if (current?.playlistId && ((action.type === 'title' && current.entryId === action.entryId && current.playlistId === action.playlistId) || (action.type === 'settings' && Object.hasOwn(action.settings || {}, 'titleCleanupWords')))) {
-      current.entry.title = store.Entry(current.playlistId, current.entryId).title;
-      Emit('current-update', current);
-      if (playback) { playback.title = current.entry.title || store.CleanTitle(playback.title) || current.entry.videoId || 'ローカル動画'; AcceptPlayback(playback); }
-      mini?.Update();
-    }
-    if (action.type === 'settings') {
-      if (['shuffle', 'playlistSort'].some(key => Object.hasOwn(action.settings || {}, key))) SyncPlayingQueue();
-      await Configure();
-      ViewBounds(); SyncShortcuts();
-      if (Object.hasOwn(action.settings || {}, 'thumbnailMode')) { void LoadThumbnail(); if (!state.settings.thumbnailMode) RefreshVideo(); }
-      backgroundMode?.Refresh();
-    }
-    Emit('state', state); return state;
-  });
-  Handle('library:prepare-add', action => additionReview.Prepare(action));
-  Handle('library:prepare-files', async destinationIds => {
-    store.Targets(destinationIds);
-    const selected = await dialog.showOpenDialog(win, { title: '動画・音楽ファイルを追加', properties: ['openFile', 'multiSelections'], filters: [{ name: '動画・音楽', extensions: [...MEDIA_EXTENSIONS].map(x => x.slice(1)) }] });
-    return selected.canceled ? null : additionReview.PrepareFiles(destinationIds, selected.filePaths);
-  });
-  Handle('library:commit-add', async (id, allowedIds) => {
-    const result = await additionReview.Commit(id, allowedIds);
-    SyncPlayingQueue(); Emit('state', result.state); return result;
-  });
-  Handle('library:cancel-add', id => { additionReview.Cancel(id); return true; });
-  Handle('library:transfer', action => {
-    const result = store.Transfer(action);
-    if (result.moved && current?.playlistId === action.playlistId && current?.entryId === action.entryId) {
-      const target = result.destinations[0];
-      current.playlistId = target.playlistId; current.entryId = target.entryId;
-      current.entry = structuredClone(store.Entry(target.playlistId, target.entryId));
-      if (thumbnail) thumbnail.entryId = target.entryId;
-      Emit('current-update', current);
-      if (playback) { playback.title = current.entry.title || playback.title; AcceptPlayback(playback); }
-    }
-    SyncPlayingQueue();
-    Emit('state', result.state); return result;
-  });
-  Handle('library:files', async destinationIds => {
-    const ids = store.Targets(destinationIds).map(p => p.id);
-    const result = await dialog.showOpenDialog(win, { title: '動画・音楽ファイルを追加', properties: ['openFile', 'multiSelections'], filters: [{ name: '動画・音楽', extensions: [...MEDIA_EXTENSIONS].map(x => x.slice(1)) }] });
-    if (result.canceled) return null;
-    let state;
-    try { state = await store.AddFiles(ids, result.filePaths); }
-    catch (error) { Emit('state', store.Snapshot()); throw error; }
-    if (current?.playlistId && ids.includes(current.playlistId)) SyncPlayingQueue();
-    Emit('state', state); return state;
-  });
-  Handle('library:move-tracks', action => {
-    const result = store.TransferMany(action);
-    const moved = result.mappings.find(m => m.playlistId === current?.playlistId && m.entryId === current?.entryId);
-    if (moved) { Object.assign(current, moved.destinations[0]); current.entry = structuredClone(store.Entry(current.playlistId, current.entryId)); if (thumbnail) thumbnail.entryId = current.entryId; Emit('current-update', current); }
-    SyncPlayingQueue(); Emit('state', result.state); return result;
-  });
-  let exporting = false;
-  Handle('library:export', async (options = {}) => {
-    const mode = ShareMode(options), information = mode === 'information';
-    if (exporting) throw new Error('別の出力処理が進行中です。完了後にもう一度お試しください。');
-    exporting = true;
-    try {
-      const result = await dialog.showSaveDialog(win, { title: information ? 'プレイリスト情報のみ出力' : 'DLデータを含めて出力',
-        defaultPath: `FavecusPlayer-playlists-${information ? 'information' : 'media'}-${new Date().toISOString().slice(0, 10)}.${information ? 'json' : 'zip'}`,
-        filters: information ? [{ name: 'プレイリスト情報（JSON）', extensions: ['json'] }, { name: 'ZIPアーカイブ', extensions: ['zip'] }] : [{ name: 'ZIPアーカイブ', extensions: ['zip'] }] });
-      return result.canceled ? null : await archive.Export(result.filePath, undefined, { mode });
-    } finally { exporting = false; }
-  });
-  Handle('library:import', async () => {
-    const result = await dialog.showOpenDialog(win, { title: 'プレイリストのJSON・ZIPを選択', properties: ['openFile'], filters: [{ name: 'Favecus Playerのプレイリスト', extensions: ['zip', 'json'] }] });
-    return result.canceled ? null : archive.Prepare(result.filePaths[0]);
-  });
-  Handle('library:import-commit', async (id, ids, options) => { const result = await archive.Commit(id, ids, options); SyncPlayingQueue(); Emit('state', result.state); return result; });
-  Handle('library:import-cancel', id => archive.Cancel(id));
-  Handle('library:duration', async (playlistId, entryId) => {
-    const entry = store.Entry(playlistId, entryId); if (entry.duration) return entry.duration;
-    const value = offline.Find(entry)?.duration || (entry.type === 'bilibili' ? (await biliAccount.Resolve(entry.url)).video?.duration : await LocalDuration(ffmpeg, path.join(store.media, entry.fileName)));
-    const actual = store.data.playlists.find(p => p.id === playlistId)?.entries.find(e => e.id === entryId);
-    if (actual && value > 0) { actual.duration = value; store.Save(); }
-    return value || null;
-  });
+  const ctx = MakeContext();
+  require('./main/ipc-downloads.cjs')(ctx);
+  require('./main/ipc-library.cjs')(ctx);
   Handle('player:play', (playlistId, entryId) => Play(playlistId, entryId));
   // 自動リスト：kind なし＝3つの件数、kind あり＝その曲の一覧（開いた時点の並びを、再生範囲として覚える）
-  Handle('library:auto-list', kind => {
-    if (!kind) { const lists = BuildAutoLists(); return { frequent: lists.frequent.length, recent: lists.recent.length, unplayed: lists.unplayed.length, favorites: lists.favorites.length }; }
-    return AutoEntries(kind).map(e => ({ id: e.id, playlistId: e.playlistId, title: e.title || e.videoId || 'ローカルファイル', type: e.type, count: playCounts?.Count(e) || 0 }));
-  });
-  Handle('player:auto-play', (kind, entryId, shuffled) => AutoPlay(kind, typeof entryId === 'string' ? entryId : null, shuffled === true));
-  // 最近削除（一覧・元に戻す・完全に削除）。元に戻すのは共通の規則（core/trash.cjs）。失敗したときは、保管を残して、理由を返す。
-  // お気に入り：曲のメディア単位（同じ動画・パートは、どのリストにあっても共通）。この端末内だけ（同期しない）。
-  Handle('library:favorite', (playlistId, entryId, value) => {
-    const entry = store.Entry(String(playlistId), String(entryId)), key = playCounts?.KeyOf(entry);
-    favorites.Set(key, value === true);
-    const ids = FavoriteIds(); Emit('favorites', ids); return ids;
-  });
-  Handle('trash:list', () => { const list = trashStore.List(); if (trashStore.TakePruned()) offline?.ScheduleCleanup(); return list; });
-  Handle('trash:restore', id => {
-    const item = trashStore.Get(String(id));
-    if (!item) throw new Error('この項目は、すでに保管の期限が切れたか、なくなっています。');
-    const state = store.Apply({ type: 'restore', item });
-    trashStore.Remove(item.id); Emit('state', state);
-    return trashStore.List();
-  });
-  Handle('trash:delete', id => { trashStore.Remove(String(id)); offline?.ScheduleCleanup(); return trashStore.List(); }); // 完全に削除したあと、参照のなくなった保存済みメディアを整理する
-  Handle('trash:clear', () => { trashStore.Clear(); offline?.ScheduleCleanup(); return []; });
+  require('./main/ipc-lists.cjs')(ctx);
   Handle('player:resume-last', () => {
     const saved = resumeStore?.Get();
     if (!saved || !ResumeOffer()) throw new Error('前回の続きがありません。');
@@ -907,31 +798,7 @@ async function Start() {
     onExpire: () => SendToPlayer('media:command', { type: 'pause' }),
     onChange: state => Emit('sleep', state)
   });
-  // 再生キュー：これから再生する曲の並べ替え・任意の曲へのジャンプ（共通の Queue.Reorder / Queue.JumpTo）
-  Handle('queue:reorder', (from, to) => {
-    if (!current?.playlistId) return { ok: false };
-    const next = queue.Clone(), ok = next.Reorder(Number(from), Number(to));
-    if (ok) { queue = next; win?.webContents.send('app:event', { type: 'queue', value: QueueState() }); }
-    return { ok };
-  });
-  // 「次に再生」「最後に追加」：再生中のキューへ、この曲を足す（再生していないときは、何もしない）
-  Handle('queue:insert', (playlistId, entryId, where) => {
-    if (!current?.playlistId) return { ok: false, idle: true };
-    const entry = PlayableEntry(String(playlistId), String(entryId)), next = queue.Clone();
-    const ok = where === 'end' ? next.AddToEnd({ ...entry, playlistId: String(playlistId) }) : next.PlayNext({ ...entry, playlistId: String(playlistId) });
-    if (ok) { queue = next; win?.webContents.send('app:event', { type: 'queue', value: QueueState() }); }
-    return { ok };
-  });
-  Handle('queue:jump', async id => {
-    if (!current?.playlistId) return { ok: false };
-    const next = queue.Clone(), target = next.JumpTo(String(id));
-    if (!target) return { ok: false };
-    const entry = ScopeEntries(next.playlistId).find(e => e.id === target) || next.catalog.get(target);
-    if (!entry) return { ok: false };
-    PlayableEntry(entry.playlistId, target); queue = next;
-    await LoadEntry(entry.playlistId, target);
-    return { ok: true };
-  });
+  require('./main/ipc-queue.cjs')(ctx);
   Handle('player:sleep', command => {
     if (command?.cancel) sleepTimer.Cancel();
     else if (command?.song) sleepTimer.StartEndOfSong();
@@ -942,21 +809,7 @@ async function Start() {
   Handle('player:official', () => {
     if (current?.entry.type === 'bilibili') return shell.openExternal(ParseBilibili(current.entry.url).url);
   });
-  Handle('account:status', Accounts);
-  Handle('account:open', OpenAccount);
-  Handle('account:folders', () => biliAccount.Folders());
-  Handle('account:videos', (id, page) => biliAccount.Videos(id, page));
-  Handle('bilibili:browse', () => biliBrowser.Open());
-  Handle('bilibili:resolve', input => biliAccount.Resolve(input));
-  Handle('bilibili:lists', input => biliAccount.Lists(input));
-  Handle('bilibili:parts', input => biliAccount.Parts(input));
-  Handle('bilibili:list-videos', (source, page) => biliAccount.ListVideos(source, page));
-  Handle('app:release-open', () => shell.openExternal(DriveURL(store.data.settings.releaseDriveURL)));
-  Handle('app:help', () => OpenHelp('GUIDE.html'));
-  Handle('app:discord-portal', () => shell.openExternal('https://discord.com/developers/applications'));
-  Handle('app:discord-guide', () => OpenHelp('DISCORD.html'));
-  Handle('app:discord-image', () => shell.showItemInFolder(path.join(Resources('docs'), 'favecus_player_music.png')));
-  Handle('app:taskbar-guide', () => OpenHelp('TASKBAR.html'));
+  require('./main/ipc-account.cjs')(ctx);
   Handle('app:taskbar-log', async () => {
     const error = await shell.openPath(path.join(app.getPath('userData'), 'taskbar.log'));
     if (error) throw new Error('診断記録を開けませんでした。一度、下向き矢印から埋め込みを実行してください。');

@@ -1,13 +1,14 @@
 'use strict';
 // PC版：再生キューの並べ替え・ジャンプが、共通のQueueから、IPC・画面まで接続されていること。
 const { test } = require('node:test');
+const { readMain } = require('./support-source.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path');
 const { Queue } = require('../src/core/queue.cjs');
 const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 
 test('queue controls are wired from the UI through the preload and IPC to the shared Queue', () => {
-  const main = read('src/main.cjs'), preload = read('src/preloads/ui.cjs'), app = read('src/ui/app.js');
+  const main = readMain(), preload = read('src/preloads/ui.cjs'), app = read('src/ui/app.js');
   assert.match(preload, /queueReorder: invoke\('queue:reorder'\)/);
   assert.match(preload, /queueJump: invoke\('queue:jump'\)/);
   assert.match(main, /Handle\('queue:reorder'/);
@@ -80,7 +81,7 @@ test('inserting changes only a clone when the caller clones, and the shared entr
 });
 
 test('play next and add-to-end are wired through the preload, IPC and the song menu, and stepping can reach songs from other lists', () => {
-  const main = read('src/main.cjs'), preload = read('src/preloads/ui.cjs'), app = read('src/ui/app.js');
+  const main = readMain(), preload = read('src/preloads/ui.cjs'), app = read('src/ui/app.js');
   assert.match(preload, /queueInsert: invoke\('queue:insert'\)/);
   assert.match(main, /Handle\('queue:insert'/);
   assert.match(main, /AddToEnd\(/);

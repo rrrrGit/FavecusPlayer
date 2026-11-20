@@ -1,6 +1,7 @@
 'use strict';
 // v0.7.4 G：お気に入り（シャッフルの重み・保存・つなぎ）。
 const { test } = require('node:test');
+const { readMain } = require('./support-source.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
 const Ledger = require('../src/core/play-ledger.cjs');
@@ -54,7 +55,7 @@ test('the favorite store keeps keys across a restart, rejects bad keys, and igno
 
 test('PC: the shuffle weight uses the favorite rule, the toggle is on the current song and the song menu', () => {
   const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
-  const main = read('src/main.cjs');
+  const main = readMain();
   assert.match(main, /PlayLedger\.WeightOf\(playCounts\?\.Count\(entry\) \|\| 0, IsFavorite\(entry\)\)/);
   assert.match(main, /Handle\('library:favorite'/);
   assert.match(main, /favorites\.Set\(key, value === true\)/);
