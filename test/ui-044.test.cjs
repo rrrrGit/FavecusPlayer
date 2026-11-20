@@ -1,5 +1,6 @@
 'use strict';
 const { test } = require('node:test');
+const { readApp } = require('./support-source.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -54,7 +55,7 @@ function Harness(t) {
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/ui/library-tree.js'), 'utf8').replace('})(globalThis)', '})(window)'), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/ui/tree-view.js'), 'utf8').replace('})(globalThis)', '})(window)'), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/ui/parent-picker.js'), 'utf8').replace('})(globalThis)', '})(window)'), context);
-  const sourceCode = fs.readFileSync(path.join(__dirname, '../src/ui/app.js'), 'utf8');
+  const sourceCode = readApp();
   vm.runInContext(sourceCode.slice(0, sourceCode.indexOf('function ClearDropMarks()')) + '\nstate = initialState;', context);
   return { store, nodes, calls, api, review, source, a, target, run: code => vm.runInContext(code, context), node: id => nodes.get(id), submit: () => vm.runInContext('PerformModal(submitModal, true)', context) };
 }

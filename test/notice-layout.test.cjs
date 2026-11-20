@@ -1,10 +1,11 @@
 'use strict';
 const { test } = require('node:test');
+const { readApp } = require('./support-source.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const renderer = fs.readFileSync(path.join(__dirname, '../src/ui/app.js'), 'utf8');
+const renderer = readApp();
 function FunctionSource(name) {
   const start = renderer.indexOf(`function ${name}(`);
   assert.ok(start >= 0);

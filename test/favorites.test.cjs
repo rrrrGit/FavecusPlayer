@@ -1,7 +1,7 @@
 'use strict';
 // v0.7.4 G：お気に入り（シャッフルの重み・保存・つなぎ）。
 const { test } = require('node:test');
-const { readMain } = require('./support-source.cjs');
+const { readMain, readApp } = require('./support-source.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
 const Ledger = require('../src/core/play-ledger.cjs');
@@ -61,5 +61,5 @@ test('PC: the shuffle weight uses the favorite rule, the toggle is on the curren
   assert.match(main, /favorites\.Set\(key, value === true\)/);
   assert.match(read('src/preloads/ui.cjs'), /favorite: invoke\('library:favorite'\)/);
   assert.match(read('src/ui/index.html'), /id="favorite"/);
-  assert.match(read('src/ui/app.js'), /お気に入りにする/);
+  assert.match(readApp(), /お気に入りにする/);
 });

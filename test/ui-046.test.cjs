@@ -1,5 +1,6 @@
 'use strict';
 const { test } = require('node:test');
+const { appScripts } = require('./support-source.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -61,7 +62,7 @@ async function Harness(t) {
     Date: class extends Date { static now() { return now; } }, requestAnimationFrame: fn => frames.push(fn), IntersectionObserver: class { constructor(callback, options) { this.callback = callback; this.options = options; this.items = new Set(); if (options.threshold === 0 && options.root === nodes.get('entries')) artworkObserver = this; if (options.threshold === 0 && options.root === nodes.get('home')) { if (homeObserver) searchObserver = this; else homeObserver = this; } } observe(item) { this.items.add(item); } disconnect() { this.items.clear(); } }, ResizeObserver: class { constructor() {} observe() {} }, setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, { fn, at: now + ms }); return id; }, clearTimeout: id => timers.delete(id), console: { error: e => errors.push(e) } };
   vm.createContext(context);
   for (const file of ['library-tree.js', 'home-view.js', 'library-search.js', 'tree-view.js', 'parent-picker.js', 'playlist-reader.js', 'keybindings.js', 'queue-drag.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/ui', file), 'utf8').replace('})(globalThis)', '})(window)'), context);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/ui/app.js'), 'utf8'), context); await new Promise(setImmediate);
+  for (const script of appScripts()) vm.runInContext(script, context); await new Promise(setImmediate);
   const flush = () => { while (frames.length) frames.shift()(); };
   flush(); assert.equal(errors.length, 0);
   return { store, id, api, artworkObserver, homeObserver, searchObserver, nodes, scrolls, bounds, calls, html, document, surfaces, windowEvent: name => windowEvents[name]?.(), flush, run: code => vm.runInContext(code, context), emit: (type, value) => emit({ type, value }), advance: ms => now += ms,

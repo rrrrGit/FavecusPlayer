@@ -1,7 +1,7 @@
 'use strict';
 // v0.7.3 F3：自動リスト（よく聴く曲・最近追加した曲・未再生）の選び方。
 const { test } = require('node:test');
-const { readMain } = require('./support-source.cjs');
+const { readMain, readApp } = require('./support-source.cjs');
 const assert = require('node:assert/strict');
 const { Select } = require('../src/core/auto-lists.cjs');
 
@@ -77,7 +77,7 @@ test('PC: the home shows the auto lists below the playlists and plays them throu
   assert.match(main, /Handle\('player:auto-play'/);
   assert.match(main, /ScopeEntries\(nextQueue\.playlistId\)/, '次の曲は、自動リストの並びから選ぶ');
   assert.match(main, /AUTO_NAMES\[queue\.playlistId\] \? '\*' : queue\.playlistId/, '前回の続き：自動リストの再生は、全体を範囲として保存');
-  const app = read('src/ui/app.js');
+  const app = readApp();
   assert.match(app, /const auto = MakeAutoLists\(\); if \(auto\) \$\('home'\)\.append\(auto\)/);
 });
 
@@ -95,7 +95,7 @@ test('the favorites list is wired on both platforms', () => {
   const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
   assert.match(readMain(), /'auto:favorites': 'お気に入り'/);
   assert.match(readMain(), /favorites: favorites \? favorites\.List\(\) : \[\]/);
-  assert.match(read('src/ui/app.js'), /kind: 'favorites'/);
+  assert.match(readApp(), /kind: 'favorites'/);
   assert.match(read('ios/FavecusPlayer/Library/AutoLists.swift'), /case frequent, recent, unplayed, favorites/);
   assert.match(read('ios/FavecusPlayer/Playback/PlaybackEngine.swift'), /"favorites": Array\(favorites\.keys\)/);
 });
