@@ -81,14 +81,39 @@ final class LevelingTests: XCTestCase {
 
     func testTheCacheRemembersAMeasurementUntilTheFileChanges() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "favecus-loudness-\(UUID().uuidString)"))
-        let cache = LoudnessCache(defaults: defaults)
+        let cache = LoudnessCache(defaults: defaults, directory: directory.appendingPathComponent("cache"))
         let file = directory.appendingPathComponent("song.m4a")
         try Data(repeating: 1, count: 100).write(to: file)
         XCTAssertNil(cache.cachedGain(file))
         cache.store(file, meanDb: -10)
         XCTAssertEqual(try XCTUnwrap(cache.cachedGain(file)), 0.5012, accuracy: 0.001)
-        XCTAssertEqual(try XCTUnwrap(LoudnessCache(defaults: defaults).cachedGain(file)), 0.5012, accuracy: 0.001, "再起動しても覚えている")
+        XCTAssertEqual(try XCTUnwrap(LoudnessCache(defaults: defaults, directory: directory.appendingPathComponent("cache")).cachedGain(file)), 0.5012, accuracy: 0.001, "再起動しても覚えている")
         try Data(repeating: 2, count: 200).write(to: file) // ファイルが変わった
         XCTAssertNil(cache.cachedGain(file), "変わったら、測り直す")
+    }
+
+    func testTheCacheKeepsTheNewestRecordsWhenTheLimitIsExceededAndIgnoresTheFolderPath() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "favecus-loudness-\(UUID().uuidString)"))
+        defaults.set(["old|1|1": -5.0], forKey: "loudnessCache")
+        var clock = Date(timeIntervalSince1970: 1_800_000_000)
+        let cache = LoudnessCache(defaults: defaults, directory: directory.appendingPathComponent("cache"), now: { clock })
+        XCTAssertNil(defaults.dictionary(forKey: "loudnessCache"), "以前の版の記録は捨てる")
+        var first: URL?
+        for index in 0..<(LoudnessCache.limit + 3) {
+            let file = directory.appendingPathComponent("s\(index).m4a")
+            try Data(repeating: 1, count: 10 + index).write(to: file)
+            clock = clock.addingTimeInterval(1)
+            cache.store(file, meanDb: -10)
+            if index == 0 { first = file }
+        }
+        XCTAssertEqual(cache.count, LoudnessCache.limit)
+        XCTAssertNil(cache.cachedGain(try XCTUnwrap(first)), "最後に測った時刻が古いものから消える")
+        // 同じ名前・大きさ・更新時刻のファイルは、フォルダが変わっても、同じ記録（コンテナのパスが変わっても測り直さない）
+        let moved = directory.appendingPathComponent("moved", isDirectory: true)
+        try FileManager.default.createDirectory(at: moved, withIntermediateDirectories: true)
+        let last = directory.appendingPathComponent("s\(LoudnessCache.limit + 2).m4a"), copy = moved.appendingPathComponent(last.lastPathComponent)
+        try FileManager.default.copyItem(at: last, to: copy)
+        try FileManager.default.setAttributes([.modificationDate: try XCTUnwrap(FileManager.default.attributesOfItem(atPath: last.path)[.modificationDate] as? Date)], ofItemAtPath: copy.path)
+        XCTAssertNotNil(cache.cachedGain(copy))
     }
 }

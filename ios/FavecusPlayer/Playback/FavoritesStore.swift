@@ -2,23 +2,67 @@ import Foundation
 
 /// お気に入り（v0.7.4 G）。お気に入りの曲は、シャッフル再生で、少しだけ選ばれやすくなる（重みの倍率は、共通JS：src/core/play-ledger.cjs の FAVORITE_BOOST）。
 /// 規則は、PC版（src/core/favorites.cjs）と同じ：曲のメディアのキー単位（同じ動画・パートは共通）。この端末内だけに保存し、同期しない。
-/// 正しくないキー・壊れた保存は、使わない。
+/// 保存は Application Support/FavecusPlayer/favorites.json（原子的に書く）。以前の版の UserDefaults の保存は、初回だけ、ここへ移す。
+/// 正しくないキー・壊れた保存は、使わない（壊れたファイルは、別名で残してから、空で始める）。
 @MainActor
 final class FavoritesStore: ObservableObject {
     static let maxKeys = 20000
+    static let currentVersion = 1
     @Published private(set) var keys: Set<String> = []
     private let defaults: UserDefaults
-    private let storageKey = "favoriteKeys"
+    private let legacyKey = "favoriteKeys"
+    private let fileURL: URL
+    /// 直近の保存の失敗（なければ nil）。保存できなくても、メモリ上の状態では動く。
+    private(set) var saveError: String?
 
-    init(defaults: UserDefaults = .standard) {
+    private struct Document: Codable { var version: Int; var keys: [String] }
+
+    init(defaults: UserDefaults = .standard, directory: URL? = nil) {
         self.defaults = defaults
-        if let list = defaults.array(forKey: storageKey) as? [String] {
-            keys = Set(list.filter { Self.isValid($0) }.prefix(Self.maxKeys))
-        }
+        let folder = directory ?? Self.defaultDirectory()
+        fileURL = folder.appendingPathComponent("favorites.json")
+        load()
+    }
+
+    static func defaultDirectory() -> URL {
+        let base = (try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)) ?? FileManager.default.temporaryDirectory
+        return base.appendingPathComponent("FavecusPlayer", isDirectory: true)
     }
 
     nonisolated static func isValid(_ key: String) -> Bool {
         key.range(of: "^[A-Za-z0-9:._-]{1,200}$", options: .regularExpression) != nil
+    }
+
+    private func load() {
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            do {
+                let document = try JSONDecoder().decode(Document.self, from: Data(contentsOf: fileURL))
+                keys = Set(document.keys.filter { Self.isValid($0) }.prefix(Self.maxKeys))
+            } catch {
+                // 壊れた保存は、消さずに別名で残す
+                try? FileManager.default.moveItem(at: fileURL, to: fileURL.deletingLastPathComponent().appendingPathComponent("favorites.broken-\(Int(Date().timeIntervalSince1970)).json"))
+            }
+            return
+        }
+        // 以前の版（UserDefaults）からの移行：書き込めたことを確かめてから、古い保存を消す
+        if let list = defaults.array(forKey: legacyKey) as? [String] {
+            keys = Set(list.filter { Self.isValid($0) }.prefix(Self.maxKeys))
+            if save() { defaults.removeObject(forKey: legacyKey) }
+        }
+    }
+
+    @discardableResult
+    private func save() -> Bool {
+        do {
+            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let data = try JSONEncoder().encode(Document(version: Self.currentVersion, keys: keys.sorted()))
+            try data.write(to: fileURL, options: .atomic)
+            saveError = nil
+            return true
+        } catch {
+            saveError = error.localizedDescription
+            return false
+        }
     }
 
     func contains(_ key: String?) -> Bool {
@@ -36,7 +80,7 @@ final class FavoritesStore: ObservableObject {
         } else {
             keys.remove(key)
         }
-        defaults.set(Array(keys), forKey: storageKey)
+        save()
         return true
     }
 }
