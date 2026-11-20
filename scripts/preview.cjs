@@ -15,6 +15,14 @@ if (process.argv.includes('--demo')) {
   make('空のリスト'); const long = make('とても長い名前のプレイリストがここに入るとどう表示されるかの確認用リスト'); store.Apply({ type: 'add', playlistId: long, urls: bv(7), title: '曲' });
   store.Apply({ type: 'select', playlistId: first });
 }
+// --large=N：多い曲数での描画・応答の確認用（既定 10000曲を、1つのリストへ。外部通信なし。保存先は一時フォルダ）
+const large = process.argv.find(a => a.startsWith('--large'));
+if (large) {
+  const count = Number(large.split('=')[1]) || 10000, bv = n => `https://www.bilibili.com/video/BV1${String(n).padStart(9, 'a')}/`;
+  const first = store.data.playlists[0].id;
+  for (let from = 0; from < count; from += 100) store.Apply({ type: 'add', playlistId: first, urls: Array.from({ length: Math.min(100, count - from) }, (_, i) => bv(from + i + 1)).join('\n'), title: '曲' });
+  store.Apply({ type: 'select', playlistId: first });
+}
 http.createServer(async (req, res) => {
   if (req.method === 'POST' && req.url === '/api') {
     let body = '';

@@ -76,11 +76,12 @@ function UpdateStatus() {
 function EntryDuration(entry) { return entry.duration > 0 ? (entry.duration < 600 ? '0' : '') + Time(entry.duration) : '--:--'; }
 function UpdateDuration(id, duration) {
   if (!(duration > 0)) return;
-  for (const p of state.playlists) for (const e of p.entries) if (e.id === id) e.duration = duration;
-  for (const info of $('entries').querySelectorAll('.entry-info')) if (info.dataset.durationEntry === id) {
-    const entry = state.playlists.flatMap(p => p.entries).find(e => e.id === id);
-    info.querySelector('small').textContent = entry.type === 'bilibili' ? `${EntryDuration(entry)} · ${entry.videoId} · P${entry.part || 1}` : `${EntryDuration(entry)} · このPCに保存したファイル`;
-  }
+  // 全リストの曲を1回だけ走査して、同じIDの曲の長さを更新する（最後に見つかった曲で、表示を作り直す）
+  let target = null;
+  for (const p of state.playlists) for (const e of p.entries) if (e.id === id) { e.duration = duration; target = e; }
+  if (!target) return;
+  const text = target.type === 'bilibili' ? `${EntryDuration(target)} · ${target.videoId} · P${target.part || 1}` : `${EntryDuration(target)} · このPCに保存したファイル`;
+  for (const info of $('entries').querySelectorAll('.entry-info')) if (info.dataset.durationEntry === id) info.querySelector('small').textContent = text;
 }
 function PumpDurations() {
   while (foreground && durationPending < 2 && durationQueue.size && api.entryDuration) {

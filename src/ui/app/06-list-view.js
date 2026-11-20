@@ -87,8 +87,21 @@ function MakePlaylistRow(item) {
   }
   return row;
 }
+// 一覧の行の遅延作成：近くに来た行から、中身を作る（EAGER_ROWS 行は、最初から作る）。
+const EAGER_ROWS = 80, pendingRows = new Map();
+let fillObserver = null;
+if (typeof IntersectionObserver !== 'undefined') {
+  fillObserver = new IntersectionObserver(changes => {
+    for (const change of changes) {
+      if (!change.isIntersecting) continue;
+      const row = change.target, build = pendingRows.get(row);
+      fillObserver.unobserve(row); pendingRows.delete(row);
+      if (build) { build(); row.classList.remove('pending'); }
+    }
+  }, { root: $('entries'), rootMargin: '900px 0px' });
+}
 function RenderEntries() {
-  queueDrag?.Cancel();
+  queueDrag?.Cancel(); fillObserver?.disconnect(); pendingRows.clear();
   const filter = $('filter').value.toLowerCase().trim(), items = allListsView ? [] : DisplayRows(filter);
   listArtwork?.Reset(); listArtwork?.SetEnabled(foreground); durationObserver?.disconnect(); durationQueue.clear();
   const list = $('entries'), scrollTop = list.scrollTop; list.replaceChildren(); entryRows.clear(); playlistRows.clear(); playlistExpandButtons.clear(); highlightedRow = null;
@@ -96,25 +109,30 @@ function RenderEntries() {
   if (!items.length) {
     const empty = Element('div', 'empty-list'); empty.append(Element('strong', '', '＋'), Element('span', '', filter ? '一致する動画がありません。' : '動画を追加すると、ここに再生リストが表示されます。')); list.append(empty);
   }
+  let lazyCount = 0;
   for (const item of items) {
     if (item.playlist) { list.append(MakePlaylistRow(item)); continue; }
     const { entry, index } = item, ownerId = entry.playlistId;
     const row = Element('div', `entry ${entry.type}${entry.missing ? ' missing' : ''}`);
     row.dataset.entryId = entry.id; row.dataset.ownerId = ownerId; row.style.marginLeft = `${Math.min(item.depth * 18, 90)}px`; if (!entryRows.has(entry.id)) entryRows.set(entry.id, row);
-    const handle = Button(String(index + 1).padStart(2, '0'), 'entry-number', () => {}, 'ドラッグで並べ替え（Alt＋↑/↓でも移動）');
-    handle.addEventListener('keydown', event => { if (!allListsView && event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); Run(() => Action({ type: 'move', playlistId: ownerId, entryId: entry.id, direction: event.key === 'ArrowUp' ? -1 : 1 })); } });
-    queueDrag?.Bind(handle, row, { playlistId: ownerId, entryId: entry.id }, true);
-    row.append(handle);
-    const cover = Element('img', 'entry-cover'); cover.alt = ''; cover.draggable = false; cover.width = 56; cover.height = 34; cover.src = 'music.png';
-    row.append(cover); listArtwork?.Add(cover, ownerId, entry.id);
-    const play = Button('', 'icon-button', () => PlayEntry(entry), `${EntryTitle(entry)}を再生する`);
-    play.innerHTML = '<svg aria-hidden="true"><use href="icons.svg#play"/></svg>'; row.append(play);
-    const info = Button('', 'entry-info', () => PlayEntry(entry), `${EntryTitle(entry)}を再生`);
-    info.append(Element('strong', '', EntryTitle(entry)), Element('small', '', entry.type !== 'local' ? `${EntryDuration(entry)} · ${entry.videoId} · P${entry.part || 1}` : `${EntryDuration(entry)} · このPCに保存したファイル`));
-    info.dataset.durationEntry = entry.id;
+    // 行の中身は、画面の近くに来てから作る（先頭の80行は、すぐ）。多い曲数でも、最初の描画が重くならない。
+    const build = () => {
+      const handle = Button(String(index + 1).padStart(2, '0'), 'entry-number', () => {}, 'ドラッグで並べ替え（Alt＋↑/↓でも移動）');
+      handle.addEventListener('keydown', event => { if (!allListsView && event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); Run(() => Action({ type: 'move', playlistId: ownerId, entryId: entry.id, direction: event.key === 'ArrowUp' ? -1 : 1 })); } });
+      queueDrag?.Bind(handle, row, { playlistId: ownerId, entryId: entry.id }, true);
+      row.append(handle);
+      const cover = Element('img', 'entry-cover'); cover.alt = ''; cover.draggable = false; cover.width = 56; cover.height = 34; cover.src = 'music.png';
+      row.append(cover); listArtwork?.Add(cover, ownerId, entry.id);
+      const play = Button('', 'icon-button', () => PlayEntry(entry), `${EntryTitle(entry)}を再生する`);
+      play.innerHTML = '<svg aria-hidden="true"><use href="icons.svg#play"/></svg>'; row.append(play);
+      const info = Button('', 'entry-info', () => PlayEntry(entry), `${EntryTitle(entry)}を再生`);
+      info.append(Element('strong', '', EntryTitle(entry)), Element('small', '', entry.type !== 'local' ? `${EntryDuration(entry)} · ${entry.videoId} · P${entry.part || 1}` : `${EntryDuration(entry)} · このPCに保存したファイル`));
+      info.dataset.durationEntry = entry.id;
+      const badge = Element('span', 'entry-type'); PaintSavedBadge(badge, entry); row.append(info, badge);
+      row.append(Button('•••', 'icon-button', () => EntryMenu(entry), `${EntryTitle(entry)}を編集`));
+    };
     if (!entry.duration) { row.durationEntry = entry; durationObserver?.observe(row); }
-    const badge = Element('span', 'entry-type'); PaintSavedBadge(badge, entry); row.append(info, badge);
-    row.append(Button('•••', 'icon-button', () => EntryMenu(entry), `${EntryTitle(entry)}を編集`));
+    if (fillObserver && lazyCount++ >= EAGER_ROWS) { row.classList.add('pending'); pendingRows.set(row, build); fillObserver.observe(row); } else build();
     list.append(row);
   }
   if (items.length) { const tail = Element('div', 'queue-tail'); tail.setAttribute('aria-hidden', 'true'); list.append(tail); UpdateQueueTail(); }
