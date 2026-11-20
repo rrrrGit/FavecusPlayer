@@ -28,7 +28,7 @@ http.createServer(async (req, res) => {
   }
   const url = new URL(req.url, 'http://127.0.0.1');
   const name = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
-  if (!/^[a-z-]+\.(html|js|css|svg|png)$/.test(name) || !fs.existsSync(path.join(root, name)) && !['icon.png', 'music.png'].includes(name)) { res.writeHead(404).end(); return; }
+  if (!/^(app\/)?[a-z0-9-]+\.(html|js|css|svg|png)$/.test(name) || !fs.existsSync(path.join(root, name)) && !['icon.png', 'music.png'].includes(name)) { res.writeHead(404).end(); return; }
   const type = name.endsWith('.html') ? 'text/html' : name.endsWith('.css') ? 'text/css' : 'text/javascript';
   res.writeHead(200, { 'Content-Type': name.endsWith('.png') ? 'image/png' : name.endsWith('.svg') ? 'image/svg+xml' : `${type}; charset=utf-8`, 'Cache-Control': 'no-store' }).end(fs.readFileSync(['icon.png', 'music.png'].includes(name) ? path.join(__dirname, '../build', name) : path.join(root, name)));
 }).listen(4187, '127.0.0.1', () => process.stdout.write('Preview: http://127.0.0.1:4187/?preview=1\n'));
