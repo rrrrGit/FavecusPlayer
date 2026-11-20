@@ -68,10 +68,10 @@ final class PlayCountStore {
         } catch {}
     }
 
-    /// 曲のキー → 抽選の重み（1/(1+回数)。共通JS）。
-    func weights(for keys: [String]) async -> [String: Double] {
+    /// 曲のキー → 抽選の重み（1/(1+回数)。お気に入りは倍率つき。共通JS）。
+    func weights(for keys: [String], favorites: Set<String> = []) async -> [String: Double] {
         guard !text.isEmpty, !keys.isEmpty,
-              let result = try? await call("LedgerCounts", ["text": text, "keys": keys]), let weights = result["weights"] as? [String: Double] else { return [:] }
+              let result = try? await call("LedgerCounts", ["text": text, "keys": keys, "favorites": Array(favorites)]), let weights = result["weights"] as? [String: Double] else { return [:] }
         return weights
     }
 

@@ -443,7 +443,10 @@ struct FullPlayerView: View {
         VStack(spacing: 4) {
             controlRow
             Text(toggleNote ?? " ").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.accent).frame(height: 14)
-            SleepTimerMenu(timer: player.sleepTimer)
+            HStack(spacing: 24) {
+                FavoriteToggle(player: player)
+                SleepTimerMenu(timer: player.sleepTimer)
+            }
         }
     }
 

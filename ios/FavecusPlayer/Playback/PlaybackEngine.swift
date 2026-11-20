@@ -55,6 +55,9 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     /// おやすみタイマー（終わりに、音量を下げて一時停止する）。端末内の一時的な状態。
     let sleepTimer = SleepTimer()
+    /// お気に入り（シャッフルで、少しだけ選ばれやすくする）。この端末内だけ。変わったら、一覧の表示を更新する。
+    var favorites = FavoritesStore()
+    @Published private(set) var favoriteRevision = 0
     /// 音量の自動調整（曲ごとの平均音量の記録）。設定「曲ごとの音量差を自動で揃える」がオンのときだけ使う。
     private let loudness = LoudnessCache()
     /// 前回の続きから再生：最後の曲・位置の保存（端末内。同期しない）。なければ、保存も復元もしない。
@@ -179,10 +182,36 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         var seen = Set<String>(), unique: [EntryItem] = []
         for entry in entries where seen.insert(entry.id).inserted { unique.append(entry) }
         let keys = await countKeys(for: unique)
-        let weights = await counts.weights(for: keys.compactMap { $0 })
+        let weights = await counts.weights(for: keys.compactMap { $0 }, favorites: favorites.keys)
         var result: [String: Double] = [:]
         for (entry, key) in zip(unique, keys) { if let key, let weight = weights[key] { result[entry.id] = weight } }
         return result
+    }
+
+    func isFavorite(key: String?) -> Bool { favorites.contains(key) }
+
+    /// お気に入りにする／外す。キーがまだ分からない曲は、できない（理由を知らせる）。
+    @discardableResult
+    func setFavorite(key: String?, _ value: Bool) -> Bool {
+        guard favorites.set(key, value) else {
+            message = "この曲は、まだ識別できないため、お気に入りにできません。"
+            return false
+        }
+        favoriteRevision += 1
+        return true
+    }
+
+    /// 再生中の曲のメディアキー（お気に入りの単位）。
+    func currentFavoriteKey() async -> String? {
+        guard let current, let target = entry(current.entryId) else { return nil }
+        return await countKeys(for: [target]).first ?? nil
+    }
+
+    /// 曲の行・メニューの「お気に入り」の操作。
+    func favoriteAction(key: String?) -> RowAction? {
+        guard let key else { return nil }
+        let on = isFavorite(key: key)
+        return RowAction(icon: on ? "heart.slash" : "heart", title: on ? "お気に入りから外す" : "お気に入りにする") { [weak self] in self?.setFavorite(key: key, !on) }
     }
 
     /// 曲の再生回数のキー：Bilibiliは同期用メディアキー、ローカルは「local:ファイル名」。

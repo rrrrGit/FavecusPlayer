@@ -277,6 +277,8 @@ private struct LocalSongRow: View {
         let playable = player.canPlay(entry)
         var actions: [RowAction] = []
         if playable { actions.append(RowAction(icon: "play.fill", title: "再生") { OpenPlayer.request(after: 0.45); Task { await player.play(entryId: entry.id, scope: scope) } }) }
+        _ = player.favoriteRevision // お気に入りが変わったら、表示を更新する
+        if let favorite = player.favoriteAction(key: key) { actions.append(favorite) }
         if let onRemove { actions.append(RowAction(icon: "minus.circle", title: "このリストから外す", destructive: true, run: onRemove)) }
         return RowLayout(number: number, title: entry.title, meta: metaText(for: entry) + (context.map { " · " + $0 } ?? ""), status: playable ? nil : "この端末にファイルがありません", image: artwork.image(for: key),
                          current: player.current?.entryId == entry.id, playing: player.isPlaying, dimmed: !playable, saved: false, progress: nil, actions: actions,
@@ -305,6 +307,8 @@ private struct BiliSongRow: View {
 
     private var actions: [RowAction] {
         var result = [RowAction(icon: "play.fill", title: "再生") { OpenPlayer.request(after: 0.45); Task { await player.play(entryId: entry.id, scope: scope) } }]
+        _ = player.favoriteRevision // お気に入りが変わったら、表示を更新する
+        if let favorite = player.favoriteAction(key: key) { result.append(favorite) }
         if let key {
             for (kind, label) in [("audio", "音声"), ("video", "動画")] {
                 let state = record(kind)?.state
