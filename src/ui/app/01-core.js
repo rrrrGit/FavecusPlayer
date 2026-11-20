@@ -134,9 +134,16 @@ const searchArtwork = window.FavecusListArtwork && api?.entryThumbnail && typeof
   root: $('home'), load: (playlistId, entryId) => api.entryThumbnail(playlistId, entryId, '*'), observe: (callback, options) => new IntersectionObserver(callback, options)
 }) : null;
 
+// 通知は、7秒以内の新しいものを、最大3件まで重ねて出す（続けて起きたエラーで、前のものが消えない）。同じ内容は、1つにまとめる。
+const toastLog = [];
 function Toast(message) {
-  if ($('modal').open) { $('modal-notice').textContent = message; $('modal-notice').classList.remove('hidden'); }
-  $('toast').textContent = message; $('toast').classList.remove('hidden');
+  const now = Date.now();
+  while (toastLog.length && (now - toastLog[0].at > 7000 || toastLog.length >= 3)) toastLog.shift();
+  const last = toastLog.at(-1);
+  if (last && last.message === message) last.at = now; else toastLog.push({ message, at: now });
+  const text = toastLog.map(item => item.message).join('\n');
+  if ($('modal').open) { $('modal-notice').textContent = text; $('modal-notice').classList.remove('hidden'); }
+  $('toast').textContent = text; $('toast').classList.remove('hidden');
   SendBounds();
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('toast').classList.add('hidden'); SendBounds(); }, 7000);
 }
@@ -161,7 +168,11 @@ function OpenModal(title, content, submit, submitLabel = '保存', back = null) 
   submitModal = submit; if (!$('modal').open) $('modal').showModal(); $('modal').scrollTop = 0; BackgroundInteractive(false); SendBounds();
 }
 function CancelModalTask() { const cancel = cancelModal; cancelModal = null; if (cancel) void cancel().catch(() => {}); }
-function CloseModal() { CancelModalTask(); modalEpoch++; $('modal').close(); BackgroundInteractive(true); SendBounds(); }
+function CloseModal() { CancelModalTask(); modalEpoch++; $('modal').close(); BackgroundInteractive(true); SendBounds(); RunAfterModal(); }
+// 画面が開いているあいだに来た操作は、断らずに覚えておき、閉じたあとに続ける（最後の1件だけ）。
+let afterModal = null;
+function AfterModal(run) { afterModal = run; }
+function RunAfterModal() { const next = afterModal; afterModal = null; if (next) setTimeout(() => { if (!$('modal').open) next(); }, 0); }
 function PerformModal(handler, close) {
   const epoch = modalEpoch;
   if (!handler || pendingModal === epoch) return;

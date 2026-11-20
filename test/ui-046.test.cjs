@@ -360,8 +360,10 @@ test('067 the local player quality request opens the single-track save dialog fo
   h.emit('change-quality', { playlistId: h.id, entryId: entry.id }); await new Promise(setImmediate);
   assert.equal(h.node('modal-title').textContent, 'この動画のみをダウンロード'); assert.match(h.node('download-entry-meta').textContent, /av999 \/ パート 2/);
   assert.equal(api.estimates[0].entryId, entry.id); assert.deepEqual(s.Snapshot(), before, '要求だけでは保存データを変えない');
-  h.emit('change-quality', { playlistId: h.id, entryId: entry.id }); assert.match(h.node('toast').textContent, /閉じてから/, '画面が開いているときは通知だけ');
-  h.run('CloseModal()'); h.emit('change-quality', { playlistId: 'unknown', entryId: 'unknown' }); await new Promise(setImmediate); assert.equal(h.node('modal').open, false, '存在しない曲では開かない');
+  h.emit('change-quality', { playlistId: h.id, entryId: entry.id }); assert.match(h.node('toast').textContent, /閉じると、続けて/, '画面が開いているときは、断らずに、続きを知らせる');
+  h.run('CloseModal()'); await new Promise(r => setTimeout(r, 5)); assert.equal(h.node('modal-title').textContent, 'この動画のみをダウンロード', '閉じたあとに、覚えておいた画質の変更の画面が開く');
+  h.run('CloseModal()'); await new Promise(r => setTimeout(r, 5)); assert.equal(h.node('modal').open, false, '覚えた操作は、1回だけ');
+  h.emit('change-quality', { playlistId: 'unknown', entryId: 'unknown' }); await new Promise(setImmediate); assert.equal(h.node('modal').open, false, '存在しない曲では開かない');
   assert.equal(h.node('video-fullscreen'), undefined, 'v0.7.2：下の機能欄の最大化ボタンは削除した（音量バーを、v0.6.7の長さに戻すため）');
 });
 test('067 home card puts the check, play and a three-dot menu on the cover; excluded lists stay marked and shuffle starts that list', async t => {

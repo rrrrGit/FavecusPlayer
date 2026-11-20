@@ -199,14 +199,16 @@ if (api) {
     else if (event.type === 'change-quality') {
       // ローカル再生画面の「別の画質で保存し直す」。既存の1曲の保存画面を開く（切り替えは再保存。新しい画質は次の再生から使う）。
       const target = event.value;
-      if ($('modal').open) Toast('開いている画面を閉じてから、もう一度画質の変更を押してください。');
-      else {
+      const openQuality = () => {
         const found = target && state.playlists.find(p => p.id === target.playlistId)?.entries.find(e => e.id === target.entryId && e.type === 'bilibili');
         if (found) DownloadsDialog({ playlistId: target.playlistId, entryId: target.entryId, entryURL: found.url });
-      }
+      };
+      if ($('modal').open) { AfterModal(openQuality); Toast('開いている画面を閉じると、続けて画質の変更の画面を開きます。'); }
+      else openQuality();
     }
-    else if (event.type === 'add-url') { if (!$('modal').open) AddURL(event.value); else Toast('追加画面が開いています。閉じてから検索画面の追加ボタンを押してください。'); }
+    else if (event.type === 'add-url') { if (!$('modal').open) AddURL(event.value); else { AfterModal(() => AddURL(event.value)); Toast('開いている画面を閉じると、続けて追加画面を開きます。'); } }
   });
+  $('modal').addEventListener?.('close', RunAfterModal); // Escキーなどで閉じたときも、覚えておいた操作を続ける
   new ResizeObserver(SendBounds).observe($('player-slot'));
   new ResizeObserver(UpdateQueueTail).observe($('entries'));
   Run(async () => { const initial = await api.state(); state = initial.state; current = initial.current; playback = initial.playback; thumbnail = initial.thumbnail; statuses = initial.statuses; queueInfo = initial.queue; foreground = initial.foreground === true; accounts = initial.accounts || {}; loaded = !!playback; sleepState = initial.sleep || { mode: 'off' }; RenderSleep(); resumeOffer = initial.resume || null; favoriteIds = new Set(initial.favorites || []); UpdateDownloads(initial.downloads); $('version').textContent = initial.version; document.body.classList.toggle('mac', initial.platform === 'darwin'); Render(); queueFollower?.Request(); accounts = await api.accounts(); UpdateAccounts(); });
