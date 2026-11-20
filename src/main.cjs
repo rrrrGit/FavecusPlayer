@@ -38,6 +38,7 @@ const { ResumeStore } = require('./core/resume-point.cjs');
 const AutoListsCore = require('./core/auto-lists.cjs');
 const { TrashStore } = require('./core/trash-store.cjs');
 const { LoudnessStore } = require('./core/loudness.cjs');
+const { FavoriteStore } = require('./core/favorites.cjs');
 const { APP_ID, ConfigureTaskbar, PreviousInstallRoots } = require('./core/windows-identity.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'favecus', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
@@ -49,11 +50,19 @@ app.setPath('sessionData', dataDirectory);
 let win, store, presence, remoteView, mini, volumeSaveTimer, backgroundMode, sync;
 let viewVisible = false;
 let current = null, playback = null;
-let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null, trashStore = null, loudness = null, songGain = 1;
+let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null, trashStore = null, loudness = null, songGain = 1, favorites = null;
 let visibleBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 let statuses = { discord: { code: 'off', text: 'Discord連携はオフです' }, taskbar: { code: 'off', text: '下向き矢印を押すと埋め込みを試します' } };
 let playCounts;
-const ShuffleWeight = entry => store?.data.settings.weightedShuffle === false ? 1 : PlayLedger.Weight(playCounts?.Count(entry) || 0);
+// シャッフルの重み：1/(1+再生回数)。お気に入りの曲は、倍率を掛けて、少しだけ選ばれやすくする（共通の規則：play-ledger.cjs）
+const ShuffleWeight = entry => store?.data.settings.weightedShuffle === false ? 1 : PlayLedger.WeightOf(playCounts?.Count(entry) || 0, IsFavorite(entry));
+function IsFavorite(entry) { const key = playCounts?.KeyOf(entry); return !!key && !!favorites?.Has(key); }
+// お気に入りの曲の、登録曲ID（画面の表示用。同じメディアの曲は、すべて）。
+function FavoriteIds() {
+  const ids = [];
+  for (const list of store?.data.playlists || []) for (const entry of list.entries) if (IsFavorite(entry)) ids.push(entry.id);
+  return ids;
+}
 let queue = new Queue(null, ShuffleWeight, randomInt);
 const playbackMetadata = new Map(), metadataPending = new Map(), officialPreferred = new Set();
 let generation = 0, loadRequest = 0, lastPlayerCommand = null, nativeDiagnostics;
@@ -616,6 +625,7 @@ async function Command(command, value) {
 async function Start() {
   const ffmpeg = process.env.FAVECUS_INSTALL_ROOT ? path.join(process.env.FAVECUS_INSTALL_ROOT, 'runtime', 'ffmpeg', 'ffmpeg.exe') : app.isPackaged ? path.join(process.resourcesPath, 'ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg') : path.join(app.getAppPath(), 'runtime', 'ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
   trashStore = new TrashStore(path.join(app.getPath('userData'), 'trash.json'));
+  favorites = new FavoriteStore(path.join(app.getPath('userData'), 'favorites.json'));
   loudness = new LoudnessStore(path.join(app.getPath('userData'), 'loudness.json'), ffmpeg);
   store = new Store(app.getPath('userData'), { trash: item => trashStore.Add(item), committed: () => { offline?.ScheduleCleanup(); sync?.Changed(); }, convertWma: (source, destination) => ConvertWma(ffmpeg, source, destination) });
 
@@ -739,7 +749,7 @@ async function Start() {
     else throw new Error('対応していない操作です。');
     return sync.Status();
   });
-  Handle('app:state', () => ({ sleep: sleepTimer?.State() || { mode: 'off' }, resume: ResumeOffer(), state: store.Snapshot(), statuses, current, playback, thumbnail, queue: QueueState(), downloads: offline.Snapshot(), foreground: Foreground(), accounts: accountStatus, version: app.getVersion(), platform: process.platform }));
+  Handle('app:state', () => ({ favorites: FavoriteIds(), sleep: sleepTimer?.State() || { mode: 'off' }, resume: ResumeOffer(), state: store.Snapshot(), statuses, current, playback, thumbnail, queue: QueueState(), downloads: offline.Snapshot(), foreground: Foreground(), accounts: accountStatus, version: app.getVersion(), platform: process.platform }));
   Handle('player:reset-counts', () => { playCounts.Reset(); return true; });
   Handle('downloads:state', () => offline.Snapshot());
   const downloadTarget = options => {
@@ -863,6 +873,12 @@ async function Start() {
   });
   Handle('player:auto-play', (kind, entryId, shuffled) => AutoPlay(kind, typeof entryId === 'string' ? entryId : null, shuffled === true));
   // 最近削除（一覧・元に戻す・完全に削除）。元に戻すのは共通の規則（core/trash.cjs）。失敗したときは、保管を残して、理由を返す。
+  // お気に入り：曲のメディア単位（同じ動画・パートは、どのリストにあっても共通）。この端末内だけ（同期しない）。
+  Handle('library:favorite', (playlistId, entryId, value) => {
+    const entry = store.Entry(String(playlistId), String(entryId)), key = playCounts?.KeyOf(entry);
+    favorites.Set(key, value === true);
+    const ids = FavoriteIds(); Emit('favorites', ids); return ids;
+  });
   Handle('trash:list', () => { const list = trashStore.List(); if (trashStore.TakePruned()) offline?.ScheduleCleanup(); return list; });
   Handle('trash:restore', id => {
     const item = trashStore.Get(String(id));

@@ -26,6 +26,20 @@ function RenderSleep() {
   button.title = label; button.setAttribute('aria-label', label); button.setAttribute('aria-pressed', String(on)); button.classList.toggle('enabled', on);
   clearTimeout(sleepRefresh); sleepRefresh = sleepState?.mode === 'minutes' ? setTimeout(RenderSleep, 1000) : null;
 }
+// お気に入り：お気に入りの曲は、シャッフル再生で、少しだけ選ばれやすくなる。曲のメディア単位（同じ動画・パートは共通）。この端末内だけ。
+let favoriteIds = new Set();
+const IsFavorite = entryId => favoriteIds.has(entryId);
+async function SetFavorite(playlistId, entryId, value) {
+  favoriteIds = new Set(await api.favorite(playlistId, entryId, value)); RenderFavorite();
+}
+function RenderFavorite() {
+  const button = $('favorite'); if (!button) return;
+  const entryId = current?.entryId, show = !!entryId && !!current?.playlistId;
+  button.classList.toggle('hidden', !show);
+  if (!show) return;
+  const on = IsFavorite(entryId), label = on ? 'お気に入りから外す' : 'お気に入りにする';
+  button.textContent = on ? '♥' : '♡'; button.title = label; button.setAttribute('aria-label', label); button.setAttribute('aria-pressed', String(on)); button.classList.toggle('enabled', on);
+}
 // 最近削除（設定の中）。削除したプレイリスト・曲を30日間保管し、元に戻せる。規則は共通（core/trash.cjs）、ここは表示と操作だけ。
 function TrashSettings() {
   OpenModal('最近削除', `<p class="form-note">削除したプレイリストと、「このリストから外す」で外した曲を、30日間、このPCに保管します（同期はしません）。元に戻すと、元の場所へ戻り、ほかの端末にも反映されます。保管中は、保存済みの動画・音声も残します。</p><div class="trash-list"></div><div class="settings-actions"><button type="button" class="button secondary trash-clear">すべて完全に削除</button></div>`, null, '保存', () => Settings());
@@ -521,6 +535,8 @@ function EntryMenu(entry, draft = undefined) {
     const b = Button(label, 'button secondary', async () => { await Action({ type: 'move', playlistId: p.id, entryId: entry.id, direction }); CloseModal(); });
     b.disabled = direction === -1 ? index === 0 : index === p.entries.length - 1; $('entry-actions').append(b);
   }
+  const favorite = IsFavorite(entry.id);
+  $('entry-actions').append(Button(favorite ? '♥ お気に入りから外す' : '♡ お気に入りにする', 'button secondary', async () => { await SetFavorite(p.id, entry.id, !favorite); CloseModal(); Toast(favorite ? 'お気に入りから外しました。' : 'お気に入りにしました。シャッフル再生で、少しだけ選ばれやすくなります。'); }));
   $('entry-actions').append(Button('別のリストへ移動・追加', 'button secondary', () => { CloseModal(); TransferEntry(p.id, entry); }));
   $('entry-actions').append(Button('リストから外す', 'button secondary danger', async () => { await Action({ type: 'remove', playlistId: p.id, entryId: entry.id }); CloseModal(); }));
 }
@@ -1201,7 +1217,7 @@ function PlayingPath() {
   return playingLocation.path;
 }
 function UpdateTransport() {
-  RenderResume();
+  RenderResume(); RenderFavorite();
   const { internal, data, canStart, canSeek } = Transport();
   $('now-title').textContent = data?.title || (current?.entry ? EntryTitle(current.entry) : canStart ? List().name : '再生していません');
   $('now-title').title = $('now-title').textContent;
@@ -1317,6 +1333,7 @@ $('shuffle-play').onclick = () => PlaybackAction(() => api.shufflePlay(ViewScope
 $('play-all').onclick = () => PlaybackAction(() => api.play(ViewScope()));
 $('shuffle').onclick = () => Run(() => Action({ type: 'settings', settings: { shuffle: !state.settings.shuffle } }));
 $('resume-last').onclick = () => Run(() => api.resumeLast());
+$('favorite').onclick = () => Run(() => current?.playlistId ? SetFavorite(current.playlistId, current.entryId, !IsFavorite(current.entryId)) : undefined);
 $('sleep').onclick = () => Run(async () => { sleepState = await api.sleepTimer(NextSleepCommand(sleepState)); RenderSleep(); });
 $('repeat').onclick = () => Run(() => Action({ type: 'settings', settings: { repeat: { off: 'all', all: 'one', one: 'off' }[state.settings.repeat] } }));
 for (const id of ['next', 'previous']) $(id).onclick = () => PlaybackAction(() => api.command(id));
@@ -1340,6 +1357,7 @@ if (api) {
     else if (event.type === 'shortcut-follow') queueFollower?.Resume();
     else if (event.type === 'duration') { UpdateDuration(event.value.entryId, event.value.duration); }
     else if (event.type === 'volume') SyncVolume(event.value);
+    else if (event.type === 'favorites') { favoriteIds = new Set(event.value || []); RenderFavorite(); }
     else if (event.type === 'resume') { resumeOffer = event.value || null; RenderResume(); }
     else if (event.type === 'sleep') { sleepState = event.value || { mode: 'off' }; RenderSleep(); }
     else if (event.type === 'status') { statuses = event.value; UpdateStatus(); }
@@ -1362,5 +1380,5 @@ if (api) {
   });
   new ResizeObserver(SendBounds).observe($('player-slot'));
   new ResizeObserver(UpdateQueueTail).observe($('entries'));
-  Run(async () => { const initial = await api.state(); state = initial.state; current = initial.current; playback = initial.playback; thumbnail = initial.thumbnail; statuses = initial.statuses; queueInfo = initial.queue; foreground = initial.foreground === true; accounts = initial.accounts || {}; loaded = !!playback; sleepState = initial.sleep || { mode: 'off' }; RenderSleep(); resumeOffer = initial.resume || null; UpdateDownloads(initial.downloads); $('version').textContent = initial.version; document.body.classList.toggle('mac', initial.platform === 'darwin'); Render(); queueFollower?.Request(); accounts = await api.accounts(); UpdateAccounts(); });
+  Run(async () => { const initial = await api.state(); state = initial.state; current = initial.current; playback = initial.playback; thumbnail = initial.thumbnail; statuses = initial.statuses; queueInfo = initial.queue; foreground = initial.foreground === true; accounts = initial.accounts || {}; loaded = !!playback; sleepState = initial.sleep || { mode: 'off' }; RenderSleep(); resumeOffer = initial.resume || null; favoriteIds = new Set(initial.favorites || []); UpdateDownloads(initial.downloads); $('version').textContent = initial.version; document.body.classList.toggle('mac', initial.platform === 'darwin'); Render(); queueFollower?.Request(); accounts = await api.accounts(); UpdateAccounts(); });
 } else Toast('この画面はFavecus Playerのアプリから開いてください。');

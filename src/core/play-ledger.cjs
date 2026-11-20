@@ -50,6 +50,9 @@ function Totals(ledger) {
 const Count = (ledger, key) => Totals(ledger).get(key) || 0;
 // 抽選の重み：1/(1+回数)。回数が多い曲も、完全には排除しない。
 const Weight = count => 1 / (1 + Math.max(0, Number(count) || 0));
+// お気に入りの曲は、重みに倍率を掛けて、少しだけ選ばれやすくする（再生回数が多くても、完全には、逆転させない程度）。
+const FAVORITE_BOOST = 1.5;
+const WeightOf = (count, favorite) => Weight(count) * (favorite === true ? FAVORITE_BOOST : 1);
 // この端末で1回数える。戻り値：更新した行 { id, device, epoch, month, key, n }（同期へ送る）。
 function Increment(ledger, key, nowMs, month = null) {
   if (!KEY.test(key)) throw new Error('曲のキーが正しくありません。');
@@ -111,4 +114,4 @@ class PlayTracker {
     return null;
   }
 }
-module.exports = { TZ_OFFSET_MS, LEGACY, KEY, IsSyncKey, MonthOf, RowId, ParseRowId, NewLedger, Clean, Totals, Count, Weight, Increment, MergeRows, MergeEpoch, Reset, ImportLegacy, SyncRows, PlayTracker };
+module.exports = { TZ_OFFSET_MS, LEGACY, KEY, IsSyncKey, MonthOf, RowId, ParseRowId, NewLedger, Clean, Totals, Count, Weight, FAVORITE_BOOST, WeightOf, Increment, MergeRows, MergeEpoch, Reset, ImportLegacy, SyncRows, PlayTracker };

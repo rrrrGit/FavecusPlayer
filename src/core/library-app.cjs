@@ -210,8 +210,9 @@ function LedgerOpen(options) {
 // keys：曲のキーの配列 → { counts: { キー: 回数 } }（現在の世代の合計）と、抽選の重み（weights）
 function LedgerCounts(options) {
   try {
-    const totals = Ledger.Totals(JSON.parse(options.text)), counts = {}, weights = {};
-    for (const key of options.keys || []) { const n = totals.get(key) || 0; counts[key] = n; weights[key] = Ledger.Weight(n); }
+    const totals = Ledger.Totals(JSON.parse(options.text)), counts = {}, weights = {}, favorites = new Set(Array.isArray(options.favorites) ? options.favorites : []);
+    // favorites：お気に入りの曲のキー（任意）。お気に入りは、重みに倍率が掛かる（共通：play-ledger.cjs）
+    for (const key of options.keys || []) { const n = totals.get(key) || 0; counts[key] = n; weights[key] = Ledger.WeightOf(n, favorites.has(key)); }
     return { counts, weights };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
