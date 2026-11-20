@@ -1,5 +1,6 @@
 'use strict';
 const { test }=require('node:test'), assert=require('node:assert/strict');
+const { Needs } = require('./support-env.cjs');
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),{spawnSync}=require('node:child_process');
 const {SelectStreams,MediaURL,SignQuery,BilibiliDownloadSource}=require('../src/core/bilibili-download.cjs');
 const {DownloadStream,Assemble}=require('../src/core/download-transfer.cjs'),{OfflineLibrary,Key,SafeName}=require('../src/core/offline-library.cjs');
@@ -47,12 +48,12 @@ test('cancelled saves clean staging files while committed tracks remain playable
  let reached,finish;const gate=new Promise(r=>reached=r),h=Manager(t,{resolve:async(e,kind,abort)=>{reached();await new Promise(r=>finish=r);abort.throwIfAborted();return{kind}}});
  h.library.Start([ParseBilibili('av123')],{kind:'video',playlistId:'p',playlistName:'p'});await gate;assert.throws(()=>h.library.SetDirectory(h.root));h.library.Cancel();finish();await h.library.done;assert.equal(h.library.job.status,'cancelled');assert.equal(h.library.Snapshot().available.length,0);
 });
-test('corrupt catalog and symlink paths cannot silently overwrite or escape the chosen root',async t=>{
+test('corrupt catalog and symlink paths cannot silently overwrite or escape the chosen root', { skip: Needs.symlink }, async t=>{
  const h=Manager(t),e=ParseBilibili('av123');h.library.Start([e],{kind:'video',playlistId:'p',playlistName:'p'});await h.library.done;
  const r=h.library.Find(e),index=path.join(h.directory,'index.json'),old=fs.readFileSync(index);fs.rmSync(r.path);fs.symlinkSync(process.execPath,r.path);assert.equal(h.library.File(r.token),null);
  fs.writeFileSync(index,'invalid');const bad=new OfflineLibrary(h.options);assert.throws(()=>bad.Start([e],{kind:'video'}),/保存一覧/);assert.equal(fs.readFileSync(index,'utf8'),'invalid');fs.writeFileSync(index,old);assert.ok(new OfflineLibrary(h.options).indexError);
 });
-test('real FFmpeg remux retains encoded audio and video packets without re-encoding',async t=>{
+test('real FFmpeg remux retains encoded audio and video packets without re-encoding', { skip: Needs.ffmpeg }, async t=>{
  const root=Temp(t),ffmpeg='/usr/bin/ffmpeg';assert.ok(fs.existsSync(ffmpeg),'FFmpeg is required for release validation');
  const v=path.join(root,'v.mp4'),a=path.join(root,'a.m4a'),mp4=path.join(root,'output.mp4'),m4a=path.join(root,'output.m4a');
  for(const args of [['-f','lavfi','-i','color=c=purple:s=160x90:r=25:d=1','-c:v','libx264',v],['-f','lavfi','-i','sine=frequency=440:duration=1','-c:a','aac','-b:a','128k',a]]){const r=spawnSync(ffmpeg,['-nostdin','-v','error',...args]);assert.equal(r.status,0,r.stderr?.toString());}

@@ -1,5 +1,6 @@
 'use strict';
 const { test } = require('node:test');
+const { Needs } = require('./support-env.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
 const { randomUUID } = require('node:crypto');
@@ -51,7 +52,7 @@ test('archive rollback and post-write exception recovery preserve preexisting cl
   await assert.rejects(archive.Commit(plan.id, plan.playlists.map(p => p.id)), /fresh save failed/); fresh.library.FlushCleanup();
   assert.equal(fresh.library.indexBytes, null); assert.equal(fresh.library.cleanup.warning, ''); assert.equal(fs.existsSync(path.join(fresh.library.directory, 'index.json')), false);
 });
-test('an imported replacement keeps the old owned descriptor when the existing cache file is damaged', async t => {
+test('an imported replacement keeps the old owned descriptor when the existing cache file is damaged', { skip: Needs.symlink }, async t => {
   const source = Fixture(t), target = Fixture(t); source.add(); source.seed(); target.add(); const old = target.seed(); fs.writeFileSync(target.library.ResolvePath(old.file), 'CHANGED FILE');
   const file = path.join(source.root, 'export.zip'); await new LibraryArchive(source.store, source.library).Export(file);
   const archive = new LibraryArchive(target.store, target.library), plan = await archive.Prepare(file); assert.equal((await archive.Commit(plan.id, plan.playlists.map(p => p.id))).downloaded, 1);

@@ -1,5 +1,6 @@
 'use strict';
 const { test } = require('node:test');
+const { Needs } = require('./support-env.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -129,7 +130,7 @@ test('065 runtime branding keeps the original, verifies reuse, repairs corruptio
   assert.equal((await Brand(options)).reused, true); assert.equal(updates, 1); fs.writeFileSync(first.executable, 'corrupt'); await Brand(options); assert.equal(updates, 2);
   fs.writeFileSync(donor, 'new donor'); await Brand(options); assert.equal(updates, 3); assert.equal(fs.readFileSync(first.executable, 'utf8'), 'originalnew donor'); assert.deepEqual(fs.readdirSync(stage), []);
 });
-test('065 runtime branding failure preserves the previous executable, and symlink targets are rejected', async t => {
+test('065 runtime branding failure preserves the previous executable, and symlink targets are rejected', { skip: Needs.symlink }, async t => {
   const root = Temp(t), directory = path.join(root, 'runtime'), stage = path.join(root, 'stage'), donor = path.join(root, 'launcher.exe'); fs.mkdirSync(directory); fs.mkdirSync(stage); fs.writeFileSync(path.join(directory, 'electron.exe'), 'original'); fs.writeFileSync(donor, 'donor'); const executable = path.join(directory, 'FavecusPlayer.exe'); fs.writeFileSync(executable, 'previous');
   await assert.rejects(Brand({ directory, stage, donor, update: async target => { fs.appendFileSync(target, 'bad'); throw new Error('resource error'); } }), /resource error/);
   assert.equal(fs.readFileSync(executable, 'utf8'), 'previous'); assert.deepEqual(fs.readdirSync(stage), []); fs.rmSync(executable); fs.symlinkSync(donor, executable);

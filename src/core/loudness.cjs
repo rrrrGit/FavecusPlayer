@@ -61,13 +61,21 @@ class LoudnessStore {
     const identity = this.Identity(file);
     if (!identity || !this.executable) return 1;
     if (!this.pending.has(identity)) {
-      this.pending.set(identity, Measure(this.executable, file, this.options).then(meanDb => {
+      this.pending.set(identity, this.Limited(() => Measure(this.executable, file, this.options)).then(meanDb => {
         if (meanDb !== null) { this.records[identity] = { meanDb, at: Date.now() }; this.Prune(); this.Save(); }
         return meanDb;
       }).finally(() => this.pending.delete(identity)));
     }
     const meanDb = await this.pending.get(identity);
     return meanDb === null ? 1 : Gain(meanDb);
+  }
+  // 同時に動かす ffmpeg は2つまで（連続で曲送りしても、プロセスが増え続けない）。順番待ちは先着順。
+  Limited(task) {
+    const limit = this.options.maxConcurrent || 2;
+    this.running = this.running || 0; this.waiting = this.waiting || [];
+    const run = () => { this.running++; return Promise.resolve().then(task).finally(() => { this.running--; this.waiting.shift()?.(); }); };
+    if (this.running < limit) return run();
+    return new Promise(resolve => this.waiting.push(() => resolve(run())));
   }
   // 古い記録を整理する（最大2000件）。
   Prune() {

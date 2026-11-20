@@ -1,5 +1,6 @@
 'use strict';
 const { test } = require('node:test'), assert = require('node:assert/strict');
+const { Needs } = require('./support-env.cjs');
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os'), { spawnSync } = require('node:child_process');
 const { OfflineLibrary } = require('../src/core/offline-library.cjs');
 const { EstimateDownloads, DownloadSelection, PlanBytes, JobTiming } = require('../src/core/download-estimate.cjs');
@@ -77,7 +78,7 @@ test('download manifests reject traversal, byte mismatches and unsafe covers bef
   const records = JSON.parse((await zip.Content('downloads/catalog.json')).toString()); records.files[0].media = '../escape';
   const fake = { entries: zip.entries, Content: async () => Buffer.from(JSON.stringify(records)) }; await assert.rejects(ReadDownloads(fake), /参照/);
 });
-test('ZIP64 output interoperates with a separate reader and rejects broken ZIP64 locators', async t => {
+test('ZIP64 output interoperates with a separate reader and rejects broken ZIP64 locators', { skip: Needs.python3 }, async t => {
   const root = Temp(t), file = path.join(root, 'wide.zip'); await WriteZip(file, [{ name: 'media/song.mp4', data: Buffer.from('abc') }], { forceZip64: true });
   const zip = await new ZipReader().Open(file); assert.equal((await zip.Content('media/song.mp4')).toString(), 'abc'); await zip.Close();
   const read = spawnSync('python3', ['-c', "import sys,zipfile;z=zipfile.ZipFile(sys.argv[1]);assert z.testzip() is None;assert z.read('media/song.mp4')==b'abc'", file], { encoding: 'utf8' }); assert.equal(read.status, 0, read.stderr);

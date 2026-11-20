@@ -457,6 +457,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             backend.load(url: target)
             backend.seek(to: position)
             loadedFile = target
+            applyLeveling(file: target, generation: generation) // 別のファイルなので、音量の倍率も測り直す（前のファイルの倍率を残さない）
         }
         if playing { backend.play() }
         refresh()

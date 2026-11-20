@@ -87,8 +87,7 @@ struct AutoListsSection: View {
                 .buttonStyle(.plain)
             }
         }
-        .task(id: store.document) { await model.reload(services.player) }
-        .onAppear { Task { await model.reload(services.player) } }
+        .task(id: store.document) { await model.reload(services.player) } // 表示のたびにも走るため、onAppearでの二重の読み込みはしない
     }
 }
 
