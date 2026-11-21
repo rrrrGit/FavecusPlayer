@@ -4,6 +4,11 @@ name: Windows build
 # 手動実行のみ。作業用ファイルはリポジトリの外（RUNNER_TEMP）に置く（package-release.py は、Gitの作業ツリーがきれいなことを確認するため）。
 on:
   workflow_dispatch:
+    inputs:
+      screenshot:
+        description: "PC版UIのスクリーンショットも取得する"
+        type: boolean
+        default: false
   # このワークフロー自身を変更したときだけ実行（手動実行は、デフォルトブランチにない新しいワークフローではpushからの実行が必要なため）
   push:
     branches: ["release/v0.7.0", "release/v0.7.1", "release/v0.7.2", "release/v0.7.3", "release/v0.7.4"]
@@ -74,6 +79,13 @@ jobs:
           python3 scripts/package-release.py --windows "$RUNNER_TEMP/windows" --verification "$RUNNER_TEMP/verify" --output "$RUNNER_TEMP/out/full" --profile full
           cd "$RUNNER_TEMP/out" && find . -type f -exec sha256sum {} \; | tee SHA256SUMS-all.txt
 
+      - name: Capture PC UI screenshots
+        if: github.event_name == 'workflow_dispatch' && inputs.screenshot
+        run: |
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          node scripts/capture-pc-screenshots.cjs --out "$RUNNER_TEMP/screenshots"
+          ls -l "$RUNNER_TEMP/screenshots"
+
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
@@ -81,5 +93,14 @@ jobs:
           path: |
             ${{ runner.temp }}/out
             ${{ runner.temp }}/verify
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload PC screenshots
+        if: github.event_name == 'workflow_dispatch' && inputs.screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-screenshots
+          path: ${{ runner.temp }}/screenshots/*.png
           if-no-files-found: error
           retention-days: 14
