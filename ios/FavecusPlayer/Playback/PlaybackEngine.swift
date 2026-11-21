@@ -77,6 +77,9 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     /// 再生履歴（最近聴いた曲）と、自動リストの設定（件数・条件）。この端末内だけ。
     var history: PlayHistoryStore?
     let autoSettings = AutoListSettingsStore()
+    /// 曲の情報（アーティスト・タグ・メモ・チャプター）。この端末内だけ。変わったら notesRevision が増える。
+    let notes = SongNotesStore()
+    @Published var notesRevision = 0
     /// アプリを開いている（前面にある）か。背面では、映像の層が外れるため、動画へ切り替えない（前面へ戻ったとき、切り替える）。テストでは差し替える。
     var isActive: () -> Bool = { UIApplication.shared.applicationState == .active }
     /// 再生の範囲（"*" はすべて、または、リストのID）。曲の所在の表示に使う。

@@ -224,6 +224,8 @@ const QueueReorder = json => JSON.stringify(libraryApp.QueueReorder(JSON.parse(j
 const QueueJump = json => JSON.stringify(libraryApp.QueueJump(JSON.parse(json)));
 const PlaylistPath = json => JSON.stringify(libraryApp.PlaylistPath(JSON.parse(json)));
 const LedgerOpen = json => JSON.stringify(libraryApp.LedgerOpen(JSON.parse(json)));
+const NotesNormalize = json => JSON.stringify(libraryApp.NotesNormalize(JSON.parse(json)));
+const NotesChapters = json => JSON.stringify(libraryApp.NotesChapters(JSON.parse(json)));
 const Audit = json => JSON.stringify(libraryApp.Audit(JSON.parse(json)));
 const HistoryAdd = json => JSON.stringify(libraryApp.HistoryAdd(JSON.parse(json)));
 const HistoryKeys = json => JSON.stringify(libraryApp.HistoryKeys(JSON.parse(json)));
@@ -240,4 +242,4 @@ const PlayStop = json => JSON.stringify(libraryApp.PlayStop(JSON.parse(json)));
 const TransferPrepare = json => JSON.stringify(libraryApp.TransferPrepare(JSON.parse(json)));
 const TransferImport = json => JSON.stringify(libraryApp.TransferImport(JSON.parse(json)));
 const TransferExport = json => JSON.stringify(libraryApp.TransferExport(JSON.parse(json)));
-module.exports = { RunCases, Observe, Bench, MediaKeys, LibraryOpen, LibraryApply, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueInsert, ArrangeEntries, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerStats, Audit, HistoryAdd, HistoryKeys, AutoListSettingsNormalize, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop, SyncOpen, SyncEnable, SyncCycle, SyncUnblock, SyncChanged, SyncReset, SyncState, SyncValidate, SyncSendCode, SyncVerifyCode, BiliResolveAsync, BiliInfoAsync, BiliShotsAsync, BiliProfile, TransferPrepare, TransferImport, TransferExport };
+module.exports = { RunCases, Observe, Bench, MediaKeys, LibraryOpen, LibraryApply, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueInsert, ArrangeEntries, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerStats, NotesNormalize, NotesChapters, Audit, HistoryAdd, HistoryKeys, AutoListSettingsNormalize, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop, SyncOpen, SyncEnable, SyncCycle, SyncUnblock, SyncChanged, SyncReset, SyncState, SyncValidate, SyncSendCode, SyncVerifyCode, BiliResolveAsync, BiliInfoAsync, BiliShotsAsync, BiliProfile, TransferPrepare, TransferImport, TransferExport };

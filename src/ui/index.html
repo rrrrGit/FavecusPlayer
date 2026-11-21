@@ -25,6 +25,7 @@
   <script src="app/04-settings.js" defer></script>
   <script src="app/05-bulk.js" defer></script>
   <script src="app/05-insights.js" defer></script>
+  <script src="app/05-notes.js" defer></script>
   <script src="app/05-transfer.js" defer></script>
   <script src="app/06-list-view.js" defer></script>
   <script src="app.js" defer></script>
@@ -78,6 +79,7 @@
     <button id="next" class="icon-button" title="次の動画" aria-label="次の動画" disabled><svg aria-hidden="true"><use href="icons.svg#next"/></svg></button>
     <button id="repeat" class="icon-button" title="リピート オフ" aria-label="リピート オフ" aria-pressed="false">↻</button>
     <button id="sleep" class="icon-button" title="おやすみタイマー オフ（押すと15分）" aria-label="おやすみタイマー オフ（押すと15分）" aria-pressed="false">☾</button>
+    <button id="chapters" class="icon-button hidden" title="チャプター" aria-label="チャプター">☰</button>
     <button id="speed" class="icon-button" title="再生速度 1x（押すと変わります）" aria-label="再生速度 1x（押すと変わります）">1x</button>
     <button id="stop" class="icon-button" title="停止" aria-label="停止" disabled><svg aria-hidden="true"><use href="icons.svg#stop"/></svg></button>
   </div><div class="progress-area"><span id="position">0:00</span><input id="progress" type="range" value="0" min="0" max="1" step="0.1" aria-label="再生位置" disabled><span id="duration">0:00</span></div><div class="transport-volume"><button id="mute" class="icon-button" type="button" aria-label="ミュート" title="ミュート"><svg aria-hidden="true"><use href="icons.svg#volume"/></svg></button><input id="transport-volume" type="range" min="0" max="100" step="1" value="100" aria-label="アプリの音量"><output id="transport-volume-value" for="transport-volume">100%</output></div></footer>

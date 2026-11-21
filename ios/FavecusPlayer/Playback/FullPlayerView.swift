@@ -270,6 +270,7 @@ struct FullPlayerView: View {
             HStack(spacing: 24) {
                 SleepTimerMenu(timer: player.sleepTimer)
                 SpeedMenu(player: player)
+                ChapterMenu(player: player)
             }
         }
     }

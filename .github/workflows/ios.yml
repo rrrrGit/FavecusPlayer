@@ -51,6 +51,7 @@ on:
       - "src/core/auto-lists.cjs"
       - "src/core/play-history.cjs"
       - "src/core/library-audit.cjs"
+      - "src/core/song-notes.cjs"
       - "src/core/auto-list-settings.cjs"
       - "src/core/trash.cjs"
       - "src/core/queue.cjs"

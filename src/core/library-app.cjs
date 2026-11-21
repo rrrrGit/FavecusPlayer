@@ -13,6 +13,7 @@ const LibrarySearch = require('../ui/library-search.js');
 const EntryView = require('../ui/entry-view.js');
 const History = require('./play-history.cjs');
 const LibraryAudit = require('./library-audit.cjs');
+const SongNotes = require('./song-notes.cjs');
 const AutoListSettings = require('./auto-list-settings.cjs');
 const Trash = require('./trash.cjs');
 
@@ -249,6 +250,14 @@ function LedgerStats(options) {
   try { return Ledger.Stats(JSON.parse(options.text), { topLimit: options.topLimit, months: options.months, nowMs: options.nowMs }); }
   catch (error) { return { error: String(error && error.message || error) }; }
 }
+// 曲の情報（アーティスト・タグ・メモ・チャプター。規則は song-notes.cjs）。入力を、安全な形にする。
+function NotesNormalize(options) {
+  try { return { record: SongNotes.Normalize(options.record), empty: SongNotes.IsEmpty(options.record) }; } catch (error) { return { error: String(error && error.message || error) }; }
+}
+// チャプターの、文⇔一覧（貼り付けた目次から読み取る・編集用の文にする）。options：{ text } → { chapters }、または { chapters } → { text }。
+function NotesChapters(options) {
+  try { return options.text !== undefined ? { chapters: SongNotes.ParseChapters(options.text) } : { text: SongNotes.FormatChapters(options.chapters) }; } catch (error) { return { error: String(error && error.message || error) }; }
+}
 // ライブラリの点検（重複・リンク切れの報告だけ。規則は library-audit.cjs）。options：{ text（ライブラリのJSON）, existingFiles（メディアの置き場のファイル名） }
 function Audit(options) {
   try { return LibraryAudit.Audit(JSON.parse(options.text), options.existingFiles); } catch (error) { return { error: String(error && error.message || error) }; }
@@ -310,4 +319,4 @@ function MediaKeys(options) {
     return { keys: (options.entries || []).map(entry => { try { return keyOf({ type: 'bilibili', url: entry.url }); } catch { return null; } }) };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
-module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueInsert, QueueRun, ArrangeEntries, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerStats, Audit, HistoryAdd, HistoryKeys, AutoListSettingsNormalize, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };
+module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueInsert, QueueRun, ArrangeEntries, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerStats, NotesNormalize, NotesChapters, Audit, HistoryAdd, HistoryKeys, AutoListSettingsNormalize, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };

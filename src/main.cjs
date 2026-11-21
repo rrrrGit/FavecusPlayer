@@ -40,6 +40,8 @@ const PlaybackSpeed = require('./core/playback-speed.cjs');
 const MediaKeys = require('./core/media-keys.cjs');
 const EntryView = require('./ui/entry-view.js');
 const LibraryAudit = require('./core/library-audit.cjs');
+const SongNotes = require('./core/song-notes.cjs');
+const { SongNotesStore } = require('./core/song-notes-store.cjs');
 const { HistoryStore } = require('./core/play-history-store.cjs');
 const { AutoListSettingsStore } = require('./core/auto-list-settings-store.cjs');
 const { ListViewStore } = require('./core/list-views.cjs');
@@ -57,7 +59,7 @@ app.setPath('sessionData', dataDirectory);
 let win, store, presence, remoteView, mini, volumeSaveTimer, backgroundMode, sync;
 let viewVisible = false;
 let current = null, playback = null;
-let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null, trashStore = null, loudness = null, songGain = 1, favorites = null, speedStore = null, mediaKeys = null, listViews = null, historyStore = null, autoListSettings = null;
+let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null, trashStore = null, loudness = null, songGain = 1, favorites = null, speedStore = null, mediaKeys = null, listViews = null, historyStore = null, autoListSettings = null, notesStore = null;
 let visibleBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 let statuses = { discord: { code: 'off', text: 'Discord連携はオフです' }, taskbar: { code: 'off', text: '下向き矢印を押すと埋め込みを試します' } };
 let playCounts;
@@ -694,7 +696,7 @@ async function Start() {
       if (!MEDIA_NAME.test(name) || !store.data.playlists.some(p => p.entries.some(e => e.type === 'local' && e.fileName === name))) return new Response(null, { status: 403 });
       return MediaResponse(request, path.join(store.media, name));
     }
-    const names = new Set(['keybindings.js', 'library-tree.js', 'home-view.js', 'library-search.js', 'tree-view.js', 'parent-picker.js', 'index.html', 'entry-view.js', 'app/01-core.js', 'app/02-add.js', 'app/03-downloads.js', 'app/04-settings.js', 'app/05-transfer.js', 'app/05-bulk.js', 'app/05-insights.js', 'app/06-list-view.js', 'app.js', 'style.css', 'local.html', 'local.js', 'preview.js', 'transport-model.js', 'playlist-reader.js', 'queue-follow.js', 'queue-drag.js', 'list-artwork.js', 'browse.html', 'browse.js', 'browse.css', 'mini.html', 'mini.js', 'mini.css', 'icons.svg', 'icon.png', 'music.png']);
+    const names = new Set(['keybindings.js', 'library-tree.js', 'home-view.js', 'library-search.js', 'tree-view.js', 'parent-picker.js', 'index.html', 'entry-view.js', 'app/01-core.js', 'app/02-add.js', 'app/03-downloads.js', 'app/04-settings.js', 'app/05-transfer.js', 'app/05-bulk.js', 'app/05-insights.js', 'app/05-notes.js', 'app/06-list-view.js', 'app.js', 'style.css', 'local.html', 'local.js', 'preview.js', 'transport-model.js', 'playlist-reader.js', 'queue-follow.js', 'queue-drag.js', 'list-artwork.js', 'browse.html', 'browse.js', 'browse.css', 'mini.html', 'mini.js', 'mini.css', 'icons.svg', 'icon.png', 'music.png']);
     const name = url.pathname.slice(1);
     if (url.host !== 'app' || !names.has(name)) return new Response(null, { status: 404 });
     return net.fetch(pathToFileURL(['icon.png', 'music.png'].includes(name) ? path.join(__dirname, '../build', name) : path.join(__dirname, 'ui', name)).href);
@@ -833,6 +835,19 @@ async function Start() {
   // 曲の並べ替え・絞り込み：選択の保存と、画面の表示に使う材料（その リストの曲ごとの、再生回数・お気に入り・保存済み）
   // ライブラリの点検（重複・リンク切れ。報告だけで、何も消さない。規則は core/library-audit.cjs）
   Handle('library:audit', () => { let files = []; try { files = fs.readdirSync(store.media); } catch { /* メディアの置き場がまだない */ } return LibraryAudit.Audit(store.data, files); });
+  // 曲の情報（アーティスト・タグ・メモ・チャプター。この端末内だけ。曲のメディア単位）。chapterText は、編集用の文（1行に「時刻 題名」）。
+  notesStore = new SongNotesStore(path.join(app.getPath('userData'), 'song-notes.json'));
+  Handle('notes:get', (playlistId, entryId) => {
+    const key = playCounts?.KeyOf(store.Entry(String(playlistId), String(entryId))), record = key ? notesStore.Get(key) : null;
+    return { identified: !!key, record: record ? { ...record, chapterText: SongNotes.FormatChapters(record.chapters) } : null };
+  });
+  Handle('notes:set', (playlistId, entryId, input) => {
+    const key = playCounts?.KeyOf(store.Entry(String(playlistId), String(entryId)));
+    const record = { ...input, chapters: input && typeof input.chapterText === 'string' ? SongNotes.ParseChapters(input.chapterText) : input?.chapters };
+    const saved = notesStore.Set(key, record);
+    Emit('notes', { entryId: String(entryId) });
+    return saved;
+  });
   Handle('list:view-set', (playlistId, view) => { store.Playlist(String(playlistId)); const saved = listViews.Set(String(playlistId), view); Emit('list-views', listViews.All()); return saved; });
   Handle('list:stats', playlistId => {
     const context = ViewContext(), result = {};

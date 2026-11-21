@@ -3,6 +3,7 @@ import SwiftUI
 // 再生画面のメニュー（再生速度・おやすみタイマー）。MiniPlayerView.swift から分けたもの（動作は同じ）。
 
 /// 再生速度の選択（0.5〜2.0倍）。
+// 再生画面の操作欄には、チャプター（ChapterMenu。再生中の曲に、あるときだけ）も並ぶ。
 struct SpeedMenu: View {
     @ObservedObject var player: PlaybackEngine
 

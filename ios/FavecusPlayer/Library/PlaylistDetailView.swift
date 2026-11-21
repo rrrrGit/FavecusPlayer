@@ -40,6 +40,7 @@ struct PlaylistDetail: View {
     @State private var renameSong = ""
     @State private var transfer: TransferRequest?
     @State private var showBulkAdd = false
+    @State private var infoTarget: EntryItem?
 
     struct TransferRequest: Identifiable {
         let id = UUID()
@@ -136,6 +137,9 @@ struct PlaylistDetail: View {
                 selection = []
                 if request.mode == "move" { selecting = false }
             }
+        }
+        .sheet(item: $infoTarget) { entry in
+            if let player = services.player { SongInfoSheet(player: player, entry: entry) }
         }
         .sheet(isPresented: $showBulkAdd) {
             BulkAddSheet(store: store, downloads: services.downloads, playlistId: parentId, playlistName: parent?.name ?? "", isPresented: $showBulkAdd)
@@ -386,6 +390,7 @@ struct PlaylistDetail: View {
     /// 曲の操作に足す項目：曲名の変更・別のリストへ移動/追加。
     private func songActions(_ entry: EntryItem) -> [RowAction] {
         [RowAction(icon: "pencil", title: "曲名を変更") { renameSong = entry.title; renameTarget = entry },
+         RowAction(icon: "person.text.rectangle", title: "曲の情報（アーティスト・タグ・メモ・チャプター）") { infoTarget = entry },
          RowAction(icon: "arrow.right.circle", title: "別のリストへ移動") { transfer = TransferRequest(entryIds: [entry.id], mode: "move") },
          RowAction(icon: "plus.circle", title: "別のリストへ追加") { transfer = TransferRequest(entryIds: [entry.id], mode: "copy") }]
     }
