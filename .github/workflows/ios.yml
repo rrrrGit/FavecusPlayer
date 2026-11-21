@@ -49,6 +49,8 @@ on:
       - "src/core/import-identity.cjs"
       - "src/core/playlist-icon-data.cjs"
       - "src/core/auto-lists.cjs"
+      - "src/core/play-history.cjs"
+      - "src/core/auto-list-settings.cjs"
       - "src/core/trash.cjs"
       - "src/core/queue.cjs"
       - "src/ui/library-tree.js"

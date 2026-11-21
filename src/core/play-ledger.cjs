@@ -48,6 +48,27 @@ function Totals(ledger) {
   return totals;
 }
 const Count = (ledger, key) => Totals(ledger).get(key) || 0;
+// 再生の統計（v0.7.4）。現在の世代の行だけを使い、すべての端末ぶん（同期で受け取った行を含む）を合計する。
+// 返すもの：{ total＝合計回数, months＝最近 months か月の、月ごとの回数（古い順。0の月も含む）, top＝回数の多い曲（全期間）, thisMonthTop＝今月に聴いた回数の多い曲 }。
+function Stats(ledger, { topLimit = 20, months = 12, nowMs = Date.now() } = {}) {
+  const perMonth = new Map(), perKey = new Map(), thisMonth = new Map(), current = MonthOf(nowMs);
+  let total = 0;
+  for (const [id, n] of Object.entries(ledger.rows)) {
+    const row = ParseRowId(id);
+    if (!row || row.epoch !== ledger.epoch || !(n > 0)) continue;
+    total += n; perKey.set(row.key, (perKey.get(row.key) || 0) + n);
+    if (row.month !== LEGACY) perMonth.set(row.month, (perMonth.get(row.month) || 0) + n);
+    if (row.month === current) thisMonth.set(row.key, (thisMonth.get(row.key) || 0) + n);
+  }
+  const span = Math.max(1, Math.min(60, Math.floor(months) || 12)), series = [];
+  const [year, month] = current.split('-').map(Number);
+  for (let back = span - 1; back >= 0; back--) {
+    const index = year * 12 + (month - 1) - back, label = `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, '0')}`;
+    series.push({ month: label, plays: perMonth.get(label) || 0 });
+  }
+  const rank = map => [...map.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, Math.max(0, topLimit)).map(([key, count]) => ({ key, count }));
+  return { total, months: series, top: rank(perKey), thisMonthTop: rank(thisMonth) };
+}
 // 抽選の重み：1/(1+回数)。回数が多い曲も、完全には排除しない。
 const Weight = count => 1 / (1 + Math.max(0, Number(count) || 0));
 // お気に入りの曲は、重みに倍率を掛けて、少しだけ選ばれやすくする（再生回数が多くても、完全には、逆転させない程度）。
@@ -114,4 +135,4 @@ class PlayTracker {
     return null;
   }
 }
-module.exports = { TZ_OFFSET_MS, LEGACY, KEY, IsSyncKey, MonthOf, RowId, ParseRowId, NewLedger, Clean, Totals, Count, Weight, FAVORITE_BOOST, WeightOf, Increment, MergeRows, MergeEpoch, Reset, ImportLegacy, SyncRows, PlayTracker };
+module.exports = { TZ_OFFSET_MS, LEGACY, KEY, IsSyncKey, MonthOf, RowId, ParseRowId, NewLedger, Clean, Totals, Count, Stats, Weight, FAVORITE_BOOST, WeightOf, Increment, MergeRows, MergeEpoch, Reset, ImportLegacy, SyncRows, PlayTracker };

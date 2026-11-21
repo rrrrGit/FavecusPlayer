@@ -11,6 +11,8 @@ const Ledger = require('./play-ledger.cjs');
 const AutoListsCore = require('./auto-lists.cjs');
 const LibrarySearch = require('../ui/library-search.js');
 const EntryView = require('../ui/entry-view.js');
+const History = require('./play-history.cjs');
+const AutoListSettings = require('./auto-list-settings.cjs');
 const Trash = require('./trash.cjs');
 
 const ID = /^[a-f0-9-]{36}$/;
@@ -128,7 +130,7 @@ function Search(options) {
 }
 // 自動リストの選び方（共通：src/core/auto-lists.cjs）。options：{ text（ライブラリのJSON）, keys, counts, limits, favorites（お気に入りのメディアキー） }
 function AutoLists(options) {
-  try { return AutoListsCore.Select({ library: JSON.parse(options.text), keys: options.keys, counts: options.counts, limits: options.limits, favorites: options.favorites }); }
+  try { return AutoListsCore.Select({ library: JSON.parse(options.text), keys: options.keys, counts: options.counts, limits: options.limits, favorites: options.favorites, history: options.history, frequentMin: options.frequentMin, recentDays: options.recentDays, nowMs: options.nowMs }); }
   catch (error) { return { error: String(error && error.message || error) }; }
 }
 const Found = (entries, id) => { const entry = entries.find(e => e.id === id); return { id: id || null, playlistId: entry ? entry.playlistId : null }; };
@@ -240,6 +242,23 @@ function LedgerCounts(options) {
     return { counts, weights };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
+// 再生の統計（月ごとの回数・回数の多い曲。規則は play-ledger.cjs の Stats）。options：{ text（台帳）, topLimit?, months?, nowMs? }
+function LedgerStats(options) {
+  try { return Ledger.Stats(JSON.parse(options.text), { topLimit: options.topLimit, months: options.months, nowMs: options.nowMs }); }
+  catch (error) { return { error: String(error && error.message || error) }; }
+}
+// 再生履歴（規則は play-history.cjs）。items：[{ key, at }]（新しい順）。
+function HistoryAdd(options) {
+  try { return { items: History.Add(options.items, options.key, options.at) }; } catch (error) { return { error: String(error && error.message || error) }; }
+}
+function HistoryKeys(options) {
+  try { return { keys: History.RecentKeys(History.Clean({ items: options.items }), options.limit) }; } catch (error) { return { error: String(error && error.message || error) }; }
+}
+// 自動リストの設定（件数・条件。規則は auto-list-settings.cjs）。知らない値は、既定・いちばん近い選択肢にする。
+function AutoListSettingsNormalize(options) {
+  try { return { settings: AutoListSettings.Normalize(options.settings), choices: { limits: AutoListSettings.LIMIT_CHOICES, frequentMin: AutoListSettings.FREQUENT_MIN_CHOICES, recentDays: AutoListSettings.RECENT_DAYS_CHOICES } }; }
+  catch (error) { return { error: String(error && error.message || error) }; }
+}
 function LedgerIncrement(options) {
   try { const ledger = JSON.parse(options.text), row = Ledger.Increment(ledger, options.key, options.now); return { text: JSON.stringify(ledger), row }; }
   catch (error) { return { error: String(error && error.message || error) }; }
@@ -285,4 +304,4 @@ function MediaKeys(options) {
     return { keys: (options.entries || []).map(entry => { try { return keyOf({ type: 'bilibili', url: entry.url }); } catch { return null; } }) };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
-module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueInsert, QueueRun, ArrangeEntries, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };
+module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueInsert, QueueRun, ArrangeEntries, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerStats, HistoryAdd, HistoryKeys, AutoListSettingsNormalize, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };
