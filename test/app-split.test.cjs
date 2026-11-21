@@ -44,3 +44,54 @@ test('every name an ipc module takes from ctx (destructured or S.name) is provid
     for (const name of taken) assert.ok(provided.has(name), `${file}: ctx に ${name} がない`);
   }
 });
+
+test('library:duration passes ctx.ffmpeg to LocalDuration and library:move-tracks updates playback title', async () => {
+  const register = require('../src/main/ipc-library.cjs');
+  const handlers = new Map(), emitted = [], accepted = [];
+  let savedCount = 0, syncCount = 0, gotFfmpeg = null, gotFile = null;
+  const entry = { id: 'e1', type: 'local', fileName: 'song.mp3', title: '移動前の曲' };
+  const movedEntry = { id: 'e2', type: 'local', fileName: 'song.mp3', title: '移動後の曲' };
+  const playlists = [{ id: 'p1', entries: [entry] }, { id: 'p2', entries: [] }];
+  const ctx = {
+    path, fs, MEDIA_EXTENSIONS: new Set(['.mp3']), ffmpeg: '/custom/ffmpeg',
+    Handle: (ch, fn) => handlers.set(ch, fn),
+    Emit: (name, value) => emitted.push({ name, value }),
+    AcceptPlayback: value => accepted.push({ ...value }),
+    SyncPlayingQueue: () => { syncCount++; },
+    LocalDuration: async (ff, file) => { gotFfmpeg = ff; gotFile = file; return 185; },
+    offline: { Find: () => null },
+    current: { playlistId: 'p1', entryId: 'e1', entry: { ...entry } },
+    playback: { title: '元の表示' },
+    thumbnail: { entryId: 'e1' },
+    store: {
+      media: path.join(root, 'media'),
+      data: { playlists },
+      Entry: (pid, eid) => playlists.find(p => p.id === pid).entries.find(e => e.id === eid),
+      Save: () => { savedCount++; },
+      TransferMany: () => {
+        playlists[1].entries.push(movedEntry);
+        return {
+          mappings: [{ playlistId: 'p1', entryId: 'e1', destinations: [{ playlistId: 'p2', entryId: 'e2' }] }],
+          state: { playlists }
+        };
+      }
+    }
+  };
+  register(ctx);
+
+  const duration = await handlers.get('library:duration')('p1', 'e1');
+  assert.equal(duration, 185);
+  assert.equal(gotFfmpeg, '/custom/ffmpeg');
+  assert.equal(gotFile, path.join(ctx.store.media, 'song.mp3'));
+  assert.equal(entry.duration, 185);
+  assert.equal(savedCount, 1);
+
+  await handlers.get('library:move-tracks')({ entries: [{ playlistId: 'p1', entryId: 'e1' }], destinationIds: ['p2'] });
+  assert.equal(ctx.current.playlistId, 'p2');
+  assert.equal(ctx.current.entryId, 'e2');
+  assert.equal(ctx.thumbnail.entryId, 'e2');
+  assert.equal(ctx.playback.title, '移動後の曲');
+  assert.equal(accepted.at(-1)?.title, '移動後の曲');
+  assert.equal(syncCount, 1);
+  assert.ok(emitted.some(e => e.name === 'current-update'));
+});

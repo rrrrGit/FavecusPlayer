@@ -815,7 +815,7 @@ async function Start() {
   require('./main/ipc-downloads.cjs')(ctx);
   require('./main/ipc-library.cjs')(ctx);
   Handle('player:play', (playlistId, entryId) => Play(playlistId, entryId));
-  // 自動リスト：kind なし＝3つの件数、kind あり＝その曲の一覧（開いた時点の並びを、再生範囲として覚える）
+  // 自動リスト：kind なし＝5つの件数、kind あり＝その曲の一覧（開いた時点の並びを、再生範囲として覚える）
   require('./main/ipc-lists.cjs')(ctx);
   Handle('player:resume-last', () => {
     const saved = resumeStore?.Get();
@@ -836,7 +836,6 @@ async function Start() {
     onChange: state => Emit('sleep', state)
   });
   require('./main/ipc-queue.cjs')(ctx);
-  // 再生速度（0.5〜2.0倍。この端末内だけに保存）。再生中の画面へ、すぐ反映する。
   historyStore = new HistoryStore(path.join(app.getPath('userData'), 'play-history.json'));
   autoListSettings = new AutoListSettingsStore(path.join(app.getPath('userData'), 'auto-list-settings.json'));
   playCounts.onCounted = (key, at) => historyStore.Add(key, at); // 回数を数えたとき（実再生の3秒など）に、再生履歴へ足す
@@ -850,7 +849,6 @@ async function Start() {
     return { total: stats.total, months: stats.months, top: stats.top.map(name), thisMonthTop: stats.thisMonthTop.map(name) };
   });
   listViews = new ListViewStore(path.join(app.getPath('userData'), 'list-views.json'));
-  // 曲の並べ替え・絞り込み：選択の保存と、画面の表示に使う材料（その リストの曲ごとの、再生回数・お気に入り・保存済み）
   // ライブラリの点検（重複・リンク切れ。報告だけで、何も消さない。規則は core/library-audit.cjs）
   Handle('library:audit', () => { let files = []; try { files = fs.readdirSync(store.media); } catch { /* メディアの置き場がまだない */ } return LibraryAudit.Audit(store.data, files); });
   // 曲の情報（アーティスト・タグ・メモ・チャプター。この端末内だけ。曲のメディア単位）。chapterText は、編集用の文（1行に「時刻 題名」）。
@@ -870,12 +868,14 @@ async function Start() {
   outputStore = new OutputDeviceStore(path.join(app.getPath('userData'), 'output-device.json'));
   Handle('output:get', () => outputStore.Get());
   Handle('output:set', label => { const saved = outputStore.Set(label); SetVolume(); return saved; });
+  // 曲の並べ替え・絞り込み：選択の保存と、画面の表示に使う材料（そのリストの曲ごとの、再生回数・お気に入り・保存済み）
   Handle('list:view-set', (playlistId, view) => { store.Playlist(String(playlistId)); const saved = listViews.Set(String(playlistId), view); Emit('list-views', listViews.All()); SyncPlayingQueue(); return saved; }); // 再生中のキューにも、すぐ反映する
   Handle('list:stats', playlistId => {
     const context = ViewContext(), result = {};
     for (const entry of store.Entries(String(playlistId))) result[entry.id] = { count: context.count(entry), favorite: context.favorite(entry), saved: context.saved(entry) };
     return result;
   });
+  // 再生速度（0.5〜2.0倍。この端末内だけに保存）。再生中の画面へ、すぐ反映する。
   speedStore = new PlaybackSpeed.SpeedStore(path.join(app.getPath('userData'), 'playback-speed.json'));
   Handle('player:speed', value => { const speed = speedStore.Set(value); SetVolume(); Emit('speed', speed); return speed; });
   Handle('player:sleep', command => {

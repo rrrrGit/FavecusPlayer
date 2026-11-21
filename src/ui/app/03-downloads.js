@@ -164,8 +164,7 @@ function DropTrackIntoPlaylist(item, targetId, placement = {}) {
   $('modal-cancel').textContent = 'キャンセル';
 }
 function TransferEntry(playlistId, entry) {
-  const targets = state.playlists.filter(p => p.id !== playlistId);
-  OpenModal('別のリストへ移動・追加', '<p id="transfer-track" class="form-note"></p><label class="field">操作<select id="transfer-mode"><option value="copy">追加：元のリストにも残す</option><option value="move">移動：元のリストから外す</option></select></label><p class="form-note">移動・追加先は複数選べます。追加では重複候補を確認できます。移動では同じ動画やファイルがあるリストへ重複登録しません。</p><div id="transfer-targets" class="transfer-targets"></div>', async () => {
+  OpenModal('別のリストへ移動・追加', '<p id="transfer-track" class="form-note"></p><label class="field">操作<select id="transfer-mode"><option value="copy">追加：元のリストにも残す</option><option value="move">移動：元のリストから外す</option></select></label><p class="form-note">移動・追加先は複数選べます。追加では重複候補を確認できます。移動では同じ動画やファイルがあるリストへ重複登録しません。</p>', async () => {
     const destinationIds = choose();
     if ($('transfer-mode').value === 'copy') return AddSelected({ type: 'add-existing', entries: [{ playlistId, entryId: entry.id }] }, destinationIds);
     const result = await api.transferEntry({ playlistId, entryId: entry.id, destinationIds, mode: 'move' });
@@ -174,6 +173,4 @@ function TransferEntry(playlistId, entry) {
   }, '実行する');
   $('transfer-track').textContent = EntryTitle(entry);
   const choose = AddDestinations({ exclude: [playlistId] });
-  $('transfer-targets').remove();
-
 }

@@ -78,20 +78,16 @@ module.exports = function RegisterLibrary(ctx) {
     SyncPlayingQueue();
     Emit('state', result.state); return result;
   });
-  Handle('library:files', async destinationIds => {
-    const ids = S.store.Targets(destinationIds).map(p => p.id);
-    const result = await dialog.showOpenDialog(S.win, { title: '動画・音楽ファイルを追加', properties: ['openFile', 'multiSelections'], filters: [{ name: '動画・音楽', extensions: [...MEDIA_EXTENSIONS].map(x => x.slice(1)) }] });
-    if (result.canceled) return null;
-    let state;
-    try { state = await S.store.AddFiles(ids, result.filePaths); }
-    catch (error) { Emit('state', S.store.Snapshot()); throw error; }
-    if (S.current?.playlistId && ids.includes(S.current.playlistId)) SyncPlayingQueue();
-    Emit('state', state); return state;
-  });
   Handle('library:move-tracks', action => {
     const result = S.store.TransferMany(action);
     const moved = result.mappings.find(m => m.playlistId === S.current?.playlistId && m.entryId === S.current?.entryId);
-    if (moved) { Object.assign(S.current, moved.destinations[0]); S.current.entry = structuredClone(S.store.Entry(S.current.playlistId, S.current.entryId)); if (S.thumbnail) S.thumbnail.entryId = S.current.entryId; Emit('current-update', S.current); }
+    if (moved) {
+      Object.assign(S.current, moved.destinations[0]);
+      S.current.entry = structuredClone(S.store.Entry(S.current.playlistId, S.current.entryId));
+      if (S.thumbnail) S.thumbnail.entryId = S.current.entryId;
+      Emit('current-update', S.current);
+      if (S.playback) { S.playback.title = S.current.entry.title || S.playback.title; AcceptPlayback(S.playback); }
+    }
     SyncPlayingQueue(); Emit('state', result.state); return result;
   });
   let exporting = false;
@@ -114,7 +110,7 @@ module.exports = function RegisterLibrary(ctx) {
   Handle('library:import-cancel', id => S.archive.Cancel(id));
   Handle('library:duration', async (playlistId, entryId) => {
     const entry = S.store.Entry(playlistId, entryId); if (entry.duration) return entry.duration;
-    const value = S.offline.Find(entry)?.duration || (entry.type === 'bilibili' ? (await S.biliAccount.Resolve(entry.url)).video?.duration : await LocalDuration(ffmpeg, path.join(S.store.media, entry.fileName)));
+    const value = S.offline.Find(entry)?.duration || (entry.type === 'bilibili' ? (await S.biliAccount.Resolve(entry.url)).video?.duration : await LocalDuration(S.ffmpeg, path.join(S.store.media, entry.fileName)));
     const actual = S.store.data.playlists.find(p => p.id === playlistId)?.entries.find(e => e.id === entryId);
     if (actual && value > 0) { actual.duration = value; S.store.Save(); }
     return value || null;

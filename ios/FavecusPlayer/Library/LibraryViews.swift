@@ -1,7 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// アプリの骨組み（ライブラリ・保存・設定の3つのタブ、ミニプレイヤー、再生画面）。
+/// アプリの骨組み（ライブラリ・保存・アラーム・設定の4つのタブ、ミニプレイヤー、再生画面）。
 /// 表示・編集の規則はここに持たず、操作は LibraryStore.perform（共通JS）へ渡すだけ。
 struct LibraryRootView: View {
     @ObservedObject var store: LibraryStore
@@ -191,10 +191,4 @@ extension View {
         }
     }
 }
-
-// MARK: ホーム（検索・新規作成・四角のカード）
-
-// MARK: 並べ替え（長押しでつかんで動かす）
-
-// MARK: プレイリストのページ
 

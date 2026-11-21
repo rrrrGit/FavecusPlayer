@@ -59,7 +59,7 @@ function BulkTransfer(mode) {
   const refs = SelectedRefs(); if (!refs.length) return;
   const owners = [...new Set(refs.map(ref => ref.playlistId))];
   OpenModal(mode === 'move' ? '選んだ曲を、別のリストへ移動' : '選んだ曲を、別のリストへ追加',
-    `<p class="form-note">${refs.length}曲を、${mode === 'move' ? '移動' : '追加（元のリストにも残す）'}します。移動・追加先は複数選べます。</p><div id="transfer-targets" class="transfer-targets"></div>`, async () => {
+    `<p class="form-note">${refs.length}曲を、${mode === 'move' ? '移動' : '追加（元のリストにも残す）'}します。移動・追加先は複数選べます。</p>`, async () => {
       const destinationIds = choose();
       if (mode === 'copy') { const result = await AddSelected({ type: 'add-existing', entries: refs }, destinationIds); selectedEntries.clear(); UpdateBulkBar(); return result; }
       const result = await api.moveTracks({ entries: refs, destinationIds });
@@ -67,7 +67,6 @@ function BulkTransfer(mode) {
       Toast(`${refs.length}曲を移動しました。`);
     }, mode === 'move' ? '移動する' : '確認へ進む');
   const choose = AddDestinations({ exclude: owners.length === 1 ? owners : [] });
-  $('transfer-targets').remove();
 }
 
 async function BulkFavorite(value) {

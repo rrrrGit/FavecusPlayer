@@ -5,7 +5,7 @@ const invoke = channel => (...args) => ipcRenderer.invoke(channel, ...args).then
   return result.value;
 });
 contextBridge.exposeInMainWorld('favecusApp', {
-  state: invoke('app:state'), action: invoke('library:action'), addFiles: invoke('library:files'),
+  state: invoke('app:state'), action: invoke('library:action'),
   entryThumbnail: invoke('library:thumbnail'), videoFullscreen: invoke('player:fullscreen'), resetPlayCounts: invoke('player:reset-counts'),
   openRelease: invoke('app:release-open'), downloads: invoke('downloads:state'), estimateDownload: invoke('downloads:estimate'), cancelDownloadEstimate: invoke('downloads:estimate-cancel'), downloadPlaylist: invoke('downloads:start'), cancelDownload: invoke('downloads:cancel'), downloadDirectory: invoke('downloads:directory'), openDownloads: invoke('downloads:open'), preferSaved: invoke('downloads:prefer'),
   importLibrary: invoke('library:import'), exportLibrary: invoke('library:export'),

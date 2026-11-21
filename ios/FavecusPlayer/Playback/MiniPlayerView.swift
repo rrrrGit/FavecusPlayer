@@ -1,4 +1,3 @@
-import AVFoundation
 import SwiftUI
 
 /// 画面下のミニプレイヤー：画像・曲名・再生/一時停止・次へ。押すと再生画面が開く。曲がないときは何も出さない。
