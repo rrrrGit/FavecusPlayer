@@ -29,7 +29,9 @@ test('Rows applies the arrange hook to a list own songs only, and keeps the orig
 test('main applies the choice to the play order and the screen reads it through the shared module', () => {
   const main = readMain(), app = readApp();
   assert.match(main, /const ArrangedEntries = scope =>/);
-  assert.match(main, /: ArrangedEntries\(scope\);/, 'ScopeEntries（曲送り・同期）も、同じ順');
+  assert.match(main, /: KeepCurrent\(scope, ArrangedEntries\(scope\)\);/, 'ScopeEntries（曲送り・同期）も、同じ順。再生中の曲は、外れても残す');
+  assert.match(main, /Tree\.Walk\(store\.data, \[scope\]\)/, 'リストごとに、そのリスト自身の選択を適用する（画面と同じ規則）');
+  assert.match(main, /SyncPlayingQueue\(\); return saved;/, '選択を変えたら、再生中のキューにも反映する');
   assert.match(main, /async function Play\(playlistId, entryId, resume = null\) \{\s*const entries = ArrangedEntries\(playlistId\)/);
   assert.match(main, /async function ShufflePlay\(playlistId\) \{\s*const entries = ArrangedEntries\(playlistId\)/);
   assert.match(main, /Handle\('list:view-set'/);
@@ -56,5 +58,6 @@ test('the shared entry point returns ids in the same order as the module, and iP
   const swift = read('ios/FavecusPlayer/Library/ListViewStore.swift'), engine = read('ios/FavecusPlayer/Playback/PlaybackEngine.swift');
   for (const sort of EntryView.SORTS) assert.ok(swift.includes(`"${sort}"`), `iPhone の並べ替えに ${sort}`);
   for (const key of ['favorite', 'saved', 'source', 'played']) for (const value of EntryView.FILTERS[key]) assert.ok(swift.includes(`"${value}"`), `${key}:${value}`);
-  assert.match(engine, /listViews\.view\(for: scope\)/, '再生順にも使う');
+  assert.match(engine, /scopeArrangedIds\(scope\)/, '再生順にも使う');
+  assert.match(read('ios/FavecusPlayer/Playback/PlaybackEngine+Views.swift'), /listViews\.view\(for: \$0\.id\)/, 'リストごとに、そのリスト自身の選択を適用する（画面と同じ規則）');
 });

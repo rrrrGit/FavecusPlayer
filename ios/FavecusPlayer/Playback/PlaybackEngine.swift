@@ -174,7 +174,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         let mine = generation
         // そのリストに、並べ替え・絞り込みを選んでいるときは、その順で再生する（明示の曲の並びがあるときは、それを優先）
         var entryIds = entryIds
-        if entryIds == nil, let view = listViews.view(for: scope) { entryIds = await arrangedIds(scope: scope, view: view) }
+        if entryIds == nil, let ids = await scopeArrangedIds(scope) { entryIds = ids }
         guard mine == generation else { return }
         guard let result = await startQueue(entryId: entryId, scope: scope, entryIds: entryIds),
               let id = result.id, let playlistId = result.playlistId else {

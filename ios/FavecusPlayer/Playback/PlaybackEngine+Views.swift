@@ -27,6 +27,24 @@ extension PlaybackEngine {
         return result
     }
 
+    /// 画面と同じ規則：リストごとに、そのリスト自身の曲へ、そのリスト自身の選択を適用し、リストの順（親→子）に並べた、再生順の曲のID。どのリストにも選択がなければ nil（保存した順のまま）。
+    func scopeArrangedIds(_ scope: String) async -> [String]? {
+        guard scope != "*", let document = store.document else { return nil }
+        var order: [PlaylistItem] = [], seen = Set<String>()
+        func visit(_ id: String) {
+            guard seen.insert(id).inserted, let list = document.playlist(id) else { return }
+            order.append(list)
+            for child in list.childIds { visit(child) }
+        }
+        visit(scope)
+        guard order.contains(where: { listViews.view(for: $0.id) != nil }) else { return nil }
+        var ids: [String] = []
+        for list in order {
+            if let view = listViews.view(for: list.id) { ids += await arrangedIds(forEntries: list.entries, view: view) ?? list.entries.map(\.id) } else { ids += list.entries.map(\.id) }
+        }
+        return ids
+    }
+
     /// そのリストの再生順の曲のID（選んだ並べ替え・絞り込みの結果）。
     func arrangedIds(scope: String, view: EntryViewSetting) async -> [String]? {
         await arrangedIds(forEntries: entriesInScope(scope), view: view)

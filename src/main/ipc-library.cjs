@@ -3,7 +3,7 @@
 // main.cjs から分けたもの（動作は同じ）。状態（store・current など）は、ctx 経由で、その都度読む（S.store など）。
 module.exports = function RegisterLibrary(ctx) {
   const S = ctx;
-  const { ScanFolder, ReadTags, AcceptPlayback, Configure, CoverImage, Emit, Handle, LoadThumbnail, LocalDuration, MEDIA_EXTENSIONS, RefreshVideo, ShareMode, SmallImage, SyncPlayingQueue, SyncShortcuts, ViewBounds, dialog, nativeImage, path } = ctx;
+  const { fs, ScanFolder, ReadTags, AcceptPlayback, Configure, CoverImage, Emit, Handle, LoadThumbnail, LocalDuration, MEDIA_EXTENSIONS, RefreshVideo, ShareMode, SmallImage, SyncPlayingQueue, SyncShortcuts, ViewBounds, dialog, nativeImage, path } = ctx;
   Handle('library:thumbnail', async (playlistId, entryId, scope = S.store.data.activePlaylistId, variant = 'small') => {
     const entry = structuredClone(S.store.Entry(playlistId, entryId)); variant = variant === 'cover' ? 'cover' : 'small';
     const saved = S.offline.Find(entry);

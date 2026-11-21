@@ -39,6 +39,7 @@ const AutoListsCore = require('./core/auto-lists.cjs');
 const PlaybackSpeed = require('./core/playback-speed.cjs');
 const MediaKeys = require('./core/media-keys.cjs');
 const EntryView = require('./ui/entry-view.js');
+const Tree = require('./ui/library-tree.js');
 const LibraryAudit = require('./core/library-audit.cjs');
 const { ScanFolder } = require('./core/folder-scan.cjs');
 const { ReadTags } = require('./core/media-tags.cjs');
@@ -115,13 +116,25 @@ function AutoEntries(kind) {
 // 並べ替え・絞り込みの材料（再生回数・お気に入り・保存済み）。表示（list:stats）と再生順の両方が、同じ規則（ui/entry-view.js）を使う。
 const ViewContext = () => ({ count: entry => playCounts?.Count(entry) || 0, favorite: entry => IsFavorite(entry), saved: entry => entry.type === 'local' || !!offline?.Find(entry) });
 // リストの曲を、そのリストに選んだ並べ替え・絞り込みの順にする（選んでいなければ、保存した順のまま。すべて（*）は対象外）。
+// 画面と同じ規則：リストごとに、そのリスト自身の曲へ、そのリスト自身の選択を適用し、リストの順（親→子）に並べる。
 const ArrangedEntries = scope => {
-  const entries = store.Entries(scope), view = scope !== '*' ? listViews?.Get(scope) : null;
-  return view ? EntryView.Apply(entries, view, ViewContext()) : entries;
+  if (scope === '*' || !listViews) return store.Entries(scope);
+  const context = ViewContext(), result = [];
+  for (const list of Tree.Walk(store.data, [scope])) {
+    const rows = list.entries.map(entry => ({ ...entry, playlistId: list.id })), view = listViews.Get(list.id);
+    result.push(...(view ? EntryView.Apply(rows, view, context) : rows));
+  }
+  return result;
+};
+// 再生中の曲が、並べ替え・絞り込みから外れても（未再生だけ、などで、再生すると外れる）、再生の範囲から消さない（先頭に置いて続ける）。
+const KeepCurrent = (scope, list) => {
+  if (!current || scope === '*' || list.some(entry => entry.id === current.entryId)) return list;
+  const raw = store.Entries(scope).find(entry => entry.id === current.entryId);
+  return raw ? [raw, ...list] : list;
 };
 const ScopeEntries = scope => AUTO_NAMES[scope]
   ? (autoSnapshots.get(scope) || []).filter(e => store.data.playlists.some(p => p.id === e.playlistId && p.entries.some(x => x.id === e.id)))
-  : ArrangedEntries(scope);
+  : KeepCurrent(scope, ArrangedEntries(scope));
 async function AutoPlay(kind, entryId, shuffled) {
   const entries = AutoEntries(kind), scope = `auto:${kind}`;
   if (!entries.length) throw new Error('再生する曲がありません。');
@@ -857,7 +870,7 @@ async function Start() {
   outputStore = new OutputDeviceStore(path.join(app.getPath('userData'), 'output-device.json'));
   Handle('output:get', () => outputStore.Get());
   Handle('output:set', label => { const saved = outputStore.Set(label); SetVolume(); return saved; });
-  Handle('list:view-set', (playlistId, view) => { store.Playlist(String(playlistId)); const saved = listViews.Set(String(playlistId), view); Emit('list-views', listViews.All()); return saved; });
+  Handle('list:view-set', (playlistId, view) => { store.Playlist(String(playlistId)); const saved = listViews.Set(String(playlistId), view); Emit('list-views', listViews.All()); SyncPlayingQueue(); return saved; }); // 再生中のキューにも、すぐ反映する
   Handle('list:stats', playlistId => {
     const context = ViewContext(), result = {};
     for (const entry of store.Entries(String(playlistId))) result[entry.id] = { count: context.count(entry), favorite: context.favorite(entry), saved: context.saved(entry) };

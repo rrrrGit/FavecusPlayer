@@ -57,12 +57,13 @@ extension PlaybackEngine {
     /// 曲の終わりが近く、次の曲が、この端末で、すぐ鳴らせるとき（ローカル・保存済み）、次の曲を重ねて始める（設定の秒数。0ならしない）。
     func startCrossfadeIfDue() {
         let seconds = Crossfade.seconds(stored: UserDefaults.standard.integer(forKey: Crossfade.defaultsKey))
-        guard seconds > 0, let current, !isPreparing, !videoMode, let next = upcoming.first else { return }
-        let ready = next.type == "local" ? canPlay(next) : (provider?.isSaved(next) ?? false)
+        // ローカルの曲どうしだけ（保存済みのBilibiliの曲は、読み込みの前に再生を止めるため、重ならない）。「この曲の終わりまで」のおやすみタイマー中は、いまの曲で止めるため、始めない
+        guard seconds > 0, let current, !isPreparing, !videoMode, sleepTimer.mode != .endOfSong, let next = upcoming.first else { return }
+        let ready = next.type == "local" && canPlay(next)
         guard Crossfade.shouldStart(seconds: seconds, position: position, duration: duration, isPlaying: isPlaying, repeatOne: repeatMode == .one, nextIsReady: ready, alreadyStarted: crossfadeStartedFor == current.entryId) else { return }
         crossfadeStartedFor = current.entryId
         crossfadePending = true
-        Task { await advance(direction: 1, automatic: true) }
+        Task { await advance(direction: 1, automatic: true); crossfadePending = false } // 失敗・中断のときも、印を戻す（次の手動の曲選びで、重ならないように）
     }
 
     /// 「次に再生」（where: "next"）・「キューの最後に追加」（where: "end"）。再生していないときは、何もしない。

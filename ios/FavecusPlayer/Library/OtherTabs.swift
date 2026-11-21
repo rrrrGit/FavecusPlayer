@@ -260,7 +260,7 @@ struct SettingsTab: View {
                 } header: {
                     Text("曲のつなぎ目")
                 } footer: {
-                    Text("曲の終わりに、次の曲を重ねて始めます。保存済み・ローカルの曲どうしだけで、動画の表示中・1曲リピート・オンラインで取得する曲には使いません。")
+                    Text("曲の終わりに、次の曲を重ねて始めます。ローカルの曲どうしだけで、動画の表示中・1曲リピート・「この曲の終わりまで」のおやすみタイマー中・保存済みやオンラインのBilibiliの曲には使いません。")
                 }
                 Section("自動リストと統計") {
                     NavigationLink { AutoListSettingsView(store: services.player?.autoSettings ?? AutoListSettingsStore(), player: services.player) } label: { Label("自動リストの設定", systemImage: "list.bullet.rectangle") }
