@@ -103,7 +103,7 @@ function AutoEntries(kind) {
   return entries;
 }
 // 並べ替え・絞り込みの材料（再生回数・お気に入り・保存済み）。表示（list:stats）と再生順の両方が、同じ規則（ui/entry-view.js）を使う。
-const ViewContext = () => ({ count: entry => playCounts?.Count(entry) || 0, favorite: entry => IsFavorite(entry), saved: entry => !!offline?.Find(entry) });
+const ViewContext = () => ({ count: entry => playCounts?.Count(entry) || 0, favorite: entry => IsFavorite(entry), saved: entry => entry.type === 'local' || !!offline?.Find(entry) });
 // リストの曲を、そのリストに選んだ並べ替え・絞り込みの順にする（選んでいなければ、保存した順のまま。すべて（*）は対象外）。
 const ArrangedEntries = scope => {
   const entries = store.Entries(scope), view = scope !== '*' ? listViews?.Get(scope) : null;

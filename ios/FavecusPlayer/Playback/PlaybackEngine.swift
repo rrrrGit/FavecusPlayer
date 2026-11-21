@@ -11,11 +11,14 @@ protocol MediaProvider: AnyObject {
     func savedVideoFile(for entry: EntryItem) async -> URL?
     /// 曲の同期用メディアキー（Bilibiliの曲。再生回数の台帳のキー）。求められない曲はnil。
     func syncKeys(for entries: [EntryItem]) async -> [String?]
+    /// この端末に保存済みか（Bilibiliの曲の音声・動画）。並べ替え・絞り込みの「保存」に使う。
+    func isSaved(_ entry: EntryItem) -> Bool
 }
 
 extension MediaProvider {
     func savedVideoFile(for entry: EntryItem) async -> URL? { nil }
     func syncKeys(for entries: [EntryItem]) async -> [String?] { entries.map { _ in nil } }
+    func isSaved(_ entry: EntryItem) -> Bool { false }
 }
 
 /// iPhone版のローカル再生（音声）。次に何を再生するかは共通JS（FavecusCore.QueueStart / QueueMove。Windows版と同じQueue）が決め、
@@ -69,6 +72,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     private var resumeSeek: (id: String, position: Double)?
     /// 再生回数の台帳（数える・抽選の重み）。なければ、数えず、均等に抽選する。
     var counts: PlayCountStore?
+    /// 曲の並べ替え・絞り込みの選択（リストごと。この端末内だけ）。再生順にも使う。
+    let listViews = ListViewStore()
     /// アプリを開いている（前面にある）か。背面では、映像の層が外れるため、動画へ切り替えない（前面へ戻ったとき、切り替える）。テストでは差し替える。
     var isActive: () -> Bool = { UIApplication.shared.applicationState == .active }
     /// 再生の範囲（"*" はすべて、または、リストのID）。曲の所在の表示に使う。
@@ -158,6 +163,10 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         failureStreak = 0
         generation += 1
         let mine = generation
+        // そのリストに、並べ替え・絞り込みを選んでいるときは、その順で再生する（明示の曲の並びがあるときは、それを優先）
+        var entryIds = entryIds
+        if entryIds == nil, let view = listViews.view(for: scope) { entryIds = await arrangedIds(scope: scope, view: view) }
+        guard mine == generation else { return }
         guard let result = await startQueue(entryId: entryId, scope: scope, entryIds: entryIds),
               let id = result.id, let playlistId = result.playlistId else {
             if mine == generation { message = "この曲を再生キューに入れられません。" } // 失敗しても、再生中の曲・再生範囲は変えない

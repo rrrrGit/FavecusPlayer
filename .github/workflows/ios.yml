@@ -53,6 +53,7 @@ on:
       - "src/core/queue.cjs"
       - "src/ui/library-tree.js"
       - "src/ui/library-search.js"
+      - "src/ui/entry-view.js"
   workflow_dispatch:
     inputs:
       screenshot:

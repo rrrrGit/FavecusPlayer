@@ -40,3 +40,21 @@ test('main applies the choice to the play order and the screen reads it through 
   assert.match(read('src/ui/index.html'), /<script src="entry-view\.js" defer><\/script>/);
   assert.match(main, /'entry-view\.js'/, 'アプリのプロトコルの許可リスト');
 });
+
+test('the shared entry point returns ids in the same order as the module, and iPhone wiring exists', () => {
+  const App = require('../src/core/library-app.cjs');
+  const items = [
+    { id: 'a', title: 'B', type: 'bilibili', count: 1, favorite: false, saved: true },
+    { id: 'b', title: 'A', type: 'local', count: 5, favorite: true, saved: true },
+    { id: 'c', title: 'C', type: 'bilibili', count: 0, favorite: true, saved: false }
+  ];
+  assert.deepEqual(App.ArrangeEntries({ items, view: { sort: 'title' } }).ids, ['b', 'a', 'c']);
+  assert.deepEqual(App.ArrangeEntries({ items, view: { favorite: 'on', sort: 'count-desc' } }).ids, ['b', 'c']);
+  assert.deepEqual(App.ArrangeEntries({ items, view: { saved: 'unsaved' } }).ids, ['c']);
+  assert.deepEqual(App.ArrangeEntries({ items, view: {} }).ids, ['a', 'b', 'c']);
+  assert.deepEqual(App.ArrangeEntries({ items: 'bad', view: {} }).ids, []);
+  const swift = read('ios/FavecusPlayer/Library/ListViewStore.swift'), engine = read('ios/FavecusPlayer/Playback/PlaybackEngine.swift');
+  for (const sort of EntryView.SORTS) assert.ok(swift.includes(`"${sort}"`), `iPhone の並べ替えに ${sort}`);
+  for (const key of ['favorite', 'saved', 'source', 'played']) for (const value of EntryView.FILTERS[key]) assert.ok(swift.includes(`"${value}"`), `${key}:${value}`);
+  assert.match(engine, /listViews\.view\(for: scope\)/, '再生順にも使う');
+});

@@ -10,6 +10,7 @@ const { Queue } = require('./queue.cjs');
 const Ledger = require('./play-ledger.cjs');
 const AutoListsCore = require('./auto-lists.cjs');
 const LibrarySearch = require('../ui/library-search.js');
+const EntryView = require('../ui/entry-view.js');
 const Trash = require('./trash.cjs');
 
 const ID = /^[a-f0-9-]{36}$/;
@@ -109,6 +110,14 @@ function PlayableEntries(options) {
     return options.entryIds.map(id => owners.get(id)).filter(entry => entry && playable.has(entry.id));
   }
   return Tree.Entries(library, options.scope).filter(entry => playable.has(entry.id));
+}
+// 曲の並べ替え・絞り込み（規則は ui/entry-view.js。PC版と同じ）。options：{ items: [{ id, title, type, videoId, addedAt, duration, count, favorite, saved }], view }。返すのは、並べ替え・絞り込みしたあとの、曲のIDの並び。
+function ArrangeEntries(options) {
+  try {
+    const items = Array.isArray(options.items) ? options.items : [];
+    const ctx = { count: e => e.count, favorite: e => e.favorite === true, saved: e => e.saved === true };
+    return { ids: EntryView.Apply(items, options.view, ctx).map(item => item.id) };
+  } catch (error) { return { error: String(error && error.message || error) }; }
 }
 // 検索（PC版の一覧と同じ規則：全角半角・大小・ひらがな/カタカナを同一視、空白区切りのAND、所属リストの経路も対象、50件ごと）。
 function Search(options) {
@@ -276,4 +285,4 @@ function MediaKeys(options) {
     return { keys: (options.entries || []).map(entry => { try { return keyOf({ type: 'bilibili', url: entry.url }); } catch { return null; } }) };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
-module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueInsert, QueueRun, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };
+module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueInsert, QueueRun, ArrangeEntries, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };

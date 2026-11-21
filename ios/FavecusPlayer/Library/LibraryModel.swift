@@ -36,6 +36,8 @@ struct EntryItem: Decodable, Identifiable, Equatable {
     var videoId: String?
     var part: Int?
     var duration: Double?
+    /// 登録した日時（ISO文字列）。並べ替え（追加が新しい順）に使う。
+    var addedAt: String?
 }
 
 /// SwiftUIのonMove（移動元・挿入位置）を、共通JSの並べ替え操作（対象の前/後ろ）へ変換する。

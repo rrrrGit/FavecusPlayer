@@ -399,6 +399,11 @@ final class DownloadService: ObservableObject, MediaProvider {
 
     func record(key: String, kind: String = "audio") -> DeviceMediaRecord? { records["\(key)|\(kind)"] }
 
+    func isSaved(_ entry: EntryItem) -> Bool {
+        guard entry.type == "bilibili", let key = entryKeys[entry.id] else { return false }
+        return savedFile(key: key) != nil || savedFile(key: key, kind: "video") != nil
+    }
+
     /// 保存済み（完了）の音声ファイル。実体を確認してから返す。
     func savedFile(key: String, kind: String = "audio") -> URL? {
         guard let record = record(key: key, kind: kind), record.state == .completed, let name = record.fileName else { return nil }

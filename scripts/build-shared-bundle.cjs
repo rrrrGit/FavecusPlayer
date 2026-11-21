@@ -37,6 +37,7 @@ const MODULES = {
   'core/queue.cjs': 'src/core/queue.cjs',
   'ui/library-tree.js': 'src/ui/library-tree.js',
   'ui/library-search.js': 'src/ui/library-search.js',
+  'ui/entry-view.js': 'src/ui/entry-view.js',
   'runtime/prelude.js': 'shared/runtime/prelude.js',
   'runtime/fixture-runner.js': 'shared/runtime/fixture-runner.js'
 };
@@ -93,6 +94,7 @@ ${parts.join(',\n')}
     QueueSync: function (json) { return runner().QueueSync(json); },
     QueuePeek: function (json) { return runner().QueuePeek(json); },
     QueueList: function (json) { return runner().QueueList(json); },
+    ArrangeEntries: function (json) { return runner().ArrangeEntries(json); },
     Search: function (json) { return runner().Search(json); },
     AutoLists: function (json) { return runner().AutoLists(json); },
     QueueReorder: function (json) { return runner().QueueReorder(json); },

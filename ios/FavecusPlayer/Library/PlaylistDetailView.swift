@@ -27,9 +27,26 @@ struct PlaylistDetail: View {
     /// 先頭の画像が、画面の上端からどれだけ動いたか（上のバーを、スクロールに合わせて濃くするため）。
     @State private var heroTop: CGFloat = 0
     @State private var dragging: String?
+    /// 曲の並べ替え・絞り込み（選んでいるときだけ）。結果の曲のIDの並びは、共通JS（PC版と同じ規則）で求める。
+    @State private var showView = false
+    @State private var viewTick = 0
+    @State private var arrangedIds: [String]?
 
     private var parent: PlaylistItem? { store.document?.playlist(parentId) }
     private var entries: [EntryItem] { parent?.entries ?? [] }
+    private var viewSetting: EntryViewSetting? { _ = viewTick; return services.player?.listViews.view(for: parentId) }
+    /// 画面に出す曲（並べ替え・絞り込みを選んでいれば、その結果。届くまでは、保存した順）。
+    private var shown: [EntryItem] {
+        guard viewSetting != nil, let ids = arrangedIds else { return entries }
+        var byId: [String: EntryItem] = [:]
+        for entry in entries { byId[entry.id] = entry }
+        return ids.compactMap { byId[$0] }
+    }
+    private var originalNumbers: [String: Int] {
+        var result: [String: Int] = [:]
+        for (index, entry) in entries.enumerated() { result[entry.id] = index + 1 }
+        return result
+    }
     private var children: [PlaylistItem] { store.document?.children(of: parentId) ?? [] }
     private var editing: Bool { editMode == .active }
     private var cover: UIImage? { parent.flatMap { firstCover(of: $0, document: store.document, services: services) } }
@@ -62,15 +79,16 @@ struct PlaylistDetail: View {
             }
             ForEach(children) { list in childCard(list) }
             if entries.isEmpty { Text("曲はありません。右下の ＋ から追加できます。").font(.system(size: 13)).foregroundStyle(Theme.muted).listRowBackground(Theme.background) }
-            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                SongRow(entry: entry, scope: parentId, services: services, number: index + 1) {
+            if viewSetting != nil {
+                Text("並べ替え・絞り込みを選んでいます（\(shown.count)/\(entries.count)曲）。選んだ順で再生します。").font(.system(size: 12)).foregroundStyle(Theme.accent).listRowBackground(Theme.background)
+            }
+            let numbers = originalNumbers
+            ForEach(shown) { entry in
+                SongRow(entry: entry, scope: parentId, services: services, number: numbers[entry.id]) {
                     store.perform(["type": "remove", "playlistId": parentId, "entryId": entry.id])
                 }
             }
-            .onMove { source, destination in
-                guard let move = MoveMapper.map(ids: entries.map(\.id), from: source, to: destination) else { return }
-                store.perform(["type": "reorder", "playlistId": parentId, "entryId": move.id, "targetId": move.targetId, "after": move.after])
-            }
+            .onMove(perform: viewSetting != nil ? nil : moveEntries)
             Color.clear.frame(height: 90).listRowBackground(Theme.background).listRowSeparator(.hidden) // 右下の＋ボタンと再生バーに隠れないための余白
         }
         .listStyle(.plain)
@@ -78,6 +96,17 @@ struct PlaylistDetail: View {
         .background(Theme.background)
         .ignoresSafeArea(edges: .top)
         .onAppear { scrollToRevealed(proxy) }
+        .task(id: ArrangeKey(view: viewSetting, entries: entries)) {
+            guard let view = viewSetting, let player = services.player else { arrangedIds = nil; return }
+            arrangedIds = await player.arrangedIds(forEntries: entries, view: view)
+        }
+        .sheet(isPresented: $showView) {
+            EntryViewSheet(initial: viewSetting ?? EntryViewSetting()) { next in
+                services.player?.listViews.set(next, for: parentId)
+                arrangedIds = nil
+                viewTick += 1
+            }
+        }
         .onChange(of: reveal) { _ in scrollToRevealed(proxy) }
         .onDrop(of: [.text], delegate: ClearDrag(dragging: $dragging))
         .environment(\.editMode, $editMode)
@@ -209,6 +238,7 @@ struct PlaylistDetail: View {
     private var menuButton: some View {
                         Menu {
                             Button { withAnimation { editMode = .active } } label: { Label("編集（曲の並べ替え・削除）", systemImage: "pencil") }
+                            Button { showView = true } label: { Label(viewSetting != nil ? "曲の並べ替え・絞り込み（選択中）" : "曲の並べ替え・絞り込み", systemImage: "line.3.horizontal.decrease.circle") }
                             if services.downloads != nil { Button { showSave = true } label: { Label("このプレイリストの曲を保存", systemImage: "arrow.down.circle") } }
                             if services.downloads != nil { Button { Task { await services.downloads?.ensureFrames(entries: entries) } } label: { Label("サムネイルを取得", systemImage: "photo") } }
                             if services.downloads != nil { Button { confirmRemoveOffline = true } label: { Label("このプレイリストのオフライン用データを削除", systemImage: "trash.slash") } }
@@ -297,6 +327,12 @@ struct PlaylistDetail: View {
         .listRowBackground(Theme.background)
     }
 
+    /// 手動の並べ替え（保存した順。並べ替え・絞り込みを選んでいる間は、使えない）。
+    private func moveEntries(_ source: IndexSet, _ destination: Int) {
+        guard let move = MoveMapper.map(ids: entries.map(\.id), from: source, to: destination) else { return }
+        store.perform(["type": "reorder", "playlistId": parentId, "entryId": move.id, "targetId": move.targetId, "after": move.after])
+    }
+
     private func play(shuffled: Bool) {
         guard let player = services.player else { return }
         if shuffled {
@@ -305,7 +341,7 @@ struct PlaylistDetail: View {
             Task { await player.play(entryId: nil, scope: parentId) }
             return
         }
-        guard let first = entries.first(where: { player.canPlay($0) }) ?? entries.first else { return }
+        guard let first = shown.first(where: { player.canPlay($0) }) ?? shown.first else { return }
         player.shuffle = false
         OpenPlayer.request()
         Task { await player.play(entryId: first.id, scope: parentId) }
