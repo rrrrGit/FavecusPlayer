@@ -669,7 +669,7 @@ test('060 source-list name edits and filtering preserve checked hidden songs dur
 });
 test('060 timeline expands future and played names as read-only rows and manual scrolling prevents refocus',async t=>{
  const h=await Harness(t);let plays=0;h.api.play=()=>plays++;h.play(0);const timeline={history:[{title:'前に再生した曲'}],current:{title:'現在の曲'},upcoming:[{title:'次の1曲'},{title:'次の2曲'},{title:'次の3曲'},{title:'次の4曲'}]};h.emit('queue',{playlistId:h.id,next:{index:2,title:'次の1曲'},timeline});h.node('up-next-toggle').onclick();const box=h.node('queue-timeline');
- assert.equal(h.node('up-next-toggle').getAttribute('aria-expanded'),'true');assert.equal(box.querySelectorAll('.timeline-future').length,4);assert.equal(box.querySelectorAll('button').length,0);assert.match(box.textContent,/前に再生した曲/);assert.equal(plays,0);assert.match(fs.readFileSync(path.join(__dirname,'../src/ui/style.css'),'utf8'),/queue-timeline\{height:156px/);
+ assert.equal(h.node('up-next-toggle').getAttribute('aria-expanded'),'true');assert.equal(box.querySelectorAll('.timeline-future').length,4);assert.equal(box.querySelectorAll('.timeline-row button').length,0);assert.equal(box.querySelectorAll('.timeline-save').length,1,'キューを保存するボタン');assert.match(box.textContent,/前に再生した曲/);assert.equal(plays,0);assert.match(fs.readFileSync(path.join(__dirname,'../src/ui/style.css'),'utf8'),/queue-timeline\{height:156px/);
  box.scrollTop=52;box.events.wheel();h.emit('queue',{playlistId:h.id,timeline});assert.equal(box.scrollTop,52);h.node('up-next-toggle').onclick();assert.equal(box.classList.contains('hidden'),true);
 });
 test('060 dropping a song onto a playlist waits for copy or move confirmation and cancellation changes nothing',async t=>{

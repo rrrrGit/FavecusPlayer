@@ -40,6 +40,20 @@ extension PlaybackEngine {
         store.document?.playlists.first { $0.entries.contains { $0.id == item.id } }?.id
     }
 
+    /// 再生中の曲と、これから再生する曲（キューの順）を、新しいプレイリストとして保存する（共通の操作 queue-playlist。同じ曲は1つにまとめる）。
+    @discardableResult
+    func saveQueueAsPlaylist(name: String) -> Bool {
+        let items = (current.flatMap { entry($0.entryId) }.map { [$0] } ?? []) + upcoming
+        let refs: [[String: String]] = items.compactMap { item in
+            guard let owner = ownerListId(of: item) else { return nil }
+            return ["playlistId": owner, "entryId": item.id]
+        }
+        guard !refs.isEmpty else { message = "保存できる曲がありません"; return false }
+        store.perform(["type": "queue-playlist", "name": name, "entries": refs])
+        message = "プレイリストに保存しました"
+        return true
+    }
+
     /// 「次に再生」（where: "next"）・「キューの最後に追加」（where: "end"）。再生していないときは、何もしない。
     @discardableResult
     func enqueue(_ item: EntryItem, listId: String, where position: String) async -> Bool {
