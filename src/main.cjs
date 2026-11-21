@@ -40,6 +40,8 @@ const PlaybackSpeed = require('./core/playback-speed.cjs');
 const MediaKeys = require('./core/media-keys.cjs');
 const EntryView = require('./ui/entry-view.js');
 const LibraryAudit = require('./core/library-audit.cjs');
+const { ScanFolder } = require('./core/folder-scan.cjs');
+const { ReadTags } = require('./core/media-tags.cjs');
 const SongNotes = require('./core/song-notes.cjs');
 const { SongNotesStore } = require('./core/song-notes-store.cjs');
 const { HistoryStore } = require('./core/play-history-store.cjs');
@@ -652,6 +654,7 @@ function MakeContext() {
     get current() { return current; },
     get favorites() { return favorites; },
     get mini() { return mini; },
+    get notesStore() { return notesStore; },
     get offline() { return offline; },
     get playCounts() { return playCounts; },
     get playback() { return playback; },
@@ -661,7 +664,7 @@ function MakeContext() {
     get thumbnails() { return thumbnails; },
     get trashStore() { return trashStore; },
     get win() { return win; },
-    AcceptPlayback, Accounts, AutoEntries, AutoPlay, BuildAutoLists, Configure, CoverImage, DriveURL, Emit, FavoriteIds, Handle, LoadEntry, LoadThumbnail, LocalDuration, MEDIA_EXTENSIONS, OpenAccount, OpenHelp, ParseBilibili, PlayableEntry, QueueState, RefreshVideo, Resources, ScopeEntries, ShareMode, SmallImage, SyncPlayingQueue, SyncShortcuts, ViewBounds, dialog, fs, nativeImage, path, shell
+    AcceptPlayback, Accounts, ScanFolder, ReadTags, AutoEntries, AutoPlay, BuildAutoLists, Configure, CoverImage, DriveURL, Emit, FavoriteIds, Handle, LoadEntry, LoadThumbnail, LocalDuration, MEDIA_EXTENSIONS, OpenAccount, OpenHelp, ParseBilibili, PlayableEntry, QueueState, RefreshVideo, Resources, ScopeEntries, ShareMode, SmallImage, SyncPlayingQueue, SyncShortcuts, ViewBounds, dialog, fs, nativeImage, path, shell
   };
 }
 async function Start() {

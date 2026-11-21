@@ -132,6 +132,17 @@ function AddURL(prefill = {}) {
   $('url-input').oninput = () => { request++; resolved = null; $('modal-submit').disabled = true; $('url-load').disabled = false; $('url-single').classList.add('hidden'); $('url-related').classList.add('hidden'); };
   if (prefill.analyze) void analyze();
 }
+// フォルダから追加：フォルダの中の動画・音楽（サブフォルダも。最大2000件）を、埋め込みのタグ（曲名・アーティスト）つきで、まとめて追加する。
+function AddLocalFolder() {
+  let destinations;
+  OpenModal('フォルダから追加', '<p class="form-note">追加先を選んでから、フォルダを選びます。フォルダの中の動画・音楽ファイル（サブフォルダも。最大2000件）を、PC内に1回だけ取り込みます（元のファイルは変えません）。ファイルに曲名・アーティストのタグがあれば、曲名に使い、アーティストは「曲の情報」に入れます。</p>', async () => {
+    const epoch = modalEpoch, ids = destinations();
+    Toast('フォルダの中のファイルを調べています…');
+    const plan = await api.prepareFolder(ids);
+    return ReviewAddition(plan, epoch);
+  }, 'フォルダを選んで追加');
+  destinations = AddDestinations();
+}
 function AddLocalFiles() {
   let destinations;
   OpenModal('ファイルを追加', '<p class="form-note">追加先を選んでから、動画・音楽ファイルを選択します。ファイルはPC内に1回だけ取り込み、チェックしたリストで共通のファイルを使います。</p>', async () => {
@@ -140,6 +151,7 @@ function AddLocalFiles() {
     return ReviewAddition(plan, epoch);
   }, 'ファイルを選んで追加');
   destinations = AddDestinations();
+  $('modal-body').append(Button('フォルダごと追加…（サブフォルダも・タグを読む）', 'button secondary', () => { CloseModal(); AddLocalFolder(); }));
 }
 function ExistingTracks() {
   const selected = new Map(); let destinations, sourcePicker;

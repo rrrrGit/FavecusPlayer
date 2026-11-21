@@ -3,7 +3,7 @@
 // main.cjs から分けたもの（動作は同じ）。状態（store・current など）は、ctx 経由で、その都度読む（S.store など）。
 module.exports = function RegisterLibrary(ctx) {
   const S = ctx;
-  const { AcceptPlayback, Configure, CoverImage, Emit, Handle, LoadThumbnail, LocalDuration, MEDIA_EXTENSIONS, RefreshVideo, ShareMode, SmallImage, SyncPlayingQueue, SyncShortcuts, ViewBounds, dialog, nativeImage, path } = ctx;
+  const { ScanFolder, ReadTags, AcceptPlayback, Configure, CoverImage, Emit, Handle, LoadThumbnail, LocalDuration, MEDIA_EXTENSIONS, RefreshVideo, ShareMode, SmallImage, SyncPlayingQueue, SyncShortcuts, ViewBounds, dialog, nativeImage, path } = ctx;
   Handle('library:thumbnail', async (playlistId, entryId, scope = S.store.data.activePlaylistId, variant = 'small') => {
     const entry = structuredClone(S.store.Entry(playlistId, entryId)); variant = variant === 'cover' ? 'cover' : 'small';
     const saved = S.offline.Find(entry);
@@ -35,6 +35,23 @@ module.exports = function RegisterLibrary(ctx) {
     Emit('state', state); return state;
   });
   Handle('library:prepare-add', action => S.additionReview.Prepare(action));
+  // フォルダから追加（v0.7.4）：フォルダの中の動画・音楽ファイル（サブフォルダも。最大2000件）を探し、埋め込みのタグ（曲名・アーティスト）を読んで、いつもの追加の確認へ進む。
+  // ファイルは、PC内のメディアの置き場へ複製する（元のファイルは変えない）。アーティストは、追加が済んだあと、曲の情報へ入れる。
+  const pendingArtists = new Map();
+  Handle('library:prepare-folder', async destinationIds => {
+    S.store.Targets(destinationIds);
+    const selected = await dialog.showOpenDialog(S.win, { title: 'フォルダから動画・音楽を追加', properties: ['openDirectory'] });
+    if (selected.canceled || !selected.filePaths[0]) return null;
+    const found = await ScanFolder(selected.filePaths[0]);
+    if (!found.files.length) throw new Error('そのフォルダに、追加できる動画・音楽ファイルが見つかりません。');
+    const plan = await S.additionReview.PrepareFiles(destinationIds, found.files, { describe: async file => { const tags = await ReadTags(S.ffmpeg, file); return { title: tags.title, artist: tags.artist }; } });
+    const artists = (S.additionReview.plans.get(plan.id)?.items || []).filter(item => item.artist).map(item => ({ fileName: item.entry.fileName, artist: item.artist }));
+    if (artists.length) pendingArtists.set(plan.id, artists);
+    const notes = [];
+    if (found.truncated) notes.push('ファイルが多いため、先頭の2000件までを対象にしました。');
+    if (found.skipped) notes.push(`リンク・読めない場所・深い階層の${found.skipped}項目は、飛ばしました。`);
+    return { ...plan, warnings: [...(plan.warnings || []), ...notes] };
+  });
   Handle('library:prepare-files', async destinationIds => {
     S.store.Targets(destinationIds);
     const selected = await dialog.showOpenDialog(S.win, { title: '動画・音楽ファイルを追加', properties: ['openFile', 'multiSelections'], filters: [{ name: '動画・音楽', extensions: [...MEDIA_EXTENSIONS].map(x => x.slice(1)) }] });
@@ -42,9 +59,12 @@ module.exports = function RegisterLibrary(ctx) {
   });
   Handle('library:commit-add', async (id, allowedIds) => {
     const result = await S.additionReview.Commit(id, allowedIds);
+    // フォルダから追加した曲のアーティスト（タグ）を、曲の情報へ。追加された曲（ファイルがある）だけ。失敗しても、追加は成功のまま。
+    const artists = pendingArtists.get(id); pendingArtists.delete(id);
+    for (const item of artists || []) { try { if (fs.existsSync(path.join(S.store.media, item.fileName))) S.notesStore?.Set('local:' + item.fileName, { artist: item.artist }); } catch { /* 曲の情報は、なくても追加は成功 */ } }
     SyncPlayingQueue(); Emit('state', result.state); return result;
   });
-  Handle('library:cancel-add', id => { S.additionReview.Cancel(id); return true; });
+  Handle('library:cancel-add', id => { pendingArtists.delete(id); S.additionReview.Cancel(id); return true; });
   Handle('library:transfer', action => {
     const result = S.store.Transfer(action);
     if (result.moved && S.current?.playlistId === action.playlistId && S.current?.entryId === action.entryId) {
