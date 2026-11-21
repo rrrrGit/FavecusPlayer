@@ -101,11 +101,15 @@ struct FullPlayerView: View {
     /// 曲名（少し大きく）と、その下に所在（ホーム ＞ 親 ＞ 子…）を小さく。名前を押すと、そのプレイリストを、曲名を押すと、曲の位置を、ライブラリで表示する。
     private var titleBlock: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Button { if !location.isEmpty { reveal(location.map(\.id), player.current?.entryId) } } label: {
-                Text(title.isEmpty ? "（再生していません）" : title).font(.system(size: 22, weight: .bold)).foregroundStyle(Theme.text).lineLimit(2).multilineTextAlignment(.leading)
+            HStack(alignment: .center, spacing: 2) {
+                Button { if !location.isEmpty { reveal(location.map(\.id), player.current?.entryId) } } label: {
+                    Text(title.isEmpty ? "（再生していません）" : title).font(.system(size: 22, weight: .bold)).foregroundStyle(Theme.text).lineLimit(2).multilineTextAlignment(.leading)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("ライブラリで、この曲の位置を表示します")
+                FavoriteToggle(player: player) // 曲名の後ろ（マークだけ）
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.plain)
-            .accessibilityHint("ライブラリで、この曲の位置を表示します")
             if !location.isEmpty { locationLine }
             if let hint { Text(hint).font(.system(size: 12)).foregroundStyle(Theme.warning) }
         }
@@ -264,7 +268,6 @@ struct FullPlayerView: View {
             controlRow
             Text(toggleNote ?? " ").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.accent).frame(height: 14)
             HStack(spacing: 24) {
-                FavoriteToggle(player: player)
                 SleepTimerMenu(timer: player.sleepTimer)
                 SpeedMenu(player: player)
             }
