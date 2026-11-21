@@ -167,7 +167,7 @@ struct PlaylistDetail: View {
         .onPreferenceChange(HeroTopKey.self) { heroTop = $0 }
         .overlay(alignment: .top) { pinnedBar } // 上のメニューは、スクロールしても常に表示する
         .overlay(alignment: .bottomTrailing) {
-            AddSongButton(player: services.player) { showAdd = true }
+            if !selecting { AddSongButton(player: services.player) { showAdd = true } } // 曲を選んでいる間は、操作欄と重なるため隠す
         }
         .sheet(isPresented: $showAdd, onDismiss: {
             addFromClipboard = false
