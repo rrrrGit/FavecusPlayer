@@ -39,16 +39,15 @@ final class AutoListSettingsStore: ObservableObject {
     private let fileURL: URL
 
     init(directory: URL? = nil) {
-        fileURL = (directory ?? FavoritesStore.defaultDirectory()).appendingPathComponent("auto-list-settings.json")
-        if let data = try? Data(contentsOf: fileURL), let document = try? JSONDecoder().decode(Document.self, from: data), document.version == 1 {
+        fileURL = (directory ?? AtomicJsonFile.defaultDirectory()).appendingPathComponent("auto-list-settings.json")
+        if let document = AtomicJsonFile.readOptional(Document.self, from: fileURL), document.version == 1 {
             settings = document.settings.normalized()
         }
     }
 
     func set(_ next: AutoListSettings) {
         settings = next.normalized()
-        try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(Document(version: 1, settings: settings)) { try? data.write(to: fileURL, options: .atomic) }
+        try? AtomicJsonFile.write(Document(version: 1, settings: settings), to: fileURL)
     }
 }
 
@@ -99,8 +98,7 @@ final class PlayHistoryStore {
     }
 
     private func save() {
-        try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let data = try? JSONSerialization.data(withJSONObject: ["version": 1, "items": items]) { try? data.write(to: fileURL, options: .atomic) }
+        try? AtomicJsonFile.writeJSONObject(["version": 1, "items": items], to: fileURL)
     }
 }
 

@@ -1,7 +1,6 @@
 'use strict';
 // 再生速度（v0.7.4）。0.5〜2.0倍の7段階。この端末内だけに保存し、同期しない。iPhone版（PlaybackSpeed.swift）と同じ段階。
-const fs = require('node:fs');
-const path = require('node:path');
+const { ReadJson, WriteJsonAtomic } = require('./json-file.cjs');
 
 const OPTIONS = Object.freeze([0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]);
 
@@ -21,15 +20,13 @@ function Label(value) { return `${Nearest(value)}x`; }
 class SpeedStore {
   constructor(file) {
     this.file = file; this.value = 1;
-    try { const data = JSON.parse(fs.readFileSync(file, 'utf8')); if (data?.version === 1) this.value = Nearest(data.speed); } catch { /* 初めて・壊れている：1倍 */ }
+    const data = ReadJson(file);
+    if (data?.version === 1) this.value = Nearest(data.speed);
   }
   Get() { return this.value; }
   Set(value) {
     this.value = Nearest(value);
-    try {
-      fs.mkdirSync(path.dirname(this.file), { recursive: true });
-      const temp = `${this.file}.tmp`; fs.writeFileSync(temp, JSON.stringify({ version: 1, speed: this.value })); fs.renameSync(temp, this.file);
-    } catch { /* 保存できなくても、この起動の間は使える */ }
+    WriteJsonAtomic(this.file, { version: 1, speed: this.value });
     return this.value;
   }
 }

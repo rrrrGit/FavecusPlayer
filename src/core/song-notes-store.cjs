@@ -1,7 +1,6 @@
 'use strict';
 // 曲の情報のファイル保存（PC版。規則は song-notes.cjs＝共通JS）。曲のメディアのキー → 記録。この端末内だけ。原子的に書く。
-const fs = require('node:fs');
-const path = require('node:path');
+const { ReadJson, WriteJsonAtomic } = require('./json-file.cjs');
 const Notes = require('./song-notes.cjs');
 
 const MAX_SONGS = 20000;
@@ -10,12 +9,10 @@ const KEY = /^[A-Za-z0-9:._-]{1,220}$/;
 class SongNotesStore {
   constructor(file) {
     this.file = file; this.records = {};
-    try {
-      const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-      if (data?.version === 1 && data.records && typeof data.records === 'object') {
-        for (const [key, record] of Object.entries(data.records).slice(0, MAX_SONGS)) if (KEY.test(key) && !Notes.IsEmpty(record)) this.records[key] = Notes.Normalize(record);
-      }
-    } catch { /* 初めて・壊れている：空 */ }
+    const data = ReadJson(file);
+    if (data?.version === 1 && data.records && typeof data.records === 'object') {
+      for (const [key, record] of Object.entries(data.records).slice(0, MAX_SONGS)) if (KEY.test(key) && !Notes.IsEmpty(record)) this.records[key] = Notes.Normalize(record);
+    }
   }
   Get(key) { return this.records[key] ? Notes.Normalize(this.records[key]) : null; }
   Has(key) { return !!this.records[key]; }
@@ -31,12 +28,7 @@ class SongNotesStore {
     this.Save();
     return this.Get(key);
   }
-  Save() {
-    try {
-      fs.mkdirSync(path.dirname(this.file), { recursive: true });
-      const temp = `${this.file}.tmp`; fs.writeFileSync(temp, JSON.stringify({ version: 1, records: this.records })); fs.renameSync(temp, this.file);
-    } catch { /* 保存できなくても、この起動の間は使える */ }
-  }
+  Save() { WriteJsonAtomic(this.file, { version: 1, records: this.records }); }
 }
 
 module.exports = { SongNotesStore, MAX_SONGS };

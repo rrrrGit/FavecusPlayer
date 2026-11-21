@@ -32,7 +32,7 @@ function RenderPlayer() {
   requestAnimationFrame(SendBounds); UpdateTransport();
 }
 function Time(seconds) {
-  const n = Math.floor(Number.isFinite(seconds) ? seconds : 0);
+  const n = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
   return n >= 3600 ? `${Math.floor(n / 3600)}:${String(Math.floor(n / 60) % 60).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}` : `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}`;
 }
 function Transport() { return TransportState({ current, playback, entries: PlaybackEntries() }); }

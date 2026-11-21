@@ -135,17 +135,19 @@ const KeepCurrent = (scope, list) => {
 const ScopeEntries = scope => AUTO_NAMES[scope]
   ? (autoSnapshots.get(scope) || []).filter(e => store.data.playlists.some(p => p.id === e.playlistId && p.entries.some(x => x.id === e.id)))
   : KeepCurrent(scope, ArrangedEntries(scope));
+async function StartShuffled(scope, entries) {
+  if (!entries.length) throw new Error('再生する曲がありません。');
+  const nextQueue = new Queue(null, ShuffleWeight, randomInt), first = nextQueue.ShuffleStart(scope, entries), selected = entries.find(e => e.id === first);
+  PlayableEntry(selected.playlistId, first);
+  const settings = { shuffle: true };
+  if (store.data.settings.repeat === 'one') settings.repeat = 'off';
+  const state = store.Apply({ type: 'settings', settings }); queue = nextQueue; Emit('state', state);
+  return LoadEntry(selected.playlistId, first);
+}
 async function AutoPlay(kind, entryId, shuffled) {
   const entries = AutoEntries(kind), scope = `auto:${kind}`;
+  if (shuffled) return StartShuffled(scope, entries);
   if (!entries.length) throw new Error('再生する曲がありません。');
-  if (shuffled) {
-    const nextQueue = new Queue(null, ShuffleWeight, randomInt), first = nextQueue.ShuffleStart(scope, entries), selected = entries.find(e => e.id === first);
-    PlayableEntry(selected.playlistId, first);
-    const settings = { shuffle: true };
-    if (store.data.settings.repeat === 'one') settings.repeat = 'off';
-    const state = store.Apply({ type: 'settings', settings }); queue = nextQueue; Emit('state', state);
-    return LoadEntry(selected.playlistId, first);
-  }
   const selected = entries.find(e => e.id === entryId) || entries[0];
   PlayableEntry(selected.playlistId, selected.id);
   queue.Start(scope, entries, selected.id, store.data.settings.shuffle);
@@ -609,13 +611,7 @@ async function Play(playlistId, entryId, resume = null) {
 }
 async function ShufflePlay(playlistId) {
   const entries = ArrangedEntries(playlistId);
-  if (!entries.length) throw new Error('再生する曲がありません。');
-  const nextQueue = new Queue(null, ShuffleWeight, randomInt), first = nextQueue.ShuffleStart(playlistId, entries), selected = entries.find(e => e.id === first);
-  PlayableEntry(selected.playlistId, first);
-  const settings = { shuffle: true };
-  if (store.data.settings.repeat === 'one') settings.repeat = 'off';
-  const state = store.Apply({ type: 'settings', settings }); queue = nextQueue; Emit('state', state);
-  return LoadEntry(selected.playlistId, first);
+  return StartShuffled(playlistId, entries);
 }
 async function AllPlay(shuffle) {
   if (shuffle) return ShufflePlay('*');

@@ -36,11 +36,7 @@ function ChapterList() {
   const box = $('chapter-rows'), now = playback?.position || 0;
   currentChapters.forEach((chapter, index) => {
     const next = currentChapters[index + 1], active = chapter.at <= now && (!next || now < next.at);
-    const row = Button(`${FormatChapterTime(chapter.at)}　${chapter.title}`, `button secondary chapter-row${active ? ' enabled' : ''}`, () => { CloseModal(); void api.command('seek', chapter.at); });
+    const row = Button(`${Time(chapter.at)}　${chapter.title}`, `button secondary chapter-row${active ? ' enabled' : ''}`, () => { CloseModal(); void api.command('seek', chapter.at); });
     box.append(row);
   });
-}
-function FormatChapterTime(seconds) {
-  const s = Math.max(0, Math.floor(seconds)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}` : `${m}:${String(r).padStart(2, '0')}`;
 }

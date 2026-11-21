@@ -47,8 +47,8 @@ final class ListViewStore: ObservableObject {
     private let fileURL: URL
 
     init(directory: URL? = nil) {
-        fileURL = (directory ?? FavoritesStore.defaultDirectory()).appendingPathComponent("list-views.json")
-        if let data = try? Data(contentsOf: fileURL), let document = try? JSONDecoder().decode(Document.self, from: data), document.version == 1 {
+        fileURL = (directory ?? AtomicJsonFile.defaultDirectory()).appendingPathComponent("list-views.json")
+        if let document = AtomicJsonFile.readOptional(Document.self, from: fileURL), document.version == 1 {
             for (id, view) in document.views.prefix(Self.maxLists) where id.count <= 80 && view.normalized().isActive { views[id] = view.normalized() }
         }
     }
@@ -69,8 +69,7 @@ final class ListViewStore: ObservableObject {
 
     private func save() {
         // 保存できなくても、この起動の間は使える
-        try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(Document(version: 1, views: views)) { try? data.write(to: fileURL, options: .atomic) }
+        try? AtomicJsonFile.write(Document(version: 1, views: views), to: fileURL)
     }
 }
 

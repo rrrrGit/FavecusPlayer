@@ -3,8 +3,7 @@
 // ・位置は、約10秒ごと（一時停止にした瞬間は、すぐ）に保存する。
 // ・再開の位置：5秒未満、または終わりの5秒以内なら、曲の頭から。
 // 保存できなくても、再生は妨げない。読めない・形式が違う保存ファイルは、使わない（上書きは、次の保存で行う）。
-const fs = require('node:fs');
-const path = require('node:path');
+const { ReadJson, WriteJsonAtomic, RemoveFile } = require('./json-file.cjs');
 
 const EDGE_SECONDS = 5;
 const INTERVAL_MS = 10000;
@@ -27,7 +26,7 @@ function Clean(value) {
 class ResumeStore {
   constructor(file, now = Date.now) {
     this.file = file; this.now = now; this.pending = null; this.lastWrite = 0; this.lastPaused = true;
-    try { this.value = Clean(JSON.parse(fs.readFileSync(file, 'utf8'))); } catch { this.value = null; }
+    this.value = Clean(ReadJson(file));
   }
   // sample：{ entryId, playlistId, scope, position, duration }。paused：一時停止中か。
   Observe(sample, paused = false) {
@@ -41,11 +40,7 @@ class ResumeStore {
   Flush() {
     if (!this.pending) return;
     const value = this.pending; this.pending = null; this.lastWrite = this.now(); this.value = value;
-    try {
-      fs.mkdirSync(path.dirname(this.file), { recursive: true });
-      const temp = `${this.file}.tmp`;
-      fs.writeFileSync(temp, JSON.stringify({ version: 1, ...value })); fs.renameSync(temp, this.file);
-    } catch { /* 保存できなくても、再生は妨げない */ }
+    WriteJsonAtomic(this.file, { version: 1, ...value });
   }
   // 保存済みの内容（書き込み前の最新を含む）。再開の位置は、規則で補正して返す。
   Get() {
@@ -54,7 +49,7 @@ class ResumeStore {
   }
   Clear() {
     this.pending = null; this.value = null;
-    try { fs.rmSync(this.file, { force: true }); } catch {}
+    RemoveFile(this.file);
   }
 }
 

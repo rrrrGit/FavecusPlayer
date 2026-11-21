@@ -66,10 +66,10 @@ final class LoudnessCache {
 
     init(defaults: UserDefaults = .standard, directory: URL? = nil, now: @escaping () -> Date = Date.init) {
         self.now = now
-        let folder = directory ?? FavoritesStore.defaultDirectory()
+        let folder = directory ?? AtomicJsonFile.defaultDirectory()
         fileURL = folder.appendingPathComponent("loudness.json")
         defaults.removeObject(forKey: "loudnessCache") // 以前の版の記録（パスつきの識別）
-        if let data = try? Data(contentsOf: fileURL), let document = try? JSONDecoder().decode(Document.self, from: data), document.version == 1 {
+        if let document = AtomicJsonFile.readOptional(Document.self, from: fileURL), document.version == 1 {
             records = document.records
         }
     }
@@ -99,7 +99,6 @@ final class LoudnessCache {
 
     private func save() {
         // 保存できなくても、再生は妨げない（次の起動で測り直すだけ）
-        try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(Document(version: 1, records: records)) { try? data.write(to: fileURL, options: .atomic) }
+        try? AtomicJsonFile.write(Document(version: 1, records: records), to: fileURL)
     }
 }

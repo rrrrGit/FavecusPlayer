@@ -12,7 +12,7 @@ v0.7.0（配布済み・main）の工程・検証記録は、本ファイルの�
 - **共通**：お気に入り（シャッフルで1.5倍選ばれやすい・端末内のみ）／自動リスト「お気に入り」「最近聴いた曲」／自動リストの設定（件数・よく聴く曲の最低回数・最近追加の期間）／再生統計（月ごと・上位）／曲の並べ替え9種・絞り込み4種（再生順にも反映）／次に再生・キューの最後に追加／キューをプレイリストに保存／複数選択の一括操作（移動・追加・お気に入り・保存・外す。最近削除へ曲ごとに保管）／曲の情報（アーティスト・タグ・メモ・チャプター。端末内の別ファイル）／ライブラリの点検（重複・リンク切れの報告のみ）／検索の共通化／音量の自動調整（v0.7.3から）。
 - **iPhone**：再生速度（0.5〜2.0）／ハートの位置（曲名の右・マークのみ）／曲を選ぶ・まとめ操作／曲名の変更／URLのまとめ追加（最大100件）／プレイリスト画像の表示／クロスフェード（保存済み・ローカルのみ。既定オフ）／チャプターメニュー／アラーム・おやすみタイマー・前回の続きから（v0.7.3から）／動画⇔音声の切替時の音量調整の修正／お気に入り・音量記録のファイル化。
 - **Windows**：再生速度／メディアキー／キュー操作（並べ替え・ジャンプ）／選択モード／並べ替え・絞り込み画面／出力デバイスの選択／フォルダから追加（サブフォルダ・最大2000件・タグ）／曲の情報・チャプター／通知の重ね表示・ダイアログ後の続き操作／一覧の高速化（1万曲で約4.8秒→約0.3秒）／ffmpegの同時実行制限／環境依存テスト9件の理由つきスキップ／お気に入りハート配置の微調整（曲名のすぐ右）／library:durationのS.ffmpeg参照修正・不要コード整理。
-- **内部の整理（Step3の一部）**：main.cjs・app.js の分割（main.cjs 884行）／行の遅延生成／iPhone画面の一部の分割。
+- **内部の整理（Step3の一部）**：main.cjs・app.js の分割（main.cjs 884行）／行の遅延生成／iPhone画面の一部の分割／PC10ストア・iOS6クラスの原子JSON保存共通化（json-file.cjs・AtomicJsonFile.swift）／PC再生・UI重複整理。
 
 ### 実装予定（未着手。指示があれば着手）
 - **Windows版 v0.7.4 のビルド・Patch・Release**：未生成。実機・実Electronでの確認が先。
@@ -101,6 +101,7 @@ v0.7.0（配布済み・main）の工程・検証記録は、本ファイルの�
 - **（反映済み・2026-11-21）PC版のお気に入り表示・バグ修正・不要コード整理**
   - PC版のお気に入りボタン：すでにHTML・JS上は曲名の右（.now-title-row 内）にハートのみで配置済みだったが、短い曲名でも曲名のすぐ右へ並ぶよう `src/ui/style.css` の `.now-title-row strong` を `flex:0 1 auto` へ調整（実Electronでの見え方は未確認）。
   - バグ修正・整理：`src/main/ipc-library.cjs` の `library:duration` が未宣言の `ffmpeg` を参照していた不備を `S.ffmpeg` へ修正し、`library:move-tracks` で移動時の再生バー表示タイトル同期（`AcceptPlayback`）を追加。未使用の旧経路 `library:files`／`addFiles`（`ipc-library.cjs`・`src/preloads/ui.cjs`・`src/ui/preview.js`）、`03-downloads.js`・`05-bulk.js` の未使用変数とダミー `#transfer-targets`、`src/main.cjs` の分割後コメントずれを整理。iOS は `LibraryViews.swift` の末尾空 `// MARK:` と古いコメント、`MiniPlayerView.swift` の未使用 `import AVFoundation` を整理し、`test/app-split.test.cjs` に回帰テストを追加。
+  - 重複処理の共通化：PC 側 10 ストア（お気に入り・再生速度・出力デバイス・表示順・再生履歴・曲情報・自動リスト設定・最近削除・前回の続き・音量記録）の原子 JSON 読み書きを `src/core/json-file.cjs`（一意な一時ファイルと失敗時掃除つき）へ集約し、単体テスト `test/json-file.test.cjs` を追加。iOS 側 6 クラス（`FavoritesStore`・`LoudnessCache`・`ListViewStore`・`SongNotesStore`・`AutoListSettingsStore`・`PlayHistoryStore`）の保存処理を `ios/FavecusPlayer/Core/AtomicJsonFile.swift` へ共通化（`FavoritesStore` の破損退避・旧データ移行互換は維持）。あわせて `src/main/ipc-library.cjs`（`SyncMovedCurrent`）、`src/main.cjs`（`StartShuffled`）、`src/ui/app/05-notes.js`（`Time` 統合）の重複ヘルパーを整理（preload の sandbox 制約がある `media.cjs` のキー判定や、iOS の同期描画定数 `ListViewStore` / `AutoListSettings` は現状維持）。
 
 - **（反映済み・2026-11-21）iPhoneのお気に入りの表示**
   - 再生画面の「お気に入りにする」の文言をなくし、ハートのマークだけにする。ハートの位置は、曲名の後ろ側（曲名の右）へ移す。現在は、操作欄の左端に、文言つきで置いている（FavoriteToggle・FullPlayerView）。

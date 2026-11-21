@@ -25,8 +25,7 @@ final class FavoritesStore: ObservableObject {
     }
 
     static func defaultDirectory() -> URL {
-        let base = (try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)) ?? FileManager.default.temporaryDirectory
-        return base.appendingPathComponent("FavecusPlayer", isDirectory: true)
+        AtomicJsonFile.defaultDirectory()
     }
 
     nonisolated static func isValid(_ key: String) -> Bool {
@@ -36,7 +35,7 @@ final class FavoritesStore: ObservableObject {
     private func load() {
         if FileManager.default.fileExists(atPath: fileURL.path) {
             do {
-                let document = try JSONDecoder().decode(Document.self, from: Data(contentsOf: fileURL))
+                let document = try AtomicJsonFile.read(Document.self, from: fileURL)
                 keys = Set(document.keys.filter { Self.isValid($0) }.prefix(Self.maxKeys))
             } catch {
                 // 壊れた保存は、消さずに別名で残す
@@ -54,9 +53,7 @@ final class FavoritesStore: ObservableObject {
     @discardableResult
     private func save() -> Bool {
         do {
-            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let data = try JSONEncoder().encode(Document(version: Self.currentVersion, keys: keys.sorted()))
-            try data.write(to: fileURL, options: .atomic)
+            try AtomicJsonFile.write(Document(version: Self.currentVersion, keys: keys.sorted()), to: fileURL)
             saveError = nil
             return true
         } catch {

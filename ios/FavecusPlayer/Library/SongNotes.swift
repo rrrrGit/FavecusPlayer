@@ -26,8 +26,8 @@ final class SongNotesStore {
     private let fileURL: URL
 
     init(directory: URL? = nil) {
-        fileURL = (directory ?? FavoritesStore.defaultDirectory()).appendingPathComponent("song-notes.json")
-        if let data = try? Data(contentsOf: fileURL), let document = try? JSONDecoder().decode(Document.self, from: data), document.version == 1 {
+        fileURL = (directory ?? AtomicJsonFile.defaultDirectory()).appendingPathComponent("song-notes.json")
+        if let document = AtomicJsonFile.readOptional(Document.self, from: fileURL), document.version == 1 {
             for (key, record) in document.records.prefix(Self.maxSongs) where FavoritesStore.isValid(key) && !record.isEmpty { records[key] = record }
         }
     }
@@ -42,8 +42,7 @@ final class SongNotesStore {
             guard records[key] != nil || records.count < Self.maxSongs else { return false }
             records[key] = record
         }
-        try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(Document(version: 1, records: records)) { try? data.write(to: fileURL, options: .atomic) }
+        try? AtomicJsonFile.write(Document(version: 1, records: records), to: fileURL)
         return true
     }
 }

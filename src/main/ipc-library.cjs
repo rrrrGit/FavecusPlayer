@@ -65,29 +65,23 @@ module.exports = function RegisterLibrary(ctx) {
     SyncPlayingQueue(); Emit('state', result.state); return result;
   });
   Handle('library:cancel-add', id => { pendingArtists.delete(id); S.additionReview.Cancel(id); return true; });
+  const SyncMovedCurrent = target => {
+    S.current.playlistId = target.playlistId; S.current.entryId = target.entryId;
+    S.current.entry = structuredClone(S.store.Entry(target.playlistId, target.entryId));
+    if (S.thumbnail) S.thumbnail.entryId = target.entryId;
+    Emit('current-update', S.current);
+    if (S.playback) { S.playback.title = S.current.entry.title || S.playback.title; AcceptPlayback(S.playback); }
+  };
   Handle('library:transfer', action => {
     const result = S.store.Transfer(action);
-    if (result.moved && S.current?.playlistId === action.playlistId && S.current?.entryId === action.entryId) {
-      const target = result.destinations[0];
-      S.current.playlistId = target.playlistId; S.current.entryId = target.entryId;
-      S.current.entry = structuredClone(S.store.Entry(target.playlistId, target.entryId));
-      if (S.thumbnail) S.thumbnail.entryId = target.entryId;
-      Emit('current-update', S.current);
-      if (S.playback) { S.playback.title = S.current.entry.title || S.playback.title; AcceptPlayback(S.playback); }
-    }
+    if (result.moved && S.current?.playlistId === action.playlistId && S.current?.entryId === action.entryId) SyncMovedCurrent(result.destinations[0]);
     SyncPlayingQueue();
     Emit('state', result.state); return result;
   });
   Handle('library:move-tracks', action => {
     const result = S.store.TransferMany(action);
     const moved = result.mappings.find(m => m.playlistId === S.current?.playlistId && m.entryId === S.current?.entryId);
-    if (moved) {
-      Object.assign(S.current, moved.destinations[0]);
-      S.current.entry = structuredClone(S.store.Entry(S.current.playlistId, S.current.entryId));
-      if (S.thumbnail) S.thumbnail.entryId = S.current.entryId;
-      Emit('current-update', S.current);
-      if (S.playback) { S.playback.title = S.current.entry.title || S.playback.title; AcceptPlayback(S.playback); }
-    }
+    if (moved) SyncMovedCurrent(moved.destinations[0]);
     SyncPlayingQueue(); Emit('state', result.state); return result;
   });
   let exporting = false;
