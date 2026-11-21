@@ -16,6 +16,14 @@ module.exports = function RegisterDownloads(ctx) {
     }
     return { entries: options.includeChildren ? S.store.Entries(list.id) : list.entries.map(e => ({ ...e, playlistId: list.id })), options: selected };
   };
+  // 選んだ曲（Bilibili）を、まとめて保存する（音声。見積もりの確認は省く）。曲を持つリストは、まちまち。
+  Handle('downloads:save-selected', options => {
+    if (!options || !Array.isArray(options.entries) || !options.entries.length || options.entries.length > 10000) throw new Error('保存する曲を選んでください。');
+    const entries = [];
+    for (const ref of options.entries) { const entry = S.store.Entry(String(ref?.playlistId), String(ref?.entryId)); if (entry.type === 'bilibili') entries.push({ ...entry, playlistId: String(ref.playlistId) }); }
+    if (!entries.length) throw new Error('保存できるBilibiliの曲がありません。');
+    return S.offline.Start(entries, { kind: options.kind === 'video' ? 'video' : 'audio', height: Number(options.height) || 720, playlistId: entries[0].playlistId, playlistName: '選んだ曲' });
+  });
   Handle('downloads:estimate', options => { const target = downloadTarget(options); return S.offline.Estimate(target.entries, target.options); });
   Handle('downloads:estimate-cancel', () => S.offline.CancelEstimate());
   Handle('downloads:start', options => { const target = downloadTarget(options); return S.offline.Start(target.entries, target.options); });

@@ -166,12 +166,13 @@ function RenderEntries() {
     if (item.playlist) { list.append(MakePlaylistRow(item)); continue; }
     const { entry, index } = item, ownerId = entry.playlistId;
     const row = Element('div', `entry ${entry.type}${entry.missing ? ' missing' : ''}`);
+    if (selectionMode) row.classList.add('selecting');
     row.dataset.entryId = entry.id; row.dataset.ownerId = ownerId; row.style.marginLeft = `${Math.min(item.depth * 18, 90)}px`; if (!entryRows.has(entry.id)) entryRows.set(entry.id, row);
     // 行の中身は、画面の近くに来てから作る（先頭の80行は、すぐ）。多い曲数でも、最初の描画が重くならない。
     const build = () => {
       const handle = Button(String(index + 1).padStart(2, '0'), 'entry-number', () => {}, 'ドラッグで並べ替え（Alt＋↑/↓でも移動）');
       handle.addEventListener('keydown', event => { if (!allListsView && event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); Run(() => Action({ type: 'move', playlistId: ownerId, entryId: entry.id, direction: event.key === 'ArrowUp' ? -1 : 1 })); } });
-      if (!ListView(ownerId)) queueDrag?.Bind(handle, row, { playlistId: ownerId, entryId: entry.id }, true); // 並べ替え・絞り込みの間は、ドラッグでの手動の並べ替えは使わない
+      if (!ListView(ownerId) && !selectionMode) queueDrag?.Bind(handle, row, { playlistId: ownerId, entryId: entry.id }, true); // 並べ替え・絞り込みの間は、ドラッグでの手動の並べ替えは使わない
       row.append(handle);
       const cover = Element('img', 'entry-cover'); cover.alt = ''; cover.draggable = false; cover.width = 56; cover.height = 34; cover.src = 'music.png';
       row.append(cover); listArtwork?.Add(cover, ownerId, entry.id);
@@ -182,6 +183,7 @@ function RenderEntries() {
       info.dataset.durationEntry = entry.id;
       const badge = Element('span', 'entry-type'); PaintSavedBadge(badge, entry); row.append(info, badge);
       row.append(Button('•••', 'icon-button', () => EntryMenu(entry), `${EntryTitle(entry)}を編集`));
+      if (selectionMode) BindSelection(row, entry); // 選んでいる間は、チェックと、行を押して選ぶ動きを付ける
     };
     if (!entry.duration) { row.durationEntry = entry; durationObserver?.observe(row); }
     if (fillObserver && lazyCount++ >= EAGER_ROWS) { row.classList.add('pending'); pendingRows.set(row, build); fillObserver.observe(row); } else build();

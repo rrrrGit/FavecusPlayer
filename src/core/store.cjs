@@ -212,8 +212,8 @@ class Store {
     } catch (error) { this.data = before; throw error; }
   }
   KeepDeleted(before, action) {
-    if (!this.options.trash || !['delete', 'remove'].includes(action?.type)) return;
-    try { const item = Trash.Capture(before, this.data, action, new Date().toISOString()); if (item) this.options.trash(item); } catch { /* 保管できなくても、削除は成功のまま */ }
+    if (!this.options.trash || !['delete', 'remove', 'remove-many'].includes(action?.type)) return;
+    try { for (const item of Trash.CaptureMany(before, this.data, action, new Date().toISOString())) this.options.trash(item); } catch { /* 保管できなくても、削除は成功のまま */ }
   }
   ActionContext() { return { createId: randomUUID, now: () => new Date().toISOString(), cleanTitle: value => this.CleanTitle(value) }; }
   ApplyAction(action) {
@@ -267,6 +267,15 @@ class Store {
       for (const fileName of created) await fs.promises.rm(path.join(this.media, fileName), { force: true }).catch(() => {});
       throw error;
     }
+  }
+  // 複数の曲の移動・コピー（複数選択の一括操作。規則は共通の library-actions.cjs の TransferEntries）。全部成功か、操作前へ戻す。
+  TransferEntries(options = {}) {
+    const before = structuredClone(this.data);
+    try {
+      const result = Actions.TransferEntries(this.data, this.ActionContext(), options);
+      this.Save();
+      return { ...result, state: this.Snapshot() };
+    } catch (error) { this.data = before; throw error; }
   }
   Transfer({ playlistId, entryId, destinationIds, mode, targetId, after = false } = {}) {
     if (!['copy', 'move'].includes(mode) || !Array.isArray(destinationIds) || !destinationIds.length || destinationIds.length > MAX_PLAYLISTS - 1) throw new Error('移動・追加先のプレイリストを選んでください。');

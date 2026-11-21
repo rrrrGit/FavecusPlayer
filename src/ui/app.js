@@ -164,6 +164,7 @@ $('shuffle').onclick = () => Run(() => Action({ type: 'settings', settings: { sh
 $('resume-last').onclick = () => Run(() => api.resumeLast());
 $('favorite').onclick = () => Run(() => current?.playlistId ? SetFavorite(current.playlistId, current.entryId, !IsFavorite(current.entryId)) : undefined);
 $('view-open').onclick = () => ViewSettings();
+$('select-mode').onclick = () => SetSelectionMode(!selectionMode);
 $('speed').onclick = () => Run(async () => { playbackSpeed = await api.speed(NextSpeed(playbackSpeed)); RenderSpeed(); });
 $('sleep').onclick = () => Run(async () => { sleepState = await api.sleepTimer(NextSleepCommand(sleepState)); RenderSleep(); });
 $('repeat').onclick = () => Run(() => Action({ type: 'settings', settings: { repeat: { off: 'all', all: 'one', one: 'off' }[state.settings.repeat] } }));

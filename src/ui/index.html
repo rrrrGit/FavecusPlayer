@@ -23,6 +23,7 @@
   <script src="app/02-add.js" defer></script>
   <script src="app/03-downloads.js" defer></script>
   <script src="app/04-settings.js" defer></script>
+  <script src="app/05-bulk.js" defer></script>
   <script src="app/05-insights.js" defer></script>
   <script src="app/05-transfer.js" defer></script>
   <script src="app/06-list-view.js" defer></script>
@@ -62,7 +63,7 @@
       <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
     </section>
     <section id="queue-section" class="queue-section">
-      <div class="queue-toolbar"><div class="queue-title"><button id="playlist-up" class="icon-button hidden" type="button" aria-label="親プレイリストへ戻る" title="親プレイリストへ戻る">↑</button>再生リスト <span id="queue-count">0</span></div><div class="queue-tools"><input id="filter" type="search" placeholder="リスト内を検索" aria-label="リスト内を検索"><button id="sort-lists" class="button secondary" type="button">並べ替え</button><button id="view-open" class="button secondary" type="button" title="曲の並べ替え・絞り込み">曲の表示</button><button id="shuffle-play" class="button shuffle-play-button" title="再生回数を考慮して、新しい順序でシャッフル再生">⤨ シャッフル再生</button><button id="play-all" class="button play-button">▶ 再生</button></div></div>
+      <div class="queue-toolbar"><div class="queue-title"><button id="playlist-up" class="icon-button hidden" type="button" aria-label="親プレイリストへ戻る" title="親プレイリストへ戻る">↑</button>再生リスト <span id="queue-count">0</span></div><div class="queue-tools"><input id="filter" type="search" placeholder="リスト内を検索" aria-label="リスト内を検索"><button id="sort-lists" class="button secondary" type="button">並べ替え</button><button id="view-open" class="button secondary" type="button" title="曲の並べ替え・絞り込み">曲の表示</button><button id="select-mode" class="button secondary" type="button" aria-pressed="false" title="曲を選んで、まとめて操作">選択</button><button id="shuffle-play" class="button shuffle-play-button" title="再生回数を考慮して、新しい順序でシャッフル再生">⤨ シャッフル再生</button><button id="play-all" class="button play-button">▶ 再生</button></div></div>
       <div id="entries" class="entries" tabindex="0" aria-label="再生リストの曲"></div>
       <div id="up-next" class="up-next hidden"><button id="up-next-toggle" class="up-next-toggle" type="button" aria-expanded="false" aria-controls="queue-timeline"><div class="up-next-heading"><span id="up-next-label">次に再生</span><span id="up-next-path"></span></div><strong id="up-next-title"></strong><span class="timeline-hint">履歴・再生予定を開く</span></button><div id="queue-timeline" class="queue-timeline hidden" tabindex="0" aria-label="再生履歴とこれからの曲"></div></div>
     </section>

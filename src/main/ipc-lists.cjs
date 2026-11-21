@@ -11,6 +11,12 @@ module.exports = function RegisterLists(ctx) {
   Handle('player:auto-play', (kind, entryId, shuffled) => AutoPlay(kind, typeof entryId === 'string' ? entryId : null, shuffled === true));
   // 最近削除（一覧・元に戻す・完全に削除）。元に戻すのは共通の規則（core/trash.cjs）。失敗したときは、保管を残して、理由を返す。
   // お気に入り：曲のメディア単位（同じ動画・パートは、どのリストにあっても共通）。この端末内だけ（同期しない）。
+  // 選んだ曲をまとめて、お気に入りにする・外す（曲のメディア単位。同じ曲は1回だけ）
+  Handle('library:favorite-many', (refs, value) => {
+    if (!Array.isArray(refs) || refs.length > 10000) throw new Error('曲を選んでください。');
+    for (const ref of refs) { const entry = S.store.Entry(String(ref?.playlistId), String(ref?.entryId)); S.favorites.Set(S.playCounts?.KeyOf(entry), value === true); }
+    const ids = FavoriteIds(); Emit('favorites', ids); return ids;
+  });
   Handle('library:favorite', (playlistId, entryId, value) => {
     const entry = S.store.Entry(String(playlistId), String(entryId)), key = S.playCounts?.KeyOf(entry);
     S.favorites.Set(key, value === true);
