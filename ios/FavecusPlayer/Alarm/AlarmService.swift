@@ -10,6 +10,9 @@ final class AlarmService: ObservableObject {
     /// 音の曲のファイルを探す（メディアキー→ファイル）と、作った音の置き場（Library/Sounds）。どちらかがなければ、既定の音。
     var soundSource: ((String) -> URL?)?
     var soundsDirectory: URL?
+    /// 「ランダム」の抽選（保存済みの曲から1曲選び、最初の30秒の音にして返す）。曲がなければ nil。
+    var randomPicker: (() -> AlarmSound?)?
+    var now: () -> Date = { Date() }
 
     init(store: AlarmStore, scheduler: AlarmScheduling) {
         self.store = store
@@ -23,6 +26,7 @@ final class AlarmService: ObservableObject {
         var item = input
         item.sound = item.sound?.normalized()
         guard item.isValid else { notice = AlarmError.invalid.localizedDescription; return }
+        if item.randomSound { roll(&item) }
         if item.enabled {
             do { try await scheduler.schedule(item, soundName: await prepareSound(item)) } catch {
                 // 予約できなかったアラームは、無効のまま保存し、理由を知らせる
@@ -54,6 +58,13 @@ final class AlarmService: ObservableObject {
     }
 
     // MARK: 音
+
+    /// 「ランダム」を抽選し直す（保存済みの曲から1曲。最初の30秒）。次に鳴る時刻を覚え、その時刻を過ぎたあとの起動で、また抽選する。
+    private func roll(_ item: inout AlarmItem) {
+        item.sound = randomPicker?()
+        item.rolledFor = item.nextFireDate(after: now())
+        if item.sound == nil { notice = "ランダムに選べる保存済みの曲がないため、既定の音になります" }
+    }
 
     static func soundFileName(id: UUID) -> String { "alarm-\(id.uuidString).caf" }
 
@@ -95,6 +106,11 @@ final class AlarmService: ObservableObject {
             } else {
                 do { try await scheduler.schedule(item, soundName: soundFileIfReady(item)) } catch { notice = error.localizedDescription }
             }
+        }
+        // 「ランダム」：鳴る時刻を過ぎていたら、次の1回の曲を抽選し直す（「曲を再生」で開かれる途中の曲は、変えない）
+        let pending = AlarmPlayRequest.peek()
+        for item in alarms where item.enabled && item.randomSound && (item.rolledFor ?? .distantPast) <= now() && item.id.uuidString != pending {
+            await save(item)
         }
     }
 }

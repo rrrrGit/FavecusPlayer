@@ -1,5 +1,6 @@
 'use strict';
 const { test } = require('node:test');
+const { appScripts } = require('./support-source.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -61,7 +62,7 @@ async function Harness(t) {
     Date: class extends Date { static now() { return now; } }, requestAnimationFrame: fn => frames.push(fn), IntersectionObserver: class { constructor(callback, options) { this.callback = callback; this.options = options; this.items = new Set(); if (options.threshold === 0 && options.root === nodes.get('entries')) artworkObserver = this; if (options.threshold === 0 && options.root === nodes.get('home')) { if (homeObserver) searchObserver = this; else homeObserver = this; } } observe(item) { this.items.add(item); } disconnect() { this.items.clear(); } }, ResizeObserver: class { constructor() {} observe() {} }, setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, { fn, at: now + ms }); return id; }, clearTimeout: id => timers.delete(id), console: { error: e => errors.push(e) } };
   vm.createContext(context);
   for (const file of ['library-tree.js', 'home-view.js', 'library-search.js', 'tree-view.js', 'parent-picker.js', 'playlist-reader.js', 'keybindings.js', 'queue-drag.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/ui', file), 'utf8').replace('})(globalThis)', '})(window)'), context);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/ui/app.js'), 'utf8'), context); await new Promise(setImmediate);
+  for (const script of appScripts()) vm.runInContext(script, context); await new Promise(setImmediate);
   const flush = () => { while (frames.length) frames.shift()(); };
   flush(); assert.equal(errors.length, 0);
   return { store, id, api, artworkObserver, homeObserver, searchObserver, nodes, scrolls, bounds, calls, html, document, surfaces, windowEvent: name => windowEvents[name]?.(), flush, run: code => vm.runInContext(code, context), emit: (type, value) => emit({ type, value }), advance: ms => now += ms,
@@ -359,8 +360,10 @@ test('067 the local player quality request opens the single-track save dialog fo
   h.emit('change-quality', { playlistId: h.id, entryId: entry.id }); await new Promise(setImmediate);
   assert.equal(h.node('modal-title').textContent, 'この動画のみをダウンロード'); assert.match(h.node('download-entry-meta').textContent, /av999 \/ パート 2/);
   assert.equal(api.estimates[0].entryId, entry.id); assert.deepEqual(s.Snapshot(), before, '要求だけでは保存データを変えない');
-  h.emit('change-quality', { playlistId: h.id, entryId: entry.id }); assert.match(h.node('toast').textContent, /閉じてから/, '画面が開いているときは通知だけ');
-  h.run('CloseModal()'); h.emit('change-quality', { playlistId: 'unknown', entryId: 'unknown' }); await new Promise(setImmediate); assert.equal(h.node('modal').open, false, '存在しない曲では開かない');
+  h.emit('change-quality', { playlistId: h.id, entryId: entry.id }); assert.match(h.node('toast').textContent, /閉じると、続けて/, '画面が開いているときは、断らずに、続きを知らせる');
+  h.run('CloseModal()'); await new Promise(r => setTimeout(r, 5)); assert.equal(h.node('modal-title').textContent, 'この動画のみをダウンロード', '閉じたあとに、覚えておいた画質の変更の画面が開く');
+  h.run('CloseModal()'); await new Promise(r => setTimeout(r, 5)); assert.equal(h.node('modal').open, false, '覚えた操作は、1回だけ');
+  h.emit('change-quality', { playlistId: 'unknown', entryId: 'unknown' }); await new Promise(setImmediate); assert.equal(h.node('modal').open, false, '存在しない曲では開かない');
   assert.equal(h.node('video-fullscreen'), undefined, 'v0.7.2：下の機能欄の最大化ボタンは削除した（音量バーを、v0.6.7の長さに戻すため）');
 });
 test('067 home card puts the check, play and a three-dot menu on the cover; excluded lists stay marked and shuffle starts that list', async t => {
@@ -676,7 +679,7 @@ test('060 dropping a song onto a playlist waits for copy or move confirmation an
  const second=s.Playlist(h.id).entries[1];h.run(`DropTrackIntoPlaylist({playlistId:${JSON.stringify(h.id)},entryId:${JSON.stringify(second.id)}},${JSON.stringify(dest)})`);await h.node('drop-track-actions').children[1].events.click();assert.equal(s.Playlist(dest).entries.length,2);assert.equal(s.Playlist(h.id).entries.length,11);
 });
 test('060 key configuration saves changed keys and shortcut capture ignores modal, background, composition and held play toggles',async t=>{
- const h=await Harness(t);h.run('KeySettings()');const inputs=h.node('keybinding-fields').querySelectorAll('input');inputs[0].onkeydown({code:'KeyD',preventDefault(){},stopPropagation(){}});await h.submit();assert.equal(h.store.data.settings.keybindings.forward,'KeyD');h.run('CloseModal()');let calls=[];h.api.shortcut=async value=>calls.push(value);
+ const h=await Harness(t);h.run('KeySettings()');const inputs=h.node('keybinding-fields').querySelectorAll('input');inputs[0].onkeydown({code:'KeyD',preventDefault(){},stopPropagation(){}});h.node('media-keys-enabled').checked=false;await h.submit();assert.equal(h.store.data.settings.keybindings.forward,'KeyD');assert.equal(h.store.data.settings.mediaKeysEnabled,false);h.run('CloseModal()');let calls=[];h.api.shortcut=async value=>calls.push(value);
  const press=extra=>{const e={code:'Space',isTrusted:true,preventDefault(){this.prevented=true},stopPropagation(){},...extra};h.document.events.keydown(e);return e;};
  press();await new Promise(setImmediate);assert.equal(calls.length,1);assert.equal(press({repeat:true}).prevented,true);assert.equal(calls.length,1);press({isComposing:true});assert.equal(calls.length,1);
  h.emit('foreground',false);press();assert.equal(calls.length,1);h.emit('foreground',true);h.run('Settings()');press();assert.equal(calls.length,1);

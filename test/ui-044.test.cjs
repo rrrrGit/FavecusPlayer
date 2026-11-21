@@ -1,5 +1,6 @@
 'use strict';
 const { test } = require('node:test');
+const { readApp } = require('./support-source.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -54,7 +55,7 @@ function Harness(t) {
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/ui/library-tree.js'), 'utf8').replace('})(globalThis)', '})(window)'), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/ui/tree-view.js'), 'utf8').replace('})(globalThis)', '})(window)'), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/ui/parent-picker.js'), 'utf8').replace('})(globalThis)', '})(window)'), context);
-  const sourceCode = fs.readFileSync(path.join(__dirname, '../src/ui/app.js'), 'utf8');
+  const sourceCode = readApp();
   vm.runInContext(sourceCode.slice(0, sourceCode.indexOf('function ClearDropMarks()')) + '\nstate = initialState;', context);
   return { store, nodes, calls, api, review, source, a, target, run: code => vm.runInContext(code, context), node: id => nodes.get(id), submit: () => vm.runInContext('PerformModal(submitModal, true)', context) };
 }
@@ -85,7 +86,7 @@ test('URL additions use checkboxes and keep the modal open if no destination is 
 test('settings shows ordered category buttons and back persists only the edited section', async t => {
   const h = Harness(t); h.run('Settings()');
   const buttons = h.node('settings-sections').children;
-  assert.deepEqual(buttons.map(x => x.textContent), ['プレイリストの出力›', '使い方›', '自動消去単語設定›', 'Discordアクティビティ›', 'ミニプレイヤー、タスクバー›', '再生・表示›', 'キーコンフィグ›', 'シャッフルの再生回数›', 'バージョン更新›', 'プレイリストの同期›', '最近削除›']);
+  assert.deepEqual(buttons.map(x => x.textContent), ['プレイリストの出力›', '使い方›', '自動消去単語設定›', 'Discordアクティビティ›', 'ミニプレイヤー、タスクバー›', '再生・表示›', 'キーコンフィグ›', 'シャッフルの再生回数›', 'バージョン更新›', 'プレイリストの同期›', '自動リスト›', 'ライブラリの点検›', '出力デバイス›', '再生統計›', '最近削除›']);
   assert.equal(h.node('discord-id'), undefined); assert.equal(h.node('taskbar-width'), undefined); assert.ok(h.node('master-volume')); assert.ok(h.node('bili-account-state'));
   await buttons[3].click(); assert.equal(h.node('modal-title').textContent, 'Discordアクティビティ'); assert.equal(h.node('modal-back').classList.contains('hidden'), false);
   h.node('discord-id').value = '123456789012345678'; h.node('discord-enabled').checked = true;

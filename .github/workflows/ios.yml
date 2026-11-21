@@ -3,7 +3,7 @@ name: iOS build
 # macOSランナーは消費が大きいため、iOS関連の変更があるときだけ実行する。
 on:
   push:
-    branches: ["release/v0.7.0", "release/v0.7.1", "release/v0.7.2", "release/v0.7.3"]
+    branches: ["release/v0.7.0", "release/v0.7.1", "release/v0.7.2", "release/v0.7.3", "release/v0.7.4"]
     paths:
       - "ios/**"
       - "shared/**"
@@ -49,10 +49,15 @@ on:
       - "src/core/import-identity.cjs"
       - "src/core/playlist-icon-data.cjs"
       - "src/core/auto-lists.cjs"
+      - "src/core/play-history.cjs"
+      - "src/core/library-audit.cjs"
+      - "src/core/song-notes.cjs"
+      - "src/core/auto-list-settings.cjs"
       - "src/core/trash.cjs"
       - "src/core/queue.cjs"
       - "src/ui/library-tree.js"
       - "src/ui/library-search.js"
+      - "src/ui/entry-view.js"
   workflow_dispatch:
     inputs:
       screenshot:
@@ -182,6 +187,7 @@ jobs:
           DIR="$DATA/Library/Application Support/FavecusPlayer"
           mkdir -p "$DIR"
           node ../scripts/demo-library.cjs "$DIR/library.json" "$DIR/downloads.json" "$DIR/thumbnails"
+          node -e 'const d=new Date(Date.now()+9*3600000),y=d.getUTCFullYear(),m=d.getUTCMonth(),v=[1800,3240,5100,4200,7980,9600],months={};for(let i=0;i<v.length;i++){const x=y*12+m-(v.length-1-i);months[`${Math.floor(x/12)}-${String(((x%12)+12)%12+1).padStart(2,"0")}`]=v[i];}require("fs").writeFileSync(process.argv[1],JSON.stringify({version:1,months}));' "$DIR/play-time.json"
           mkdir -p "$DIR/downloads"; : > "$DIR/downloads/demo-audio-1.m4a"; : > "$DIR/downloads/demo-video-2.mp4"; : > "$DIR/downloads/demo-audio-5.m4a"
           shot() { # 名前 起動引数...
             NAME=$1; shift
@@ -207,6 +213,13 @@ jobs:
           shot 14-search -FavecusDemoSearch Lo-fi
           shot 10-home-edit -FavecusDemoHomeEdit YES
           shot 11-sync -FavecusDemoSync YES
+          shot 20-select -FavecusDemoPath $P1 -FavecusDemoSelect YES
+          shot 21-sort-sheet -FavecusDemoPath $P1 -FavecusDemoView YES
+          shot 22-song-info -FavecusDemoPath $P1 -FavecusDemoInfo YES
+          shot 23-bulk-add -FavecusDemoPath $P1 -FavecusDemoBulkAdd YES
+          shot 24-stats -FavecusDemoInsights stats
+          shot 25-auto-settings -FavecusDemoInsights auto
+          shot 26-audit -FavecusDemoInsights audit
           shot 15-alarm-list -FavecusDemoAlarm list
           shot 16-alarm-edit -FavecusDemoAlarm edit
           shot 17-alarm-picker -FavecusDemoAlarm picker

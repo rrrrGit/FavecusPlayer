@@ -28,6 +28,20 @@ struct AlarmSongCatalog {
 
     func file(forKey key: String) -> URL? { songs().first { $0.key == key }?.file }
 
+    /// ライブラリ全曲のメディアキー → 曲名（一覧の表示用。保存済みでなくても名前が引ける）。
+    func titlesByKey() -> [String: String] {
+        var result: [String: String] = [:]
+        for playlist in store.document?.playlists ?? [] {
+            for entry in playlist.entries {
+                let key: String?
+                if entry.type == "bilibili" { key = downloads?.entryKeys[entry.id] }
+                else { key = entry.fileName.map { "local:" + $0 } }
+                if let key, result[key] == nil { result[key] = entry.title.isEmpty ? "（無題）" : entry.title }
+            }
+        }
+        return result
+    }
+
     /// メディアキーの曲の、登録曲ID（再生に使う）。保存の有無は問わない。
     func entryId(forKey key: String) -> String? {
         for playlist in store.document?.playlists ?? [] {
@@ -53,14 +67,24 @@ struct AlarmSongCatalog {
 struct AlarmSoundPicker: View {
     let catalog: AlarmSongCatalog
     let current: AlarmSound?
+    /// 「ランダム」を選んでいる（保存済みの曲から、抽選で選ぶ）。
+    var randomSelected = false
     let onPick: (AlarmSound?) -> Void
+    let onRandom: () -> Void
     @State private var query = ""
 
     var body: some View {
         let songs = catalog.songs().filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) }
         List {
             Button { onPick(nil) } label: {
-                HStack { Text("既定の音"); Spacer(); if current == nil { Image(systemName: "checkmark") } }
+                HStack { Text("既定の音"); Spacer(); if current == nil && !randomSelected { Image(systemName: "checkmark") } }
+            }
+            // 保存済みの曲から、完全にランダム（お気に入りは、少しだけ選ばれやすい）。音は、選ばれた曲の最初の30秒
+            Button { onRandom() } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack { Text("ランダム（保存済みの曲から）"); Spacer(); if randomSelected { Image(systemName: "checkmark") } }
+                    Text("曲の最初の30秒。お気に入りは、少しだけ選ばれやすくなります。鳴ったあとにアプリを開くと、次の曲を選び直します。").font(.footnote).foregroundStyle(Theme.muted)
+                }
             }
             Section("保存済みの曲") {
                 if songs.isEmpty { Text("保存済みの曲がありません").foregroundStyle(Theme.muted) }

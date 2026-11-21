@@ -6,31 +6,42 @@
 // ・よく聴く曲：再生回数が1以上を、回数の多い順（同数は、登録の新しい順）。上位50。
 // ・最近追加した曲：登録日時の新しい順。上位50。
 // ・未再生：再生回数が0の曲を、登録の新しい順。上位200。
-const LIMITS = { frequent: 50, recent: 50, unplayed: 200 };
-const KINDS = ['frequent', 'recent', 'unplayed'];
+// ・最近聴いた曲（v0.7.4）：history（再生履歴のキー。新しい順）を渡したときだけ返す。同じメディアは1曲。上位100。
+// ・設定（v0.7.4。渡さなければ、これまでの動き）：frequentMin＝「よく聴く曲」の最低回数（既定1）、recentDays＝「最近追加した曲」を、この日数以内に限る（0＝限らない）、nowMs＝現在時刻。
+// ・お気に入り（v0.7.4）：お気に入り（メディアキーが favorites にある）の曲を、登録の新しい順。上位200。favorites を渡したときだけ返す。
+const LIMITS = { frequent: 50, recent: 50, unplayed: 200, favorites: 200, history: 100 };
+const KINDS = ['frequent', 'recent', 'unplayed', 'favorites', 'history'];
 
 const Compare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const ByRecent = (a, b) => Compare(b.addedAt, a.addedAt) || Compare(a.id, b.id);
 
 // library：ライブラリ（playlists[].entries[]）。keys：{ 曲のID: メディアキー }。counts：{ メディアキー: 再生回数 }。
-function Select({ library, keys = {}, counts = {}, limits = {} } = {}) {
-  const limit = { ...LIMITS, ...limits }, best = new Map();
+function Select({ library, keys = {}, counts = {}, limits = {}, favorites = null, history = null, frequentMin = 1, recentDays = 0, nowMs = Date.now() } = {}) {
+  const limit = { ...LIMITS, ...limits }, best = new Map(), liked = Array.isArray(favorites) ? new Set(favorites) : null;
   for (const list of Array.isArray(library?.playlists) ? library.playlists : []) {
     for (const entry of Array.isArray(list?.entries) ? list.entries : []) {
       if (!entry || typeof entry.id !== 'string') continue;
       const mediaKey = typeof keys[entry.id] === 'string' && keys[entry.id] ? keys[entry.id] : '';
       const item = { id: entry.id, playlistId: list.id, key: mediaKey || `id:${entry.id}`, addedAt: typeof entry.addedAt === 'string' ? entry.addedAt : '', count: mediaKey ? Math.max(0, Math.floor(Number(counts[mediaKey]) || 0)) : 0 };
+      item.favorite = !!mediaKey && !!liked && liked.has(mediaKey);
       const known = best.get(item.key);
       if (!known || ByRecent(item, known) < 0) best.set(item.key, item);
     }
   }
   const items = [...best.values()];
   const pick = (filtered, compare, max) => filtered.sort(compare).slice(0, Math.max(0, max)).map(({ id, playlistId, count }) => ({ id, playlistId, count }));
-  return {
-    frequent: pick(items.filter(i => i.count > 0), (a, b) => b.count - a.count || ByRecent(a, b), limit.frequent),
-    recent: pick(items, ByRecent, limit.recent),
+  const result = {
+    frequent: pick(items.filter(i => i.count > 0 && i.count >= Math.max(1, Number(frequentMin) || 1)), (a, b) => b.count - a.count || ByRecent(a, b), limit.frequent),
+    recent: pick(recentDays > 0 ? items.filter(i => { const at = Date.parse(i.addedAt); return Number.isFinite(at) && nowMs - at <= recentDays * 86400000; }) : items, ByRecent, limit.recent),
     unplayed: pick(items.filter(i => i.count === 0), ByRecent, limit.unplayed)
   };
+  if (liked) result.favorites = pick(items.filter(i => i.favorite), ByRecent, limit.favorites);
+  if (Array.isArray(history)) {
+    const byKey = new Map(items.map(i => [i.key, i])), seen = new Set(), recent = [];
+    for (const key of history) { const item = byKey.get(key); if (!item || seen.has(key)) continue; seen.add(key); recent.push({ id: item.id, playlistId: item.playlistId, count: item.count }); if (recent.length >= Math.max(0, limit.history)) break; }
+    result.history = recent;
+  }
+  return result;
 }
 
 module.exports = { Select, LIMITS, KINDS };

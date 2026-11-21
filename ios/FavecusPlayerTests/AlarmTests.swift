@@ -130,6 +130,27 @@ final class AlarmTests: XCTestCase {
         XCTAssertEqual(calendar.dateComponents([.day, .hour], from: weekly), DateComponents(day: 18, hour: 7))
         XCTAssertNil(AlarmItem(hour: 7, minute: 30, weekdays: [9]).nextFireDate(after: now, calendar: calendar))
     }
+
+    func testSoundSummaryShowsChosenSongRandomSongAndFallback() {
+        let titles = ["bili:BV1aaaaaaaaa:p1": "お気に入りの曲", "local:song.mp3": "ローカル曲"]
+        let picked = AlarmItem(hour: 7, minute: 0, sound: AlarmSound(mediaKey: "bili:BV1aaaaaaaaa:p1", startSeconds: 0, durationSeconds: 15))
+        XCTAssertEqual(AlarmListView.soundSummary(picked) { titles[$0] }, "お気に入りの曲")
+
+        let randomRolled = AlarmItem(hour: 7, minute: 0, sound: AlarmSound(mediaKey: "local:song.mp3", startSeconds: 0, durationSeconds: 30), randomSound: true)
+        XCTAssertEqual(AlarmListView.soundSummary(randomRolled) { titles[$0] }, "ランダム：ローカル曲")
+
+        let randomUnrolled = AlarmItem(hour: 7, minute: 0, sound: nil, randomSound: true)
+        XCTAssertEqual(AlarmListView.soundSummary(randomUnrolled) { titles[$0] }, "ランダム（既定の音）")
+
+        let randomUnknown = AlarmItem(hour: 7, minute: 0, sound: AlarmSound(mediaKey: "local:missing.mp3", startSeconds: 0, durationSeconds: 30), randomSound: true)
+        XCTAssertEqual(AlarmListView.soundSummary(randomUnknown) { titles[$0] }, "ランダム（曲未取得）")
+
+        let missingSong = AlarmItem(hour: 7, minute: 0, sound: AlarmSound(mediaKey: "local:missing.mp3", startSeconds: 0, durationSeconds: 30))
+        XCTAssertEqual(AlarmListView.soundSummary(missingSong) { titles[$0] }, "曲が見つかりません")
+
+        let defaultSound = AlarmItem(hour: 7, minute: 0)
+        XCTAssertEqual(AlarmListView.soundSummary(defaultSound) { titles[$0] }, "既定の音")
+    }
 }
 
 /// 「曲を再生」ボタンからの再生の依頼（v0.7.3 Step4）。

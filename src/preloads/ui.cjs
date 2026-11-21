@@ -5,16 +5,16 @@ const invoke = channel => (...args) => ipcRenderer.invoke(channel, ...args).then
   return result.value;
 });
 contextBridge.exposeInMainWorld('favecusApp', {
-  state: invoke('app:state'), action: invoke('library:action'), addFiles: invoke('library:files'),
+  state: invoke('app:state'), action: invoke('library:action'),
   entryThumbnail: invoke('library:thumbnail'), videoFullscreen: invoke('player:fullscreen'), resetPlayCounts: invoke('player:reset-counts'),
   openRelease: invoke('app:release-open'), downloads: invoke('downloads:state'), estimateDownload: invoke('downloads:estimate'), cancelDownloadEstimate: invoke('downloads:estimate-cancel'), downloadPlaylist: invoke('downloads:start'), cancelDownload: invoke('downloads:cancel'), downloadDirectory: invoke('downloads:directory'), openDownloads: invoke('downloads:open'), preferSaved: invoke('downloads:prefer'),
   importLibrary: invoke('library:import'), exportLibrary: invoke('library:export'),
   resolveURL: invoke('bilibili:resolve'), entryDuration: invoke('library:duration'), playEverything: invoke('player:all'),
   moveTracks: invoke('library:move-tracks'), commitImport: invoke('library:import-commit'), cancelImport: invoke('library:import-cancel'),
   transferEntry: invoke('library:transfer'),
-  prepareAdd: invoke('library:prepare-add'), prepareFiles: invoke('library:prepare-files'),
+  prepareAdd: invoke('library:prepare-add'), prepareFiles: invoke('library:prepare-files'), prepareFolder: invoke('library:prepare-folder'),
   commitAdd: invoke('library:commit-add'), cancelAdd: invoke('library:cancel-add'),
-  shortcut: invoke('player:shortcut'), play: invoke('player:play'), shufflePlay: invoke('player:shuffle'), command: invoke('player:command'), volume: invoke('player:volume'), sleepTimer: invoke('player:sleep'), resumeLast: invoke('player:resume-last'), trashList: invoke('trash:list'), trashRestore: invoke('trash:restore'), trashDelete: invoke('trash:delete'), trashClear: invoke('trash:clear'), autoList: invoke('library:auto-list'), autoPlay: invoke('player:auto-play'), mini: invoke('window:mini'),
+  shortcut: invoke('player:shortcut'), play: invoke('player:play'), shufflePlay: invoke('player:shuffle'), command: invoke('player:command'), volume: invoke('player:volume'), sleepTimer: invoke('player:sleep'), speed: invoke('player:speed'), listViewSet: invoke('list:view-set'), outputGet: invoke('output:get'), outputSet: invoke('output:set'), notesGet: invoke('notes:get'), notesSet: invoke('notes:set'), audit: invoke('library:audit'), favoriteMany: invoke('library:favorite-many'), saveSelected: invoke('downloads:save-selected'), autoListSettings: invoke('autolist:settings'), clearHistory: invoke('history:clear'), stats: invoke('stats:get'), listStats: invoke('list:stats'), queueReorder: invoke('queue:reorder'), queueJump: invoke('queue:jump'), queueInsert: invoke('queue:insert'), resumeLast: invoke('player:resume-last'), favorite: invoke('library:favorite'), trashList: invoke('trash:list'), trashRestore: invoke('trash:restore'), trashDelete: invoke('trash:delete'), trashClear: invoke('trash:clear'), autoList: invoke('library:auto-list'), autoPlay: invoke('player:auto-play'), mini: invoke('window:mini'),
   openOfficial: invoke('player:official'), help: invoke('app:help'), discordPortal: invoke('app:discord-portal'),
   discordGuide: invoke('app:discord-guide'), discordImage: invoke('app:discord-image'),
   taskbarLog: invoke('app:taskbar-log'),

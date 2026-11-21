@@ -6,6 +6,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { ReadJson, WriteJsonAtomic } = require('./json-file.cjs');
 
 const TARGET_DB = -16;
 const MIN_GAIN = 0.25;
@@ -40,14 +41,10 @@ function Measure(executable, file, { timeoutMs = 120000, spawnFn = spawn } = {})
 class LoudnessStore {
   constructor(file, executable, options = {}) {
     this.file = file; this.executable = executable; this.options = options; this.pending = new Map(); this.records = {};
-    try { const data = JSON.parse(fs.readFileSync(file, 'utf8')); if (data?.version === 1 && data.records && typeof data.records === 'object') this.records = data.records; } catch { /* 空から始める */ }
+    const data = ReadJson(file);
+    if (data?.version === 1 && data.records && typeof data.records === 'object') this.records = data.records;
   }
-  Save() {
-    try {
-      fs.mkdirSync(path.dirname(this.file), { recursive: true });
-      const temp = `${this.file}.tmp`; fs.writeFileSync(temp, JSON.stringify({ version: 1, records: this.records })); fs.renameSync(temp, this.file);
-    } catch { /* 保存できなくても、再生は妨げない */ }
-  }
+  Save() { WriteJsonAtomic(this.file, { version: 1, records: this.records }); }
   // ファイルの識別（パス・大きさ・更新時刻）。変わったら、測り直す。
   Identity(file) { try { const stat = fs.statSync(file); return `${path.resolve(file)}|${stat.size}|${Math.floor(stat.mtimeMs)}`; } catch { return null; } }
   Cached(file) {
@@ -61,13 +58,21 @@ class LoudnessStore {
     const identity = this.Identity(file);
     if (!identity || !this.executable) return 1;
     if (!this.pending.has(identity)) {
-      this.pending.set(identity, Measure(this.executable, file, this.options).then(meanDb => {
+      this.pending.set(identity, this.Limited(() => Measure(this.executable, file, this.options)).then(meanDb => {
         if (meanDb !== null) { this.records[identity] = { meanDb, at: Date.now() }; this.Prune(); this.Save(); }
         return meanDb;
       }).finally(() => this.pending.delete(identity)));
     }
     const meanDb = await this.pending.get(identity);
     return meanDb === null ? 1 : Gain(meanDb);
+  }
+  // 同時に動かす ffmpeg は2つまで（連続で曲送りしても、プロセスが増え続けない）。順番待ちは先着順。
+  Limited(task) {
+    const limit = this.options.maxConcurrent || 2;
+    this.running = this.running || 0; this.waiting = this.waiting || [];
+    const run = () => { this.running++; return Promise.resolve().then(task).finally(() => { this.running--; this.waiting.shift()?.(); }); };
+    if (this.running < limit) return run();
+    return new Promise(resolve => this.waiting.push(() => resolve(run())));
   }
   // 古い記録を整理する（最大2000件）。
   Prune() {

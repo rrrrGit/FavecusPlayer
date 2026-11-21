@@ -1,5 +1,6 @@
 'use strict';
 const { test } = require('node:test');
+const { Needs } = require('./support-env.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
 const { randomUUID } = require('node:crypto');
@@ -123,7 +124,7 @@ test('a failed Store save or external library edit cannot turn committed referen
     h.library.FlushCleanup(); assert.ok(h.library.File(record.token)); assert.ok(fs.existsSync(h.library.ResolvePath(record.file)));
   }
 });
-test('unmanaged files, symlinks and changed file identities are preserved', t => {
+test('unmanaged files, symlinks and changed file identities are preserved', { skip: Needs.symlink }, t => {
   const h = Fixture(t), record = h.seed(), extra = path.join(path.dirname(h.library.ResolvePath(record.file)), 'keep.txt'); fs.writeFileSync(extra, 'unmanaged');
   const unlink = fs.unlinkSync, mock = t.mock.method(fs, 'unlinkSync', file => { if (file === h.library.ResolvePath(record.file)) throw Object.assign(new Error('busy'), { code: 'EBUSY' }); return unlink(file); });
   try { h.library.FlushCleanup(); } finally { mock.mock.restore(); }

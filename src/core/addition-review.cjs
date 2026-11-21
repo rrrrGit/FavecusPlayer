@@ -25,14 +25,23 @@ class AdditionReview {
     }
     return this.PrepareItems(action.destinationIds ?? action.playlistId, items.map(entry => ({ entry })), warnings);
   }
-  async PrepareFiles(destinationIds, files) {
+  // describe(file) → { title?, artist? }：ファイルに埋め込まれたタグ（フォルダから追加。曲名はファイル名より優先、アーティストは曲の情報へ）。最大4ファイルずつ並行して読む。
+  async PrepareFiles(destinationIds, files, { describe } = {}) {
     this.store.Targets(destinationIds);
     if (!Array.isArray(files) || !files.length || files.length > LIMIT) throw new Error('追加するファイルを選んでください（最大10000件）。');
+    const described = new Map();
+    if (describe) {
+      let next = 0;
+      await Promise.all(Array.from({ length: Math.min(4, files.length) }, async () => {
+        while (next < files.length) { const file = files[next++]; try { described.set(file, (await describe(file)) || {}); } catch { described.set(file, {}); } }
+      }));
+    }
     const candidates = [];
     for (const file of files) {
       const ext = path.extname(file).toLowerCase();
       if (!MEDIA_EXTENSIONS.has(ext) || !(await fs.promises.stat(file)).isFile()) throw new Error('対応していないファイルです。');
-      candidates.push({ sourceFile: file, entry: { type: 'local', fileName: `${randomUUID()}${ext === '.wma' ? '.flac' : ext}`, title: path.basename(file, path.extname(file)) } });
+      const info = described.get(file) || {};
+      candidates.push({ sourceFile: file, ...(info.artist ? { artist: info.artist } : {}), entry: { type: 'local', fileName: `${randomUUID()}${ext === '.wma' ? '.flac' : ext}`, title: info.title || path.basename(file, path.extname(file)) } });
     }
     return this.PrepareItems(destinationIds, candidates);
   }

@@ -1,6 +1,7 @@
 'use strict';
 // v0.7.3 F3：自動リスト（よく聴く曲・最近追加した曲・未再生）の選び方。
 const { test } = require('node:test');
+const { readMain, readApp } = require('./support-source.cjs');
 const assert = require('node:assert/strict');
 const { Select } = require('../src/core/auto-lists.cjs');
 
@@ -71,11 +72,30 @@ test('PC: the home shows the auto lists below the playlists and plays them throu
   const fs = require('node:fs'), path = require('node:path');
   const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
   assert.match(read('src/preloads/ui.cjs'), /autoList: invoke\('library:auto-list'\), autoPlay: invoke\('player:auto-play'\)/);
-  const main = read('src/main.cjs');
+  const main = readMain();
   assert.match(main, /AutoListsCore\.Select\(/, '選び方は、共通の core/auto-lists.cjs');
   assert.match(main, /Handle\('player:auto-play'/);
   assert.match(main, /ScopeEntries\(nextQueue\.playlistId\)/, '次の曲は、自動リストの並びから選ぶ');
   assert.match(main, /AUTO_NAMES\[queue\.playlistId\] \? '\*' : queue\.playlistId/, '前回の続き：自動リストの再生は、全体を範囲として保存');
-  const app = read('src/ui/app.js');
+  const app = readApp();
   assert.match(app, /const auto = MakeAutoLists\(\); if \(auto\) \$\('home'\)\.append\(auto\)/);
+});
+
+test('favorites (v0.7.4): favorite media only, newest registration first, one per media, returned only when asked', () => {
+  assert.equal(Select({ library, keys, counts: {} }).favorites, undefined, '渡さなければ、返さない（共通テストデータを変えない）');
+  const result = Select({ library, keys, counts: {}, favorites: ['K1', 'K3', 'K9'] });
+  assert.deepEqual(ids(result.favorites), ['a2', 'c'], 'K1は1曲にまとめ（新しい a2）、登録の新しい順');
+  assert.deepEqual(Select({ library, keys, counts: {}, favorites: [] }).favorites, []);
+  assert.deepEqual(ids(Select({ library, keys, counts: {}, favorites: ['K1', 'K2', 'K3'], limits: { favorites: 1 } }).favorites), ['a2']);
+  assert.deepEqual(ids(Select({ library, keys, counts: {}, favorites: ['id:nokey'] }).favorites), [], 'キーのない曲は、お気に入りにならない');
+});
+
+test('the favorites list is wired on both platforms', () => {
+  const fs = require('node:fs'), path = require('node:path');
+  const read = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  assert.match(readMain(), /'auto:favorites': 'お気に入り'/);
+  assert.match(readMain(), /favorites: favorites \? favorites\.List\(\) : \[\]/);
+  assert.match(readApp(), /kind: 'favorites'/);
+  assert.match(read('ios/FavecusPlayer/Library/AutoLists.swift'), /case frequent, recent, unplayed, favorites/);
+  assert.match(read('ios/FavecusPlayer/Playback/PlaybackEngine+Queue.swift'), /"favorites": Array\(favorites\.keys\)/);
 });

@@ -3,13 +3,15 @@ import SwiftUI
 /// 自動リスト（v0.7.3 F3）：よく聴く曲・最近追加した曲・未再生。PC版と同じ選び方（共通JS：src/core/auto-lists.cjs）。
 /// 保存せず、ライブラリと再生回数から、その都度作る（同期しない・編集しない）。
 enum AutoListKind: String, CaseIterable, Hashable, Identifiable {
-    case frequent, recent, unplayed
+    case frequent, recent, unplayed, favorites, history
     var id: String { rawValue }
     var title: String {
         switch self {
         case .frequent: return "よく聴く曲"
         case .recent: return "最近追加した曲"
         case .unplayed: return "未再生"
+        case .favorites: return "お気に入り"
+        case .history: return "最近聴いた曲"
         }
     }
     var note: String {
@@ -17,6 +19,8 @@ enum AutoListKind: String, CaseIterable, Hashable, Identifiable {
         case .frequent: return "再生回数の多い順（上位50曲）"
         case .recent: return "登録の新しい順（50曲）"
         case .unplayed: return "まだ聴いていない曲（登録の新しい順）"
+        case .favorites: return "お気に入りにした曲（登録の新しい順）"
+        case .history: return "最近再生した曲（新しい順）"
         }
     }
     var icon: String {
@@ -24,6 +28,8 @@ enum AutoListKind: String, CaseIterable, Hashable, Identifiable {
         case .frequent: return "chart.bar"
         case .recent: return "clock"
         case .unplayed: return "sparkles"
+        case .favorites: return "heart"
+        case .history: return "clock.arrow.circlepath"
         }
     }
     /// 再生範囲の名前（共通JSの再生キューでは、曲のIDの並びを直接渡し、この名前は表示用）。
@@ -40,12 +46,16 @@ struct AutoListsResult: Decodable, Equatable {
     var frequent: [AutoListItem] = []
     var recent: [AutoListItem] = []
     var unplayed: [AutoListItem] = []
+    var favorites: [AutoListItem] = []
+    var history: [AutoListItem] = []
 
     func items(_ kind: AutoListKind) -> [AutoListItem] {
         switch kind {
         case .frequent: return frequent
         case .recent: return recent
         case .unplayed: return unplayed
+        case .favorites: return favorites
+        case .history: return history
         }
     }
 }
@@ -87,8 +97,7 @@ struct AutoListsSection: View {
                 .buttonStyle(.plain)
             }
         }
-        .task(id: store.document) { await model.reload(services.player) }
-        .onAppear { Task { await model.reload(services.player) } }
+        .task(id: store.document) { await model.reload(services.player) } // 表示のたびにも走るため、onAppearでの二重の読み込みはしない
     }
 }
 

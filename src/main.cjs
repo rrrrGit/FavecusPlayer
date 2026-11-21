@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, WebContentsView, ipcMain, dialog, shell, session, protocol, net, Menu, nativeImage, crashReporter, safeStorage } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, dialog, shell, session, protocol, net, Menu, nativeImage, crashReporter, safeStorage, globalShortcut } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs');
@@ -36,8 +36,23 @@ const { Thumbnails, SmallImage, CoverImage, FlatImage, ImageData } = require('./
 const { SleepTimer } = require('./core/sleep-timer.cjs');
 const { ResumeStore } = require('./core/resume-point.cjs');
 const AutoListsCore = require('./core/auto-lists.cjs');
+const PlaybackSpeed = require('./core/playback-speed.cjs');
+const MediaKeys = require('./core/media-keys.cjs');
+const EntryView = require('./ui/entry-view.js');
+const Tree = require('./ui/library-tree.js');
+const LibraryAudit = require('./core/library-audit.cjs');
+const { ScanFolder } = require('./core/folder-scan.cjs');
+const { ReadTags } = require('./core/media-tags.cjs');
+const SongNotes = require('./core/song-notes.cjs');
+const { OutputDeviceStore } = require('./core/output-device.cjs');
+const { SongNotesStore } = require('./core/song-notes-store.cjs');
+const { HistoryStore } = require('./core/play-history-store.cjs');
+const { PlayTimeStore } = require('./core/play-time-store.cjs');
+const { AutoListSettingsStore } = require('./core/auto-list-settings-store.cjs');
+const { ListViewStore } = require('./core/list-views.cjs');
 const { TrashStore } = require('./core/trash-store.cjs');
 const { LoudnessStore } = require('./core/loudness.cjs');
+const { FavoriteStore } = require('./core/favorites.cjs');
 const { APP_ID, ConfigureTaskbar, PreviousInstallRoots } = require('./core/windows-identity.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'favecus', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
@@ -49,11 +64,19 @@ app.setPath('sessionData', dataDirectory);
 let win, store, presence, remoteView, mini, volumeSaveTimer, backgroundMode, sync;
 let viewVisible = false;
 let current = null, playback = null;
-let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null, trashStore = null, loudness = null, songGain = 1;
+let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null, trashStore = null, loudness = null, songGain = 1, favorites = null, speedStore = null, mediaKeys = null, listViews = null, historyStore = null, playTimeStore = null, autoListSettings = null, notesStore = null, outputStore = null;
 let visibleBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 let statuses = { discord: { code: 'off', text: 'Discord連携はオフです' }, taskbar: { code: 'off', text: '下向き矢印を押すと埋め込みを試します' } };
 let playCounts;
-const ShuffleWeight = entry => store?.data.settings.weightedShuffle === false ? 1 : PlayLedger.Weight(playCounts?.Count(entry) || 0);
+// シャッフルの重み：1/(1+再生回数)。お気に入りの曲は、倍率を掛けて、少しだけ選ばれやすくする（共通の規則：play-ledger.cjs）
+const ShuffleWeight = entry => store?.data.settings.weightedShuffle === false ? 1 : PlayLedger.WeightOf(playCounts?.Count(entry) || 0, IsFavorite(entry));
+function IsFavorite(entry) { const key = playCounts?.KeyOf(entry); return !!key && !!favorites?.Has(key); }
+// お気に入りの曲の、登録曲ID（画面の表示用。同じメディアの曲は、すべて）。
+function FavoriteIds() {
+  const ids = [];
+  for (const list of store?.data.playlists || []) for (const entry of list.entries) if (IsFavorite(entry)) ids.push(entry.id);
+  return ids;
+}
 let queue = new Queue(null, ShuffleWeight, randomInt);
 const playbackMetadata = new Map(), metadataPending = new Map(), officialPreferred = new Set();
 let generation = 0, loadRequest = 0, lastPlayerCommand = null, nativeDiagnostics;
@@ -70,7 +93,7 @@ const Emit = (type, value) => {
 };
 // 自動リスト（よく聴く曲・最近追加した曲・未再生）。保存せず、その都度、共通の規則（core/auto-lists.cjs）で選ぶ。
 // 再生するときは、そのときの曲の並び（スナップショット）を再生範囲（auto:…）にする。再生回数が増えても、再生中の並びは変わらない。
-const AUTO_NAMES = { 'auto:frequent': 'よく聴く曲', 'auto:recent': '最近追加した曲', 'auto:unplayed': '未再生' };
+const AUTO_NAMES = { 'auto:frequent': 'よく聴く曲', 'auto:recent': '最近追加した曲', 'auto:unplayed': '未再生', 'auto:favorites': 'お気に入り', 'auto:history': '最近聴いた曲' };
 const autoSnapshots = new Map();
 function BuildAutoLists() {
   const keys = {}, counts = {};
@@ -78,7 +101,9 @@ function BuildAutoLists() {
     const key = playCounts?.KeyOf(entry);
     if (key) { keys[entry.id] = key; if (!(key in counts)) counts[key] = playCounts.Count(entry); }
   }
-  return AutoListsCore.Select({ library: store.data, keys, counts });
+  // 件数・条件は、自動リストの設定（この端末内。既定は、これまでの動き）。最近聴いた曲は、再生履歴から。
+  const settings = autoListSettings ? autoListSettings.Get() : null;
+  return AutoListsCore.Select({ library: store.data, keys, counts, favorites: favorites ? favorites.List() : [], history: historyStore ? historyStore.Keys(500) : [], ...(settings ? { limits: settings.limits, frequentMin: settings.frequentMin, recentDays: settings.recentDays } : {}) });
 }
 function AutoEntries(kind) {
   const scope = `auto:${kind}`;
@@ -89,20 +114,41 @@ function AutoEntries(kind) {
   autoSnapshots.set(scope, entries);
   return entries;
 }
+// 並べ替え・絞り込みの材料（再生回数・お気に入り・保存済み）。表示（list:stats）と再生順の両方が、同じ規則（ui/entry-view.js）を使う。
+const ViewContext = () => ({ count: entry => playCounts?.Count(entry) || 0, favorite: entry => IsFavorite(entry), saved: entry => entry.type === 'local' || !!offline?.Find(entry) });
+// リストの曲を、そのリストに選んだ並べ替え・絞り込みの順にする（選んでいなければ、保存した順のまま。すべて（*）は対象外）。
+// 画面と同じ規則：リストごとに、そのリスト自身の曲へ、そのリスト自身の選択を適用し、リストの順（親→子）に並べる。
+const ArrangedEntries = scope => {
+  if (scope === '*' || !listViews) return store.Entries(scope);
+  const context = ViewContext(), result = [];
+  for (const list of Tree.Walk(store.data, [scope])) {
+    const rows = list.entries.map(entry => ({ ...entry, playlistId: list.id })), view = listViews.Get(list.id);
+    result.push(...(view ? EntryView.Apply(rows, view, context) : rows));
+  }
+  return result;
+};
+// 再生中の曲が、並べ替え・絞り込みから外れても（未再生だけ、などで、再生すると外れる）、再生の範囲から消さない（先頭に置いて続ける）。
+const KeepCurrent = (scope, list) => {
+  if (!current || scope === '*' || list.some(entry => entry.id === current.entryId)) return list;
+  const raw = store.Entries(scope).find(entry => entry.id === current.entryId);
+  return raw ? [raw, ...list] : list;
+};
 const ScopeEntries = scope => AUTO_NAMES[scope]
   ? (autoSnapshots.get(scope) || []).filter(e => store.data.playlists.some(p => p.id === e.playlistId && p.entries.some(x => x.id === e.id)))
-  : store.Entries(scope);
+  : KeepCurrent(scope, ArrangedEntries(scope));
+async function StartShuffled(scope, entries) {
+  if (!entries.length) throw new Error('再生する曲がありません。');
+  const nextQueue = new Queue(null, ShuffleWeight, randomInt), first = nextQueue.ShuffleStart(scope, entries), selected = entries.find(e => e.id === first);
+  PlayableEntry(selected.playlistId, first);
+  const settings = { shuffle: true };
+  if (store.data.settings.repeat === 'one') settings.repeat = 'off';
+  const state = store.Apply({ type: 'settings', settings }); queue = nextQueue; Emit('state', state);
+  return LoadEntry(selected.playlistId, first);
+}
 async function AutoPlay(kind, entryId, shuffled) {
   const entries = AutoEntries(kind), scope = `auto:${kind}`;
+  if (shuffled) return StartShuffled(scope, entries);
   if (!entries.length) throw new Error('再生する曲がありません。');
-  if (shuffled) {
-    const nextQueue = new Queue(null, ShuffleWeight, randomInt), first = nextQueue.ShuffleStart(scope, entries), selected = entries.find(e => e.id === first);
-    PlayableEntry(selected.playlistId, first);
-    const settings = { shuffle: true };
-    if (store.data.settings.repeat === 'one') settings.repeat = 'off';
-    const state = store.Apply({ type: 'settings', settings }); queue = nextQueue; Emit('state', state);
-    return LoadEntry(selected.playlistId, first);
-  }
   const selected = entries.find(e => e.id === entryId) || entries[0];
   PlayableEntry(selected.playlistId, selected.id);
   queue.Start(scope, entries, selected.id, store.data.settings.shuffle);
@@ -290,13 +336,14 @@ async function LoadThumbnail() {
   thumbnail = { entryId: current.entryId, image, pending: false }; Emit('thumbnail', thumbnail);
 }
 function AcceptPlayback(data) {
-  playback = data; playCounts?.Observe(data); Emit('playback', data); UpdatePresence();
+  playback = data; playCounts?.Observe(data); playTimeStore?.Observe(data); Emit('playback', data); UpdatePresence();
   // 前回の続きから再生：曲・再生範囲・位置を、この端末にだけ保存する（約10秒ごと・一時停止の瞬間）
   if (current?.playlistId && queue?.playlistId) resumeStore?.Observe({ entryId: current.entryId, playlistId: current.playlistId, scope: AUTO_NAMES[queue.playlistId] ? '*' : queue.playlistId, position: data.position, duration: data.duration }, data.paused === true);
   if (current?.officialPlayer && !data.paused && data.position >= 3) { officialPreferred.add(current.entry.videoId); const season = playbackMetadata.get(current.entry.videoId)?.ugc_season?.id; if (season) officialPreferred.add(`season:${season}`); if (officialPreferred.size > 1000) officialPreferred.delete(officialPreferred.values().next().value); }
 }
 function StopPlayer() {
   loadRequest++;
+  playTimeStore?.Stop();
   CloseView(); current = null; playback = null; thumbnail = null; queue.Clear();
   Emit('current', null); Emit('playback', null); Emit('resume', ResumeOffer()); UpdatePresence(); backgroundMode?.Refresh();
 }
@@ -318,6 +365,8 @@ function SetVolume(factor = 1) {
       const channel = mediaChannels.get(wc);
       wc.setAudioMuted(volume === 0 || !channel?.ready);
       channel?.Send('media:command', { type: 'volume', value: volume });
+      if (wc === remoteView?.webContents && String(wc.getURL?.() || '').startsWith('favecus://app/local.html')) channel?.Send('media:command', { type: 'sink', label: outputStore ? outputStore.Get() : '' }); // 出力デバイス（保存済み・ローカルの再生だけ）
+      if (wc === remoteView?.webContents) channel?.Send('media:command', { type: 'rate', value: speedStore ? speedStore.Get() : 1 }); // 再生速度も、読み込みのたびに合わせ直す
     }
   }
 }
@@ -502,6 +551,7 @@ async function LoadEntry(playlistId, entryId, pageMode = false, { allowRecovery 
   }
   const gen = generation; view.resume = resume;
   if (!preserveCount) playCounts?.Begin(entry);
+  playTimeStore?.Begin();
   songGain = 1; void LevelCurrent(request, saved ? offline.ResolvePath(saved.file) : entry.type === 'local' ? path.join(store.media, entry.fileName) : null);
   current = { source, queuePlaylistId: queue.playlistId, playlistId, entryId, entry: structuredClone(entry), pageMode, officialPlayer, recoveryAttempt, offline: saved ? { token: saved.token, kind: saved.kind, height: saved.height } : null };
   PlayerDiagnostic('track-change', { source, saved: !!saved });
@@ -520,7 +570,7 @@ async function Step(direction, automatic = false) {
   if (!current?.playlistId) return;
   const nextQueue = queue.Clone(), id = nextQueue.Move(direction, store.data.settings.repeat, automatic);
   if (!id) { if (automatic) { StopPlayer(); Notify('再生リストの最後まで再生しました。'); } return; }
-  const next = ScopeEntries(nextQueue.playlistId).find(e => e.id === id);
+  const next = ScopeEntries(nextQueue.playlistId).find(e => e.id === id) || nextQueue.catalog.get(id); // 「次に再生」で足した、ほかのリストの曲も
   if (!next) return;
   PlayableEntry(next.playlistId, id); queue = nextQueue;
   await LoadEntry(next.playlistId, id);
@@ -547,30 +597,30 @@ function Handle(channel, callback) {
     catch (error) { return { ok: false, error: error.message || '操作に失敗しました。' }; }
   });
 }
+function SyncMediaKeys() {
+  const enabled = store?.data?.settings?.mediaKeysEnabled !== false;
+  if (enabled) { if (!mediaKeys) mediaKeys = MediaKeys.Register(globalShortcut, command => Command(command)); }
+  else { mediaKeys?.Dispose(); mediaKeys = null; }
+}
 async function Configure() {
   const settings = store.data.settings;
   presence.Configure(settings.discordEnabled, settings.discordClientId);
   UpdatePresence();
   SetVolume();
+  SyncMediaKeys();
   await mini?.Configure?.();
 }
 function Resources(folder) { return app.isPackaged ? path.join(process.resourcesPath, folder) : path.join(app.getAppPath(), folder); }
 async function Play(playlistId, entryId, resume = null) {
-  const entries = store.Entries(playlistId), selected = entries.find(e => e.id === entryId) || (!entryId ? entries[0] : null);
+  const entries = ArrangedEntries(playlistId), selected = entries.find(e => e.id === entryId) || (!entryId ? entries[0] : null);
   if (!selected) throw new Error('再生する曲がありません。');
   PlayableEntry(selected.playlistId, selected.id);
   queue.Start(playlistId, entries, selected.id, store.data.settings.shuffle);
   return LoadEntry(selected.playlistId, selected.id, false, resume ? { resume } : {});
 }
 async function ShufflePlay(playlistId) {
-  const entries = store.Entries(playlistId);
-  if (!entries.length) throw new Error('再生する曲がありません。');
-  const nextQueue = new Queue(null, ShuffleWeight, randomInt), first = nextQueue.ShuffleStart(playlistId, entries), selected = entries.find(e => e.id === first);
-  PlayableEntry(selected.playlistId, first);
-  const settings = { shuffle: true };
-  if (store.data.settings.repeat === 'one') settings.repeat = 'off';
-  const state = store.Apply({ type: 'settings', settings }); queue = nextQueue; Emit('state', state);
-  return LoadEntry(selected.playlistId, first);
+  const entries = ArrangedEntries(playlistId);
+  return StartShuffled(playlistId, entries);
 }
 async function AllPlay(shuffle) {
   if (shuffle) return ShufflePlay('*');
@@ -613,9 +663,34 @@ async function Command(command, value) {
   else if (command === 'page-mode' && current?.source === 'bilibili') await LoadEntry(current.playlistId, current.entryId, !current.pageMode, { forceNew: true });
 }
 
+// src/main/ipc-*.cjs へ渡す文脈。状態（再代入される変数）は、読むたびに最新の値を返す（queue だけは、書き込みもできる）。
+function MakeContext() {
+  return {
+    get additionReview() { return additionReview; },
+    get archive() { return archive; },
+    get backgroundMode() { return backgroundMode; },
+    get biliAccount() { return biliAccount; },
+    get biliBrowser() { return biliBrowser; },
+    get current() { return current; },
+    get favorites() { return favorites; },
+    get mini() { return mini; },
+    get notesStore() { return notesStore; },
+    get offline() { return offline; },
+    get playCounts() { return playCounts; },
+    get playback() { return playback; },
+    get queue() { return queue; }, set queue(value) { queue = value; },
+    get store() { return store; },
+    get thumbnail() { return thumbnail; },
+    get thumbnails() { return thumbnails; },
+    get trashStore() { return trashStore; },
+    get win() { return win; },
+    AcceptPlayback, Accounts, ScanFolder, ReadTags, AutoEntries, AutoPlay, BuildAutoLists, Configure, CoverImage, DriveURL, Emit, FavoriteIds, Handle, LoadEntry, LoadThumbnail, LocalDuration, MEDIA_EXTENSIONS, OpenAccount, OpenHelp, ParseBilibili, PlayableEntry, QueueState, RefreshVideo, Resources, ScopeEntries, ShareMode, SmallImage, SyncPlayingQueue, SyncShortcuts, ViewBounds, dialog, fs, nativeImage, path, shell
+  };
+}
 async function Start() {
   const ffmpeg = process.env.FAVECUS_INSTALL_ROOT ? path.join(process.env.FAVECUS_INSTALL_ROOT, 'runtime', 'ffmpeg', 'ffmpeg.exe') : app.isPackaged ? path.join(process.resourcesPath, 'ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg') : path.join(app.getAppPath(), 'runtime', 'ffmpeg', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
   trashStore = new TrashStore(path.join(app.getPath('userData'), 'trash.json'));
+  favorites = new FavoriteStore(path.join(app.getPath('userData'), 'favorites.json'));
   loudness = new LoudnessStore(path.join(app.getPath('userData'), 'loudness.json'), ffmpeg);
   store = new Store(app.getPath('userData'), { trash: item => trashStore.Add(item), committed: () => { offline?.ScheduleCleanup(); sync?.Changed(); }, convertWma: (source, destination) => ConvertWma(ffmpeg, source, destination) });
 
@@ -644,7 +719,7 @@ async function Start() {
       if (!MEDIA_NAME.test(name) || !store.data.playlists.some(p => p.entries.some(e => e.type === 'local' && e.fileName === name))) return new Response(null, { status: 403 });
       return MediaResponse(request, path.join(store.media, name));
     }
-    const names = new Set(['keybindings.js', 'library-tree.js', 'home-view.js', 'library-search.js', 'tree-view.js', 'parent-picker.js', 'index.html', 'app.js', 'style.css', 'local.html', 'local.js', 'preview.js', 'transport-model.js', 'playlist-reader.js', 'queue-follow.js', 'queue-drag.js', 'list-artwork.js', 'browse.html', 'browse.js', 'browse.css', 'mini.html', 'mini.js', 'mini.css', 'icons.svg', 'icon.png', 'music.png']);
+    const names = new Set(['keybindings.js', 'library-tree.js', 'home-view.js', 'library-search.js', 'tree-view.js', 'parent-picker.js', 'index.html', 'entry-view.js', 'app/01-core.js', 'app/02-add.js', 'app/03-downloads.js', 'app/04-settings.js', 'app/05-transfer.js', 'app/05-bulk.js', 'app/05-insights.js', 'app/05-notes.js', 'app/06-list-view.js', 'app.js', 'style.css', 'local.html', 'local.js', 'preview.js', 'transport-model.js', 'playlist-reader.js', 'queue-follow.js', 'queue-drag.js', 'list-artwork.js', 'browse.html', 'browse.js', 'browse.css', 'mini.html', 'mini.js', 'mini.css', 'icons.svg', 'icon.png', 'music.png']);
     const name = url.pathname.slice(1);
     if (url.host !== 'app' || !names.has(name)) return new Response(null, { status: 404 });
     return net.fetch(pathToFileURL(['icon.png', 'music.png'].includes(name) ? path.join(__dirname, '../build', name) : path.join(__dirname, 'ui', name)).href);
@@ -667,7 +742,7 @@ async function Start() {
   } });
   thumbnails = new Thumbnails(biliAccount, (...args) => net.fetch(...args), ffmpeg, store.media, { resize: data => SmallImage(data, nativeImage), resizeCover: data => CoverImage(data, nativeImage), flat: data => FlatImage(data, nativeImage), crop: (data, rect) => ImageData(nativeImage.createFromDataURL(data).crop(rect).toPNG()) });
   session.defaultSession.setPermissionRequestHandler((_c, permission, callback) => callback(permission === 'fullscreen'));
-  session.defaultSession.setPermissionCheckHandler((_c, permission) => permission === 'fullscreen');
+  session.defaultSession.setPermissionCheckHandler((_c, permission, origin) => permission === 'fullscreen' || (permission === 'media' && origin === 'favecus://app')); // 出力デバイスの名前の確認だけ（自分のページのみ。マイク・カメラの要求は、許可しない）
   Menu.setApplicationMenu(null);
   if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
   win = new BrowserWindow({ width: 1440, height: 900, minWidth: 1060, minHeight: 680, backgroundColor: '#11131b', title: 'Favecus Player', icon: path.join(__dirname, '../build/icon.png'),
@@ -739,140 +814,14 @@ async function Start() {
     else throw new Error('対応していない操作です。');
     return sync.Status();
   });
-  Handle('app:state', () => ({ sleep: sleepTimer?.State() || { mode: 'off' }, resume: ResumeOffer(), state: store.Snapshot(), statuses, current, playback, thumbnail, queue: QueueState(), downloads: offline.Snapshot(), foreground: Foreground(), accounts: accountStatus, version: app.getVersion(), platform: process.platform }));
+  Handle('app:state', () => ({ listViews: listViews ? listViews.All() : {}, speed: speedStore ? speedStore.Get() : 1, favorites: FavoriteIds(), sleep: sleepTimer?.State() || { mode: 'off' }, resume: ResumeOffer(), state: store.Snapshot(), statuses, current, playback, thumbnail, queue: QueueState(), downloads: offline.Snapshot(), foreground: Foreground(), accounts: accountStatus, version: app.getVersion(), platform: process.platform }));
   Handle('player:reset-counts', () => { playCounts.Reset(); return true; });
-  Handle('downloads:state', () => offline.Snapshot());
-  const downloadTarget = options => {
-    if (!options || typeof options.includeChildren !== 'boolean') throw new Error('保存対象を指定してください。');
-    const list = store.Playlist(options.playlistId), selected = { kind: options.kind, height: options.height, playlistId: list.id, playlistName: list.name, estimateId: options.estimateId };
-    if (Object.hasOwn(options, 'entryId') || Object.hasOwn(options, 'entryURL')) {
-      if (options.includeChildren || typeof options.entryId !== 'string' || typeof options.entryURL !== 'string') throw new Error('保存する1曲を指定してください。');
-      const entry = store.Entry(list.id, options.entryId);
-      if (entry.type !== 'bilibili' || ParseBilibili(options.entryURL).url !== entry.url) throw new Error('保存対象が変更されました。動画の編集を開き直してください。');
-      return { entries: [{ ...entry, playlistId: list.id }], options: { ...selected, entryId: entry.id, entryURL: entry.url } };
-    }
-    return { entries: options.includeChildren ? store.Entries(list.id) : list.entries.map(e => ({ ...e, playlistId: list.id })), options: selected };
-  };
-  Handle('downloads:estimate', options => { const target = downloadTarget(options); return offline.Estimate(target.entries, target.options); });
-  Handle('downloads:estimate-cancel', () => offline.CancelEstimate());
-  Handle('downloads:start', options => { const target = downloadTarget(options); return offline.Start(target.entries, target.options); });
-  Handle('downloads:cancel', () => offline.Cancel());
-  Handle('downloads:prefer', value => offline.PreferSaved(value));
-  Handle('downloads:directory', async () => { if (offline.controller) throw new Error('保存中は保存先を変更できません。'); const result = await dialog.showOpenDialog(win, { title: '動画・音声の保存先', defaultPath: offline.directory, properties: ['openDirectory', 'createDirectory'] }); return result.canceled ? offline.Snapshot() : offline.SetDirectory(result.filePaths[0]); });
-  Handle('downloads:open', async () => { fs.mkdirSync(offline.directory, { recursive: true }); if (await shell.openPath(offline.directory)) throw new Error('保存先を開けませんでした。'); return true; });
-  Handle('library:thumbnail', async (playlistId, entryId, scope = store.data.activePlaylistId, variant = 'small') => {
-    const entry = structuredClone(store.Entry(playlistId, entryId)); variant = variant === 'cover' ? 'cover' : 'small';
-    const saved = offline.Find(entry);
-    if (saved) {
-      let cover = offline.Cover(entry);
-      // 保存済みのサムネイルが一色に近い場合は、保存済みの動画（なければオンライン）の60秒付近の場面に置き換えて表示する（保存データは変えない）。
-      if (cover) cover = await thumbnails.Improve(entry, cover, saved.kind === 'video' ? saved.path : '');
-      return cover ? (variant === 'cover' ? CoverImage : SmallImage)(cover, nativeImage) : null;
-    }
-    const active = () => !!win && !win.isDestroyed() && (scope === '*' || scope === store.data.activePlaylistId && store.Entries(scope).some(e => e.id === entryId)) && !!store.data.playlists.find(p => p.id === playlistId)?.entries.some(e => e.id === entryId);
-    return thumbnails.GetPreview(entry, active, variant);
-  });
-  Handle('library:action', async action => {
-    const state = store.Apply(action);
-    if (current?.playlistId && !['select', 'rename', 'title', 'settings'].includes(action.type)) SyncPlayingQueue();
-    if (current?.playlistId && ((action.type === 'title' && current.entryId === action.entryId && current.playlistId === action.playlistId) || (action.type === 'settings' && Object.hasOwn(action.settings || {}, 'titleCleanupWords')))) {
-      current.entry.title = store.Entry(current.playlistId, current.entryId).title;
-      Emit('current-update', current);
-      if (playback) { playback.title = current.entry.title || store.CleanTitle(playback.title) || current.entry.videoId || 'ローカル動画'; AcceptPlayback(playback); }
-      mini?.Update();
-    }
-    if (action.type === 'settings') {
-      if (['shuffle', 'playlistSort'].some(key => Object.hasOwn(action.settings || {}, key))) SyncPlayingQueue();
-      await Configure();
-      ViewBounds(); SyncShortcuts();
-      if (Object.hasOwn(action.settings || {}, 'thumbnailMode')) { void LoadThumbnail(); if (!state.settings.thumbnailMode) RefreshVideo(); }
-      backgroundMode?.Refresh();
-    }
-    Emit('state', state); return state;
-  });
-  Handle('library:prepare-add', action => additionReview.Prepare(action));
-  Handle('library:prepare-files', async destinationIds => {
-    store.Targets(destinationIds);
-    const selected = await dialog.showOpenDialog(win, { title: '動画・音楽ファイルを追加', properties: ['openFile', 'multiSelections'], filters: [{ name: '動画・音楽', extensions: [...MEDIA_EXTENSIONS].map(x => x.slice(1)) }] });
-    return selected.canceled ? null : additionReview.PrepareFiles(destinationIds, selected.filePaths);
-  });
-  Handle('library:commit-add', async (id, allowedIds) => {
-    const result = await additionReview.Commit(id, allowedIds);
-    SyncPlayingQueue(); Emit('state', result.state); return result;
-  });
-  Handle('library:cancel-add', id => { additionReview.Cancel(id); return true; });
-  Handle('library:transfer', action => {
-    const result = store.Transfer(action);
-    if (result.moved && current?.playlistId === action.playlistId && current?.entryId === action.entryId) {
-      const target = result.destinations[0];
-      current.playlistId = target.playlistId; current.entryId = target.entryId;
-      current.entry = structuredClone(store.Entry(target.playlistId, target.entryId));
-      if (thumbnail) thumbnail.entryId = target.entryId;
-      Emit('current-update', current);
-      if (playback) { playback.title = current.entry.title || playback.title; AcceptPlayback(playback); }
-    }
-    SyncPlayingQueue();
-    Emit('state', result.state); return result;
-  });
-  Handle('library:files', async destinationIds => {
-    const ids = store.Targets(destinationIds).map(p => p.id);
-    const result = await dialog.showOpenDialog(win, { title: '動画・音楽ファイルを追加', properties: ['openFile', 'multiSelections'], filters: [{ name: '動画・音楽', extensions: [...MEDIA_EXTENSIONS].map(x => x.slice(1)) }] });
-    if (result.canceled) return null;
-    let state;
-    try { state = await store.AddFiles(ids, result.filePaths); }
-    catch (error) { Emit('state', store.Snapshot()); throw error; }
-    if (current?.playlistId && ids.includes(current.playlistId)) SyncPlayingQueue();
-    Emit('state', state); return state;
-  });
-  Handle('library:move-tracks', action => {
-    const result = store.TransferMany(action);
-    const moved = result.mappings.find(m => m.playlistId === current?.playlistId && m.entryId === current?.entryId);
-    if (moved) { Object.assign(current, moved.destinations[0]); current.entry = structuredClone(store.Entry(current.playlistId, current.entryId)); if (thumbnail) thumbnail.entryId = current.entryId; Emit('current-update', current); }
-    SyncPlayingQueue(); Emit('state', result.state); return result;
-  });
-  let exporting = false;
-  Handle('library:export', async (options = {}) => {
-    const mode = ShareMode(options), information = mode === 'information';
-    if (exporting) throw new Error('別の出力処理が進行中です。完了後にもう一度お試しください。');
-    exporting = true;
-    try {
-      const result = await dialog.showSaveDialog(win, { title: information ? 'プレイリスト情報のみ出力' : 'DLデータを含めて出力',
-        defaultPath: `FavecusPlayer-playlists-${information ? 'information' : 'media'}-${new Date().toISOString().slice(0, 10)}.${information ? 'json' : 'zip'}`,
-        filters: information ? [{ name: 'プレイリスト情報（JSON）', extensions: ['json'] }, { name: 'ZIPアーカイブ', extensions: ['zip'] }] : [{ name: 'ZIPアーカイブ', extensions: ['zip'] }] });
-      return result.canceled ? null : await archive.Export(result.filePath, undefined, { mode });
-    } finally { exporting = false; }
-  });
-  Handle('library:import', async () => {
-    const result = await dialog.showOpenDialog(win, { title: 'プレイリストのJSON・ZIPを選択', properties: ['openFile'], filters: [{ name: 'Favecus Playerのプレイリスト', extensions: ['zip', 'json'] }] });
-    return result.canceled ? null : archive.Prepare(result.filePaths[0]);
-  });
-  Handle('library:import-commit', async (id, ids, options) => { const result = await archive.Commit(id, ids, options); SyncPlayingQueue(); Emit('state', result.state); return result; });
-  Handle('library:import-cancel', id => archive.Cancel(id));
-  Handle('library:duration', async (playlistId, entryId) => {
-    const entry = store.Entry(playlistId, entryId); if (entry.duration) return entry.duration;
-    const value = offline.Find(entry)?.duration || (entry.type === 'bilibili' ? (await biliAccount.Resolve(entry.url)).video?.duration : await LocalDuration(ffmpeg, path.join(store.media, entry.fileName)));
-    const actual = store.data.playlists.find(p => p.id === playlistId)?.entries.find(e => e.id === entryId);
-    if (actual && value > 0) { actual.duration = value; store.Save(); }
-    return value || null;
-  });
+  const ctx = MakeContext(); ctx.ffmpeg = ffmpeg; // Start() の中の局所変数（ローカル曲の長さの取得に使う）
+  require('./main/ipc-downloads.cjs')(ctx);
+  require('./main/ipc-library.cjs')(ctx);
   Handle('player:play', (playlistId, entryId) => Play(playlistId, entryId));
-  // 自動リスト：kind なし＝3つの件数、kind あり＝その曲の一覧（開いた時点の並びを、再生範囲として覚える）
-  Handle('library:auto-list', kind => {
-    if (!kind) { const lists = BuildAutoLists(); return { frequent: lists.frequent.length, recent: lists.recent.length, unplayed: lists.unplayed.length }; }
-    return AutoEntries(kind).map(e => ({ id: e.id, playlistId: e.playlistId, title: e.title || e.videoId || 'ローカルファイル', type: e.type, count: playCounts?.Count(e) || 0 }));
-  });
-  Handle('player:auto-play', (kind, entryId, shuffled) => AutoPlay(kind, typeof entryId === 'string' ? entryId : null, shuffled === true));
-  // 最近削除（一覧・元に戻す・完全に削除）。元に戻すのは共通の規則（core/trash.cjs）。失敗したときは、保管を残して、理由を返す。
-  Handle('trash:list', () => { const list = trashStore.List(); if (trashStore.TakePruned()) offline?.ScheduleCleanup(); return list; });
-  Handle('trash:restore', id => {
-    const item = trashStore.Get(String(id));
-    if (!item) throw new Error('この項目は、すでに保管の期限が切れたか、なくなっています。');
-    const state = store.Apply({ type: 'restore', item });
-    trashStore.Remove(item.id); Emit('state', state);
-    return trashStore.List();
-  });
-  Handle('trash:delete', id => { trashStore.Remove(String(id)); offline?.ScheduleCleanup(); return trashStore.List(); }); // 完全に削除したあと、参照のなくなった保存済みメディアを整理する
-  Handle('trash:clear', () => { trashStore.Clear(); offline?.ScheduleCleanup(); return []; });
+  // 自動リスト：kind なし＝5つの件数、kind あり＝その曲の一覧（開いた時点の並びを、再生範囲として覚える）
+  require('./main/ipc-lists.cjs')(ctx);
   Handle('player:resume-last', () => {
     const saved = resumeStore?.Get();
     if (!saved || !ResumeOffer()) throw new Error('前回の続きがありません。');
@@ -891,31 +840,65 @@ async function Start() {
     onExpire: () => SendToPlayer('media:command', { type: 'pause' }),
     onChange: state => Emit('sleep', state)
   });
+  require('./main/ipc-queue.cjs')(ctx);
+  historyStore = new HistoryStore(path.join(app.getPath('userData'), 'play-history.json'));
+  playTimeStore = new PlayTimeStore(path.join(app.getPath('userData'), 'play-time.json'));
+  autoListSettings = new AutoListSettingsStore(path.join(app.getPath('userData'), 'auto-list-settings.json'));
+  playCounts.onCounted = (key, at) => historyStore.Add(key, at); // 回数を数えたとき（実再生の3秒など）に、再生履歴へ足す
+  // 自動リストの設定（件数・条件）と、再生履歴・再生統計
+  Handle('autolist:settings', value => (value === undefined || value === null ? autoListSettings.Get() : autoListSettings.Set(value)));
+  Handle('history:clear', () => { historyStore.Clear(); return true; });
+  Handle('stats:get', () => {
+    const stats = playCounts.Stats({ topLimit: 20, months: 12 }), byKey = new Map();
+    const time = playTimeStore ? playTimeStore.Stats({ months: 12 }) : { totalSeconds: 0, months: [] };
+    const secondsByMonth = new Map(time.months.map(m => [m.month, m.seconds]));
+    for (const list of store.data.playlists) for (const entry of list.entries) { const key = playCounts.KeyOf(entry); if (key && !byKey.has(key)) byKey.set(key, entry); }
+    const name = ({ key, count }) => { const entry = byKey.get(key); return { count, title: entry ? (entry.title || entry.videoId || 'ローカルファイル') : '（ライブラリにない曲）', found: !!entry }; };
+    return { total: stats.total, totalSeconds: time.totalSeconds, months: stats.months.map(m => ({ ...m, seconds: secondsByMonth.get(m.month) || 0 })), top: stats.top.map(name), thisMonthTop: stats.thisMonthTop.map(name) };
+  });
+  listViews = new ListViewStore(path.join(app.getPath('userData'), 'list-views.json'));
+  // ライブラリの点検（重複・リンク切れ。報告だけで、何も消さない。規則は core/library-audit.cjs）
+  Handle('library:audit', () => { let files = []; try { files = fs.readdirSync(store.media); } catch { /* メディアの置き場がまだない */ } return LibraryAudit.Audit(store.data, files); });
+  // 曲の情報（アーティスト・タグ・メモ・チャプター。この端末内だけ。曲のメディア単位）。chapterText は、編集用の文（1行に「時刻 題名」）。
+  notesStore = new SongNotesStore(path.join(app.getPath('userData'), 'song-notes.json'));
+  Handle('notes:get', (playlistId, entryId) => {
+    const key = playCounts?.KeyOf(store.Entry(String(playlistId), String(entryId))), record = key ? notesStore.Get(key) : null;
+    return { identified: !!key, record: record ? { ...record, chapterText: SongNotes.FormatChapters(record.chapters) } : null };
+  });
+  Handle('notes:set', (playlistId, entryId, input) => {
+    const key = playCounts?.KeyOf(store.Entry(String(playlistId), String(entryId)));
+    const record = { ...input, chapters: input && typeof input.chapterText === 'string' ? SongNotes.ParseChapters(input.chapterText) : input?.chapters };
+    const saved = notesStore.Set(key, record);
+    Emit('notes', { entryId: String(entryId) });
+    return saved;
+  });
+  // 音声の出力デバイス（保存済み・ローカルの曲の再生だけ。デバイスの名前で覚える。空は既定）
+  outputStore = new OutputDeviceStore(path.join(app.getPath('userData'), 'output-device.json'));
+  Handle('output:get', () => outputStore.Get());
+  Handle('output:set', label => { const saved = outputStore.Set(label); SetVolume(); return saved; });
+  // 曲の並べ替え・絞り込み：選択の保存と、画面の表示に使う材料（そのリストの曲ごとの、再生回数・お気に入り・保存済み）
+  Handle('list:view-set', (playlistId, view) => { store.Playlist(String(playlistId)); const saved = listViews.Set(String(playlistId), view); Emit('list-views', listViews.All()); SyncPlayingQueue(); return saved; }); // 再生中のキューにも、すぐ反映する
+  Handle('list:stats', playlistId => {
+    const context = ViewContext(), result = {};
+    for (const entry of store.Entries(String(playlistId))) result[entry.id] = { count: context.count(entry), favorite: context.favorite(entry), saved: context.saved(entry) };
+    return result;
+  });
+  // 再生速度（0.5〜2.0倍。この端末内だけに保存）。再生中の画面へ、すぐ反映する。
+  speedStore = new PlaybackSpeed.SpeedStore(path.join(app.getPath('userData'), 'playback-speed.json'));
+  Handle('player:speed', value => { const speed = speedStore.Set(value); SetVolume(); Emit('speed', speed); return speed; });
   Handle('player:sleep', command => {
     if (command?.cancel) sleepTimer.Cancel();
     else if (command?.song) sleepTimer.StartEndOfSong();
     else sleepTimer.Start(Number(command?.minutes));
     return sleepTimer.State();
   });
+  // キーボードのメディアキー（再生/一時停止・次・前・停止）。アプリが前面でなくても効く（Chromium 側の標準の処理は、二重に反応するため切ってある）。
+  SyncMediaKeys();
   Handle('window:mini', () => mini.Show());
   Handle('player:official', () => {
     if (current?.entry.type === 'bilibili') return shell.openExternal(ParseBilibili(current.entry.url).url);
   });
-  Handle('account:status', Accounts);
-  Handle('account:open', OpenAccount);
-  Handle('account:folders', () => biliAccount.Folders());
-  Handle('account:videos', (id, page) => biliAccount.Videos(id, page));
-  Handle('bilibili:browse', () => biliBrowser.Open());
-  Handle('bilibili:resolve', input => biliAccount.Resolve(input));
-  Handle('bilibili:lists', input => biliAccount.Lists(input));
-  Handle('bilibili:parts', input => biliAccount.Parts(input));
-  Handle('bilibili:list-videos', (source, page) => biliAccount.ListVideos(source, page));
-  Handle('app:release-open', () => shell.openExternal(DriveURL(store.data.settings.releaseDriveURL)));
-  Handle('app:help', () => OpenHelp('GUIDE.html'));
-  Handle('app:discord-portal', () => shell.openExternal('https://discord.com/developers/applications'));
-  Handle('app:discord-guide', () => OpenHelp('DISCORD.html'));
-  Handle('app:discord-image', () => shell.showItemInFolder(path.join(Resources('docs'), 'favecus_player_music.png')));
-  Handle('app:taskbar-guide', () => OpenHelp('TASKBAR.html'));
+  require('./main/ipc-account.cjs')(ctx);
   Handle('app:taskbar-log', async () => {
     const error = await shell.openPath(path.join(app.getPath('userData'), 'taskbar.log'));
     if (error) throw new Error('診断記録を開けませんでした。一度、下向き矢印から埋め込みを実行してください。');
@@ -978,12 +961,14 @@ else {
   nativeDiagnostics = StartCrashDiagnostics({ app, crashReporter, installRoot: process.env.FAVECUS_INSTALL_ROOT, runId: process.env.FAVECUS_RUN_ID });
   PlayerDiagnostic('diagnostics-start', { started: nativeDiagnostics.started, error: nativeDiagnostics.error, electron: process.versions.electron, chromium: process.versions.chrome, platform: process.platform, arch: process.arch });
   app.on('second-instance', () => mini?.Restore());
+  app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling'); // メディアキーは、アプリ（core/media-keys.cjs）で1回だけ受ける
   app.whenReady().then(Start).catch(error => { PlayerDiagnostic('app-start', { message: String(error.message).slice(0, 240) }); dialog.showErrorBox('Favecus Playerを起動できません', `[FP-PLAYER-APP-START] ${error.message}`); app.quit(); });
 }
 app.on('child-process-gone', (_event, details = {}) => PlayerDiagnostic('child-process-exited', { processType: details.type, exitReason: details.reason, exitCode: details.exitCode }));
 process.on?.('uncaughtExceptionMonitor', (error, origin) => PlayerDiagnostic('uncaught-exception', { origin, name: error.name, code: error.code, message: String(error.message).slice(0, 240), stack: String(error.stack || '').split('\n').slice(0, 8).join('\n').slice(0, 3000) }));
 app.on('before-quit', () => {
-  quitting = true; resumeStore?.Flush(); loadRequest++; sync?.Dispose(); offline?.CancelEstimate();
+  mediaKeys?.Dispose(); mediaKeys = null;
+  quitting = true; resumeStore?.Flush(); playTimeStore?.Flush(); loadRequest++; sync?.Dispose(); offline?.CancelEstimate();
   offline?.Cancel();
   if (volumeSaveTimer) { clearTimeout(volumeSaveTimer); volumeSaveTimer = null; try { store?.Save(); } catch {} }
   biliBrowser?.Destroy(); backgroundMode?.Dispose(); mini?.Destroy(); mini = null; presence?.Stop(); CloseView(); for (const view of retiredPlayers.keys()) DisposePlayer(view); offline?.cleanup.Dispose();

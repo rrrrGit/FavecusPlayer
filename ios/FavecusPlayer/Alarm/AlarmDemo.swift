@@ -37,7 +37,7 @@ struct AlarmDemoView: View {
             case .list, .edit:
                 AlarmListView(service: service, catalog: catalog, startEditing: mode == .edit)
             case .picker:
-                AlarmSoundPicker(catalog: catalog, current: nil) { _ in }
+                AlarmSoundPicker(catalog: catalog, current: nil, onPick: { _ in }, onRandom: {})
             case .range:
                 if let demoFile {
                     AlarmRangeEditor(song: AlarmSong(key: "demo", title: "朝のピアノ", file: demoFile), initial: AlarmSound(mediaKey: "demo", startSeconds: 62, durationSeconds: 15)) { _ in }

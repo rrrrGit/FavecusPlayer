@@ -125,6 +125,10 @@ final class AppEnvironment: ObservableObject {
             // 再生回数の台帳（同期が無効でも数える）。数え方・重みの規則は共通JS
             let playCounts = PlayCountStore(core: core, directory: store.syncDirectory.deletingLastPathComponent())
             engine.counts = playCounts
+            // 再生履歴：回数を数えたときに足す（同期しない）
+            let history = PlayHistoryStore(core: core, directory: store.syncDirectory.deletingLastPathComponent())
+            engine.history = history
+            playCounts.onCounted = { key in Task { @MainActor in await history.add(key: key) } }
             engine.resumeStore = ResumeStore()
             player = engine
             // 同期は、再生などとは別のJavaScriptCoreで動かす。Keychainが使えない環境でも、起動は妨げない（同期の画面にエラーとして出る）。
@@ -133,6 +137,10 @@ final class AppEnvironment: ObservableObject {
             sync = (try? SyncCore(bundle: .main, host: host)).map { SyncCoordinator(store: store, core: $0, host: host, vault: vault) }
             let catalog = AlarmSongCatalog(store: store, downloads: downloadService)
             alarmService.soundSource = { catalog.file(forKey: $0) }
+            // アラームの「ランダム」：保存済みの曲から抽選（お気に入りは、少しだけ選ばれやすい）。音は、最初の30秒
+            alarmService.randomPicker = { [weak engine] in
+                AlarmRandom.pick(catalog.songs(), favorites: engine?.favorites.keys ?? [], rng: { Double.random(in: 0..<1) }).map(AlarmRandom.sound(for:))
+            }
         } catch {
             // 起動に必要な部品がない：保存データには触らず、画面に理由を出す。
             let fallback = FileManager.default.temporaryDirectory.appendingPathComponent("FavecusPlayer-unavailable")

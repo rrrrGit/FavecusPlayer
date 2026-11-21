@@ -1,25 +1,16 @@
 'use strict';
 // 最近削除の保管ファイル（PC版。端末内だけ・同期しない）。保管の中身・復元の規則は、共通の trash.cjs。
 // 壊れた項目は、使わない（読めない項目だけ捨てる）。保存は、一時ファイルへ書いて置き換える。保存できなくても、編集・再生は妨げない。
-const fs = require('node:fs');
-const path = require('node:path');
+const { ReadJson, WriteJsonAtomic } = require('./json-file.cjs');
 const Trash = require('./trash.cjs');
 
 class TrashStore {
   constructor(file, now = () => new Date().toISOString()) {
     this.file = file; this.now = now; this.items = []; this.pruned = false;
-    try {
-      const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-      if (data?.version === 1 && Array.isArray(data.items)) this.items = Trash.Prune(data.items.filter(Trash.ValidItem), this.now());
-    } catch { /* ファイルがない・壊れている：空から始める */ }
+    const data = ReadJson(file);
+    if (data?.version === 1 && Array.isArray(data.items)) this.items = Trash.Prune(data.items.filter(Trash.ValidItem), this.now());
   }
-  Save() {
-    try {
-      fs.mkdirSync(path.dirname(this.file), { recursive: true });
-      const temp = `${this.file}.tmp`; fs.writeFileSync(temp, JSON.stringify({ version: 1, items: this.items })); fs.renameSync(temp, this.file);
-      return true;
-    } catch { return false; }
-  }
+  Save() { return WriteJsonAtomic(this.file, { version: 1, items: this.items }); }
   // 削除の保存に成功したあとに呼ぶ。形が正しくないものは、入れない。
   Add(item) {
     if (!Trash.ValidItem(item)) return false;

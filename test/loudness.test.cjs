@@ -63,3 +63,22 @@ test('without ffmpeg, a missing file, or a failed measurement, the volume is lef
   fs.writeFileSync(path.join(dir, 'broken.json'), '{ not json');
   assert.equal(new LoudnessStore(path.join(dir, 'broken.json'), 'ffmpeg').Cached(media), null);
 });
+
+test('at most two ffmpeg measurements run at the same time, the rest wait in order and all finish', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'favecus-loud-')); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const files = [];
+  for (let i = 0; i < 6; i++) { const f = path.join(dir, `s${i}.m4a`); fs.writeFileSync(f, 'x'.repeat(100 + i)); files.push(f); }
+  let active = 0, peak = 0;
+  const spawnFn = () => {
+    active++; peak = Math.max(peak, active);
+    const child = new EventEmitter(); child.stderr = new EventEmitter(); child.kill = () => {};
+    setTimeout(() => { active--; child.stderr.emit('data', 'mean_volume: -10.0 dB'); child.emit('close', 0); }, 15);
+    return child;
+  };
+  const store = new LoudnessStore(path.join(dir, 'l.json'), 'ffmpeg', { spawnFn });
+  const gains = await Promise.all(files.map(f => store.GainFor(f)));
+  assert.equal(peak, 2);
+  assert.equal(gains.length, 6);
+  assert.ok(gains.every(g => g > 0 && g <= 1));
+  assert.equal(store.running, 0);
+});

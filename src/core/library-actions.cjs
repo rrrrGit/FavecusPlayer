@@ -10,7 +10,7 @@ const { LibraryMediaKey, PlanMediaIds } = require('./library-identity.cjs');
 const { ParseBilibili } = require('./urls.cjs');
 const Trash = require('./trash.cjs');
 
-const TYPES = new Set(['create', 'select', 'rename', 'playlist-properties', 'delete', 'playlist-move', 'playlist-attach', 'playlist-reorder', 'remove', 'title', 'move', 'reorder', 'add-video', 'restore']);
+const TYPES = new Set(['create', 'select', 'rename', 'playlist-properties', 'delete', 'playlist-move', 'playlist-attach', 'playlist-reorder', 'remove', 'title', 'move', 'reorder', 'add-video', 'restore', 'remove-many', 'entries-transfer']);
 
 function Playlist(data, id) {
   const result = data.playlists.find(p => p.id === id);
@@ -33,11 +33,48 @@ function Parent(data, ctx, id, parentId, move) {
   const siblings = parent ? parent.childIds : data.rootPlaylistIds;
   if (!siblings.includes(id)) { siblings.push(id); if (parent) parent.lastAddedAt = ctx.now(); }
 }
+// 複数の曲を、別のプレイリストへ移動・コピーする（v0.7.4。複数選択の一括操作。1曲の移動・コピー＝Store.Transfer と同じ規則）。
+// { playlistId（元）, entryIds[], destinationIds[], mode: 'copy'|'move' }。同じ動画が移動先にすでにあれば、追加せず、飛ばす（移動のときは、元から外す）。
+// 全部成功か、例外（呼び出し側が操作前へ戻す）。戻り値：{ added, skipped, moved, moves: [{ entryId, destinations: [{ playlistId, entryId }] }] }。
+function TransferEntries(data, ctx, { playlistId, entryIds, destinationIds, mode } = {}) {
+  if (!['copy', 'move'].includes(mode) || !Array.isArray(destinationIds) || !destinationIds.length || destinationIds.length > MAX_PLAYLISTS - 1) throw new Error('移動・追加先のプレイリストを選んでください。');
+  if (!Array.isArray(entryIds) || !entryIds.length || entryIds.length > MAX_ENTRIES) throw new Error('移動・追加する曲を選んでください。');
+  const source = Playlist(data, playlistId), ids = [...new Set(entryIds)], keyOf = LibraryMediaKey(data.videoAliases || []);
+  const targets = [...new Set(destinationIds)].map(id => { if (id === playlistId) throw new Error('元のプレイリスト以外を選んでください。'); return Playlist(data, id); });
+  const entries = ids.map(id => Entry(data, playlistId, id));
+  const count = data.playlists.reduce((n, p) => n + p.entries.length, 0);
+  let planned = 0;
+  for (const entry of entries) for (const target of targets) if (!target.entries.some(e => keyOf(e) === keyOf(entry))) planned++;
+  if (count + planned - (mode === 'move' ? entries.length : 0) > MAX_ENTRIES) throw new Error('登録数の上限は10000件です。');
+  let added = 0, skipped = 0; const moves = [];
+  for (const entry of entries) {
+    let retainedId = false; const destinations = [];
+    for (const target of targets) {
+      const existing = target.entries.find(e => keyOf(e) === keyOf(entry));
+      const item = existing || { ...structuredClone(entry), title: ctx.cleanTitle(entry.title), id: mode === 'move' && !retainedId ? entry.id : ctx.createId() };
+      if (existing) skipped++; else { retainedId = true; added++; target.entries.push(item); target.lastAddedAt = ctx.now(); }
+      destinations.push({ playlistId: target.id, entryId: item.id });
+    }
+    moves.push({ entryId: entry.id, destinations });
+  }
+  if (mode === 'move') { const moved = new Set(ids); source.entries = source.entries.filter(e => !moved.has(e.id)); }
+  return { added, skipped, moved: mode === 'move', moves };
+}
 // 対象の操作なら実行してtrueを返す。それ以外（または対象のリストがない場合）はfalse（呼び出し側が別の処理・エラーにする）。
 function Apply(data, action, ctx) {
   if (!action || typeof action !== 'object' || !TYPES.has(action.type)) return false;
   // 最近削除からの復元（規則は trash.cjs）。全部成功か、例外（呼び出し側が操作前へ戻す）。
   if (action.type === 'restore') { Trash.Restore(data, action.item); return true; }
+  if (action.type === 'entries-transfer') { TransferEntries(data, ctx, action); return true; }
+  if (action.type === 'remove-many') {
+    // 複数の曲を、このリストから外す（最近削除には、曲ごとに保管する）。見つかった曲だけ外し、1つも見つからなければ例外。
+    const list = Playlist(data, action.playlistId), wanted = new Set(Array.isArray(action.entryIds) ? action.entryIds : []);
+    if (!wanted.size || wanted.size > MAX_ENTRIES) throw new Error('外す曲を選んでください。');
+    const before = list.entries.length;
+    list.entries = list.entries.filter(e => !wanted.has(e.id));
+    if (list.entries.length === before) throw new Error('外す曲が見つかりません。');
+    return true;
+  }
   const p = action.playlistId ? Playlist(data, action.playlistId) : null;
   if (action.type === 'create') {
     ValidatePlaylistCount(data.playlists.length + 1);
@@ -100,4 +137,4 @@ function Apply(data, action, ctx) {
   }
   return true;
 }
-module.exports = { TYPES, Apply, NewPlaylist, Parent, Playlist, Entry };
+module.exports = { TYPES, Apply, TransferEntries, NewPlaylist, Parent, Playlist, Entry };

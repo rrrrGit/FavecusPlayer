@@ -1,6 +1,7 @@
 'use strict';
 // v0.7.3 F4：最近削除（保管と復元の規則）。復元は、削除を元に戻し、あとの変更を壊さない。
 const { test } = require('node:test');
+const { readMain, readApp } = require('./support-source.cjs');
 const assert = require('node:assert/strict');
 const Actions = require('../src/core/library-actions.cjs');
 const Trash = require('../src/core/trash.cjs');
@@ -231,10 +232,10 @@ test('PC: the store keeps a deleted playlist and a removed song after a successf
 test('PC: main wires the trash (keep after save, restore through the shared apply, references while trashed)', () => {
   const fs = require('node:fs'), path = require('node:path');
   const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
-  const main = read('src/main.cjs');
+  const main = readMain();
   assert.match(main, /trash: item => trashStore\.Add\(item\)/);
   assert.match(main, /store\.Apply\(\{ type: 'restore', item \}\)/);
   assert.match(main, /referenceData: \(\) => WithTrashedEntries\(store\.SavedData\(\)\)/, '保管中の曲の保存済みメディアを、整理で消さない');
   assert.match(read('src/preloads/ui.cjs'), /trashRestore: invoke\('trash:restore'\)/);
-  assert.match(read('src/ui/app.js'), /\['最近削除', TrashSettings\]/);
+  assert.match(readApp(), /\['最近削除', TrashSettings\]/);
 });

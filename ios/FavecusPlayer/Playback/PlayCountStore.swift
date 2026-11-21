@@ -19,6 +19,8 @@ final class PlayCountStore {
     private var observing = false
     /// 台帳を読めず、元のファイルを別名で残して作り直したときの知らせ。
     private(set) var notice: String?
+    /// 回数を数えたとき（再生履歴へ足すため）。曲のキー。
+    var onCounted: ((String) -> Void)?
 
     static let weightedKey = "weightedShuffle"
     static let weightedAtKey = "weightedShuffleAt"
@@ -68,10 +70,10 @@ final class PlayCountStore {
         } catch {}
     }
 
-    /// 曲のキー → 抽選の重み（1/(1+回数)。共通JS）。
-    func weights(for keys: [String]) async -> [String: Double] {
+    /// 曲のキー → 抽選の重み（1/(1+回数)。お気に入りは倍率つき。共通JS）。
+    func weights(for keys: [String], favorites: Set<String> = []) async -> [String: Double] {
         guard !text.isEmpty, !keys.isEmpty,
-              let result = try? await call("LedgerCounts", ["text": text, "keys": keys]), let weights = result["weights"] as? [String: Double] else { return [:] }
+              let result = try? await call("LedgerCounts", ["text": text, "keys": keys, "favorites": Array(favorites)]), let weights = result["weights"] as? [String: Double] else { return [:] }
         return weights
     }
 
@@ -92,6 +94,12 @@ final class PlayCountStore {
     /// 曲の再生を始めた（keyがnilの曲は数えない）。
     func begin(key: String?) async {
         _ = try? await call("PlayBegin", ["key": key ?? "", "now": Self.nowMs()])
+    }
+
+    /// 再生の統計（共通JSの LedgerStats ＝ PC版と同じ規則）。{ total, months, top[{key,count}], thisMonthTop }。
+    func stats() async -> [String: Any]? {
+        guard !text.isEmpty, let result = try? await call("LedgerStats", ["text": text, "topLimit": 20, "months": 12, "nowMs": Self.nowMs()]), result["error"] == nil else { return nil }
+        return result
     }
 
     func stop() async { _ = try? await call("PlayStop", [:]) }
@@ -122,6 +130,7 @@ final class PlayCountStore {
                   let next = result["text"] as? String else { return }
             text = next
             persist()
+            onCounted?(key)
             if let row = result["row"] as? [String: Any], let id = row["id"] as? String, key.hasPrefix("bili") {
                 dirty.insert(id)
                 if inFlight.contains(id) { touched.insert(id) } // 今回の同期の読み取りのあとに変わった行：送信後も、印を残す

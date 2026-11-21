@@ -69,6 +69,7 @@ struct SquareCover: View {
 @MainActor
 func firstCover(of list: PlaylistItem, document: LibraryDocument?, services: Services, depth: Int = 0) -> UIImage? {
     _ = services.artwork.revision
+    if let custom = PlaylistIcon.image(from: list.icon) { return custom } // 自分で設定した画像を先に使う
     for entry in list.entries {
         if let key = services.downloads?.entryKeys[entry.id], let image = services.artwork.image(for: key) { return image }
     }
@@ -89,6 +90,13 @@ func formatTime(_ seconds: Double) -> String {
 // MARK: 曲の行
 
 /// 曲の「…」を押したときの操作（アイコン・名前・実行）。
+/// 「次に再生」「キューの最後に追加」（再生中のキューへ足す）。
+@MainActor
+func queueActions(entry: EntryItem, scope: String, player: PlaybackEngine) -> [RowAction] {
+    [RowAction(icon: "text.insert", title: "次に再生") { Task { await player.enqueue(entry, listId: scope, where: "next") } },
+     RowAction(icon: "text.append", title: "キューの最後に追加") { Task { await player.enqueue(entry, listId: scope, where: "end") } }]
+}
+
 struct RowAction: Identifiable {
     let id = UUID()
     let icon: String
@@ -168,13 +176,15 @@ struct SongRow: View {
     var context: String?
     /// このリストから曲を外す（nil なら出さない）。
     var onRemove: (() -> Void)?
+    /// 曲の操作に足す項目（曲名の変更・別のリストへ移動など）。
+    var extra: [RowAction] = []
 
     var body: some View {
         if let player = services.player {
             if entry.type == "bilibili", let downloads = services.downloads {
-                BiliSongRow(entry: entry, scope: scope, number: number, context: context, player: player, downloads: downloads, artwork: services.artwork, onRemove: onRemove)
+                BiliSongRow(entry: entry, scope: scope, number: number, context: context, player: player, downloads: downloads, artwork: services.artwork, onRemove: onRemove, extra: extra)
             } else {
-                LocalSongRow(entry: entry, scope: scope, number: number, context: context, player: player, artwork: services.artwork, key: services.downloads?.entryKeys[entry.id], onRemove: onRemove)
+                LocalSongRow(entry: entry, scope: scope, number: number, context: context, player: player, artwork: services.artwork, key: services.downloads?.entryKeys[entry.id], onRemove: onRemove, extra: extra)
             }
         } else {
             Text(entry.title.isEmpty ? "（無題）" : entry.title)
@@ -271,12 +281,17 @@ private struct LocalSongRow: View {
     @ObservedObject var artwork: ArtworkStore
     let key: String?
     var onRemove: (() -> Void)?
+    var extra: [RowAction] = []
 
     var body: some View {
         _ = artwork.revision
         let playable = player.canPlay(entry)
         var actions: [RowAction] = []
         if playable { actions.append(RowAction(icon: "play.fill", title: "再生") { OpenPlayer.request(after: 0.45); Task { await player.play(entryId: entry.id, scope: scope) } }) }
+        if playable { actions.append(contentsOf: queueActions(entry: entry, scope: scope, player: player)) }
+        _ = player.favoriteRevision // お気に入りが変わったら、表示を更新する
+        if let favorite = player.favoriteAction(key: key) { actions.append(favorite) }
+        actions.append(contentsOf: extra)
         if let onRemove { actions.append(RowAction(icon: "minus.circle", title: "このリストから外す", destructive: true, run: onRemove)) }
         return RowLayout(number: number, title: entry.title, meta: metaText(for: entry) + (context.map { " · " + $0 } ?? ""), status: playable ? nil : "この端末にファイルがありません", image: artwork.image(for: key),
                          current: player.current?.entryId == entry.id, playing: player.isPlaying, dimmed: !playable, saved: false, progress: nil, actions: actions,
@@ -293,6 +308,7 @@ private struct BiliSongRow: View {
     @ObservedObject var downloads: DownloadService
     @ObservedObject var artwork: ArtworkStore
     var onRemove: (() -> Void)?
+    var extra: [RowAction] = []
 
     private var key: String? { downloads.entryKeys[entry.id] }
     private func record(_ kind: String) -> DeviceMediaRecord? { key.flatMap { downloads.record(key: $0, kind: kind) } }
@@ -305,6 +321,9 @@ private struct BiliSongRow: View {
 
     private var actions: [RowAction] {
         var result = [RowAction(icon: "play.fill", title: "再生") { OpenPlayer.request(after: 0.45); Task { await player.play(entryId: entry.id, scope: scope) } }]
+        if player.canPlay(entry) { result.append(contentsOf: queueActions(entry: entry, scope: scope, player: player)) }
+        _ = player.favoriteRevision // お気に入りが変わったら、表示を更新する
+        if let favorite = player.favoriteAction(key: key) { result.append(favorite) }
         if let key {
             for (kind, label) in [("audio", "音声"), ("video", "動画")] {
                 let state = record(kind)?.state
@@ -317,6 +336,7 @@ private struct BiliSongRow: View {
                 }
             }
         }
+        result.append(contentsOf: extra)
         if let onRemove { result.append(RowAction(icon: "minus.circle", title: "このリストから外す", destructive: true, run: onRemove)) }
         return result
     }
@@ -342,5 +362,14 @@ enum OpenPlayer {
     static func request(after delay: TimeInterval = 0) {
         if delay <= 0 { NotificationCenter.default.post(name: .openFullPlayer, object: nil); return }
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { NotificationCenter.default.post(name: .openFullPlayer, object: nil) }
+    }
+}
+
+/// プレイリストの画像（PC版で設定した、PNGのdata URL）。形式が正しくなければ使わない（nil）。
+enum PlaylistIcon {
+    static func image(from value: String?) -> UIImage? {
+        guard let value, value.hasPrefix("data:image/png;base64,"), value.count <= 180_000,
+              let data = Data(base64Encoded: String(value.dropFirst("data:image/png;base64,".count))), let image = UIImage(data: data) else { return nil }
+        return image
     }
 }

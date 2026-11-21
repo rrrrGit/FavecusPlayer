@@ -1,5 +1,6 @@
 'use strict';
 const { test } = require('node:test');
+const { Needs } = require('./support-env.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
 const { OfflineLibrary, Key } = require('../src/core/offline-library.cjs');
@@ -140,7 +141,7 @@ test('an index edited on disk during copying is never overwritten or cleaned fro
   try { await h.library.Organize(); } finally { fs.promises.copyFile = original; }
   assert.equal(fs.readFileSync(h.disk('index.json'), 'utf8'), edited); assert.ok(fs.existsSync(h.disk(old.file))); assert.ok(h.journal());
 });
-test('symlinked media and damaged indexes are preserved without migrating or deleting their contents', async t => {
+test('symlinked media and damaged indexes are preserved without migrating or deleting their contents', { skip: Needs.symlink }, async t => {
   const h = Fixture(t), old = h.add(), outside = path.join(h.root, 'outside.mp4'); fs.renameSync(h.disk(old.file), outside); fs.symlinkSync(outside, h.disk(old.file));
   await h.library.Organize(); assert.ok(fs.lstatSync(h.disk(old.file)).isSymbolicLink()); assert.ok(fs.existsSync(outside));
   fs.writeFileSync(h.disk('index.json'), '{broken'); const restarted = new OfflineLibrary(h.options); await restarted.Organize(); assert.equal(fs.readFileSync(h.disk('index.json'), 'utf8'), '{broken');

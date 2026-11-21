@@ -1,5 +1,6 @@
 'use strict';
 const { test } = require('node:test');
+const { Needs } = require('./support-env.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -144,7 +145,7 @@ test('failed fixed-directory replacement restores the entire app and metadata be
   for(const [i,n] of names.entries())assert.deepEqual(fs.readFileSync(path.join(target,n)),before[i]);
   assert.deepEqual(fs.readdirSync(path.join(target,'runtime')).filter(n=>n.startsWith('.setup-stage-')),[]);
 });
-test('fixed app directory conflicts and legacy symlinks do not overwrite or remove unrelated data', async t => {
+test('fixed app directory conflicts and legacy symlinks do not overwrite or remove unrelated data', { skip: Needs.symlink }, async t => {
   const root=Temp(t),target=path.join(root,'FavecusPlayer'),deps={runtimes:async()=>{}};
   await Install({root:target,payload:await Payload(root,'0.4.2'),mode:'setup',dependencies:deps});
   const outside=path.join(root,'outside');fs.mkdirSync(outside);fs.writeFileSync(path.join(outside,'keep'),'keep');
@@ -227,7 +228,7 @@ test('062 nested downloads and unrelated personal files are kept in place', asyn
   fs.writeFileSync(path.join(nested, 'downloads/song.mp4'), 'keep'); const result = await Install({ root, payload, mode: 'patch', dependencies }); assert.ok(result.notes.some(n => n.includes('そのまま'))); assert.equal(fs.readFileSync(path.join(nested, 'downloads/song.mp4'), 'utf8'), 'keep');
   fs.rmSync(path.join(nested, 'downloads/song.mp4')); fs.writeFileSync(path.join(nested, 'private.txt'), 'keep'); await Install({ root, payload, mode: 'patch', dependencies }); assert.equal(fs.readFileSync(path.join(nested, 'private.txt'), 'utf8'), 'keep');
 });
-test('062 nested symbolic links cannot be followed by the installer', async t => {
+test('062 nested symbolic links cannot be followed by the installer', { skip: Needs.symlink }, async t => {
   const parent = Temp(t), root = path.join(parent, 'FavecusPlayer'), payload = await Payload(parent, '0.6.2'), dependencies = { runtimes: async () => {} };
   await Install({ root, payload, mode: 'setup', dependencies }); const outside = path.join(parent, 'outside'); fs.mkdirSync(outside); fs.symlinkSync(outside, path.join(root, 'FavecusPlayer'));
   await assert.rejects(Install({ root, payload, mode: 'patch', dependencies }), /リンク先/); assert.deepEqual(fs.readdirSync(outside), []);

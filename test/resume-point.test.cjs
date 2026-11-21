@@ -1,6 +1,7 @@
 'use strict';
 // v0.7.3 F2：前回の続きから再生（保存と位置の規則）。
 const { test } = require('node:test');
+const { readMain } = require('./support-source.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
 const { ResumeStore, ResumePosition, INTERVAL_MS } = require('../src/core/resume-point.cjs');
@@ -71,7 +72,7 @@ test('the player bar, preload and main process are wired to the resume record', 
   const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
   assert.match(read('src/ui/index.html'), /id="resume-last"/);
   assert.match(read('src/preloads/ui.cjs'), /resumeLast: invoke\('player:resume-last'\)/);
-  const main = read('src/main.cjs');
+  const main = readMain();
   assert.match(main, /Handle\('player:resume-last'/);
   assert.match(main, /resumeStore\?\.Observe\(/);
   assert.match(main, /resumeStore\?\.Flush\(\)/, '終了時に確定する');

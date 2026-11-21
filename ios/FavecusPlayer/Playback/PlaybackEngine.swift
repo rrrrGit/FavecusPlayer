@@ -11,11 +11,14 @@ protocol MediaProvider: AnyObject {
     func savedVideoFile(for entry: EntryItem) async -> URL?
     /// 曲の同期用メディアキー（Bilibiliの曲。再生回数の台帳のキー）。求められない曲はnil。
     func syncKeys(for entries: [EntryItem]) async -> [String?]
+    /// この端末に保存済みか（Bilibiliの曲の音声・動画）。並べ替え・絞り込みの「保存」に使う。
+    func isSaved(_ entry: EntryItem) -> Bool
 }
 
 extension MediaProvider {
     func savedVideoFile(for entry: EntryItem) async -> URL? { nil }
     func syncKeys(for entries: [EntryItem]) async -> [String?] { entries.map { _ in nil } }
+    func isSaved(_ entry: EntryItem) -> Bool { false }
 }
 
 /// iPhone版のローカル再生（音声）。次に何を再生するかは共通JS（FavecusCore.QueueStart / QueueMove。Windows版と同じQueue）が決め、
@@ -35,9 +38,9 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         let title: String
     }
 
-    @Published private(set) var current: NowPlaying?
+    @Published var current: NowPlaying?
     @Published private(set) var isPlaying = false
-    @Published private(set) var position: Double = 0
+    @Published var position: Double = 0
     @Published private(set) var duration: Double = 0
     /// Bilibiliの曲のファイルを用意している間（取得中）。
     @Published private(set) var isPreparing = false
@@ -48,13 +51,18 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     /// 利用者が動画を選んでいる（次の曲に動画があれば、続けて動画で映す）。サムネイルを選ぶ・動画の再生に失敗すると解除する。
     @Published private(set) var prefersVideo = false
     @Published var shuffle = false
+    /// 再生速度（利用者の設定。この端末内だけ。次の曲にも引き継ぐ）。
+    @Published var speed = PlaybackSpeed.stored()
     /// 再生キュー：いまの周で、これから再生する曲（共通JSのQueueList）。
-    @Published private(set) var upcoming: [EntryItem] = []
+    @Published var upcoming: [EntryItem] = []
     @Published var repeatMode: RepeatMode = .off
     @Published var message: String?
 
     /// おやすみタイマー（終わりに、音量を下げて一時停止する）。端末内の一時的な状態。
     let sleepTimer = SleepTimer()
+    /// お気に入り（シャッフルで、少しだけ選ばれやすくする）。この端末内だけ。変わったら、一覧の表示を更新する。
+    var favorites = FavoritesStore()
+    @Published var favoriteRevision = 0
     /// 音量の自動調整（曲ごとの平均音量の記録）。設定「曲ごとの音量差を自動で揃える」がオンのときだけ使う。
     private let loudness = LoudnessCache()
     /// 前回の続きから再生：最後の曲・位置の保存（端末内。同期しない）。なければ、保存も復元もしない。
@@ -64,22 +72,35 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     private var resumeSeek: (id: String, position: Double)?
     /// 再生回数の台帳（数える・抽選の重み）。なければ、数えず、均等に抽選する。
     var counts: PlayCountStore?
+    /// 曲の並べ替え・絞り込みの選択（リストごと。この端末内だけ）。再生順にも使う。
+    let listViews = ListViewStore()
+    /// 再生履歴（最近聴いた曲）と、自動リストの設定（件数・条件）。この端末内だけ。
+    var history: PlayHistoryStore?
+    /// 月ごとの再生時間（バックグラウンド再生を含む）。この端末内だけ。
+    let playTime = PlayTimeStore()
+    /// クロスフェードを、この曲では、すでに始めた（同じ曲で、何度も始めない）。
+    var crossfadeStartedFor: String?
+    var crossfadePending = false
+    let autoSettings = AutoListSettingsStore()
+    /// 曲の情報（アーティスト・タグ・メモ・チャプター）。この端末内だけ。変わったら notesRevision が増える。
+    let notes = SongNotesStore()
+    @Published var notesRevision = 0
     /// アプリを開いている（前面にある）か。背面では、映像の層が外れるため、動画へ切り替えない（前面へ戻ったとき、切り替える）。テストでは差し替える。
     var isActive: () -> Bool = { UIApplication.shared.applicationState == .active }
     /// 再生の範囲（"*" はすべて、または、リストのID）。曲の所在の表示に使う。
     var playScope: String? { scope }
-    private let core: SharedCore
-    private let store: LibraryStore
-    private let backend: PlayerBackend
+    let core: SharedCore
+    let store: LibraryStore
+    let backend: PlayerBackend
     private var system: SystemAudioHooks?
     private var scope: String?
     /// 自動リストの再生：再生範囲の曲のID（開いた時点の並び。scope は auto:…）。ふつうのリストでは nil。
     private var scopeEntryIds: [String]?
-    private var failureStreak = 0
+    var failureStreak = 0
     /// 曲の切り替え・停止のたびに増やす。待っている間に状態が変わった古い処理の結果を捨てるため。
-    private var generation = 0
+    var generation = 0
     private var libraryObserver: AnyCancellable?
-    private let provider: MediaProvider?
+    let provider: MediaProvider?
     /// ロック画面に出す、曲のサムネイル（アプリが設定する）。
     var artworkProvider: ((EntryItem) -> UIImage?)?
     private var artworkCache: (id: String, image: UIImage)?
@@ -96,6 +117,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         self.core = core
         self.store = store
         self.backend = backend
+        backend.speed = Float(speed)
         system = makeSystem?(self)
         backend.onEnded = { [weak self] in self?.ended() }
         backend.onFailed = { [weak self] reason in self?.failed(reason) }
@@ -134,7 +156,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     /// 再生中の曲（ライブラリの登録情報）。
     var currentEntry: EntryItem? { current.flatMap { entry($0.entryId) } }
 
-    private func entry(_ id: String) -> EntryItem? {
+    func entry(_ id: String) -> EntryItem? {
         store.document?.playlists.lazy.flatMap(\.entries).first { $0.id == id }
     }
 
@@ -152,6 +174,10 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         failureStreak = 0
         generation += 1
         let mine = generation
+        // そのリストに、並べ替え・絞り込みを選んでいるときは、その順で再生する（明示の曲の並びがあるときは、それを優先）
+        var entryIds = entryIds
+        if entryIds == nil, let ids = await scopeArrangedIds(scope) { entryIds = ids }
+        guard mine == generation else { return }
         guard let result = await startQueue(entryId: entryId, scope: scope, entryIds: entryIds),
               let id = result.id, let playlistId = result.playlistId else {
             if mine == generation { message = "この曲を再生キューに入れられません。" } // 失敗しても、再生中の曲・再生範囲は変えない
@@ -179,14 +205,40 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         var seen = Set<String>(), unique: [EntryItem] = []
         for entry in entries where seen.insert(entry.id).inserted { unique.append(entry) }
         let keys = await countKeys(for: unique)
-        let weights = await counts.weights(for: keys.compactMap { $0 })
+        let weights = await counts.weights(for: keys.compactMap { $0 }, favorites: favorites.keys)
         var result: [String: Double] = [:]
         for (entry, key) in zip(unique, keys) { if let key, let weight = weights[key] { result[entry.id] = weight } }
         return result
     }
 
+    func isFavorite(key: String?) -> Bool { favorites.contains(key) }
+
+    /// お気に入りにする／外す。キーがまだ分からない曲は、できない（理由を知らせる）。
+    @discardableResult
+    func setFavorite(key: String?, _ value: Bool) -> Bool {
+        guard favorites.set(key, value) else {
+            message = "この曲は、まだ識別できないため、お気に入りにできません。"
+            return false
+        }
+        favoriteRevision += 1
+        return true
+    }
+
+    /// 再生中の曲のメディアキー（お気に入りの単位）。
+    func currentFavoriteKey() async -> String? {
+        guard let current, let target = entry(current.entryId) else { return nil }
+        return await countKeys(for: [target]).first ?? nil
+    }
+
+    /// 曲の行・メニューの「お気に入り」の操作。
+    func favoriteAction(key: String?) -> RowAction? {
+        guard let key else { return nil }
+        let on = isFavorite(key: key)
+        return RowAction(icon: on ? "heart.slash" : "heart", title: on ? "お気に入りから外す" : "お気に入りにする") { [weak self] in self?.setFavorite(key: key, !on) }
+    }
+
     /// 曲の再生回数のキー：Bilibiliは同期用メディアキー、ローカルは「local:ファイル名」。
-    private func countKeys(for entries: [EntryItem]) async -> [String?] {
+    func countKeys(for entries: [EntryItem]) async -> [String?] {
         let online = entries.filter { $0.type == "bilibili" }
         let keys = await provider?.syncKeys(for: online) ?? online.map { _ in nil }
         var byId: [String: String] = [:]
@@ -219,12 +271,15 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         if restoredPending { Task { await playRestored(fromStart: false) }; return }
         backend.play()
         refresh()
+        playTime.observe(position: position, paused: false, rate: speed)
     }
 
     func pause() {
         backend.pause()
         refresh()
+        playTime.observe(position: position, paused: true, rate: speed)
         saveResume()
+        playTime.flush()
     }
 
     func toggle() {
@@ -240,6 +295,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     func stop() {
         generation += 1
         if let counts { Task { await counts.stop() } }
+        playTime.stop()
         isPreparing = false
         videoMode = false
         videoAvailable = false
@@ -252,14 +308,14 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     // MARK: 内部
 
-    private struct QueueResult: Decodable {
+    struct QueueResult: Decodable {
         var id: String?
         var playlistId: String?
         var error: String?
         var stopped: Bool?
     }
 
-    private func queue(_ function: String, _ request: [String: Any]) async -> QueueResult? {
+    func queue(_ function: String, _ request: [String: Any]) async -> QueueResult? {
         do {
             let text = String(decoding: try JSONSerialization.data(withJSONObject: request), as: UTF8.self)
             let result = try JSONDecoder().decode(QueueResult.self, from: Data(try await core.callAsync(function, text).utf8))
@@ -272,14 +328,14 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     }
 
     /// 前後の曲へ。automatic：曲の終わりでの自動送り（1曲リピートではそのまま繰り返す）。
-    private func syncRequest() -> [String: Any]? {
+    func syncRequest() -> [String: Any]? {
         guard let scope, let current else { return nil }
         var request: [String: Any] = ["text": store.currentText, "scope": scope, "entryId": current.entryId, "ownScope": current.playlistId, "shuffle": shuffle, "playable": playableIds()]
         if let scopeEntryIds { request["entryIds"] = scopeEntryIds }
         return request
     }
 
-    private func advance(direction: Int, automatic: Bool) async {
+    func advance(direction: Int, automatic: Bool) async {
         guard let sync = syncRequest() else { return }
         generation += 1
         let mine = generation
@@ -291,6 +347,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             // 最後まで再生した（リピートなし）／前がない：止める。曲の表示は残す。
             backend.pause()
             refresh()
+            playTime.observe(position: position, paused: true, rate: speed)
+            playTime.flush()
             return
         }
         await load(id: id, playlistId: playlistId)
@@ -305,7 +363,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         stop()
     }
 
-    private func load(id: String, playlistId: String) async {
+    func load(id: String, playlistId: String) async {
         guard let target = entry(id) else { return }
         system?.activate()
         generation += 1
@@ -338,10 +396,13 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             guard mine == generation else { return } // 取得している間に、別の曲を選ばれた・止められた
             isPreparing = false
         }
+        backend.crossfade = crossfadePending ? Double(Crossfade.seconds(stored: UserDefaults.standard.integer(forKey: Crossfade.defaultsKey))) : 0 // 重ねて始めるのは、つなぎ目の自動の曲送りのときだけ
+        crossfadePending = false
         backend.load(url: file)
         applyLeveling(file: file, generation: mine)
         if let seek = resumeSeek, seek.id == id { backend.seek(to: seek.position) } // 前回の続きから（位置は、再生を始める前に合わせる）
         resumeSeek = nil
+        playTime.begin()
         backend.play()
         audioFile = file
         loadedFile = file
@@ -373,46 +434,6 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         applyPreferredVideo() // 動画で見ていたなら、次の曲も動画で映す
     }
 
-    // MARK: 再生キュー
-
-    /// 再生キューの表示を、共通JSの再生順に合わせる。
-    func refreshQueue() async {
-        guard let text = try? await core.callAsync("QueueList", "{}"),
-              let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any], object["error"] == nil,
-              let ids = object["upcoming"] as? [String] else { return }
-        upcoming = ids.compactMap { entry($0) }
-    }
-
-    /// シャッフルの切り替え（利用者の操作）。再生キューも、すぐに組み直す。
-    func setShuffle(_ on: Bool) {
-        guard shuffle != on else { return }
-        shuffle = on
-        guard var request = syncRequest() else { return }
-        request["shuffle"] = on
-        Task {
-            _ = await queue("QueueSync", request)
-            await refreshQueue()
-        }
-    }
-
-    /// 再生キューの並べ替え：これから再生する曲の from 番目を to 番目へ。
-    func moveQueued(from: Int, to: Int) async {
-        let text = String(decoding: (try? JSONSerialization.data(withJSONObject: ["from": from, "to": to])) ?? Data(), as: UTF8.self)
-        _ = try? await core.callAsync("QueueReorder", text)
-        await refreshQueue()
-    }
-
-    /// 再生キューの曲を選んだ：その曲へ移る。
-    func playQueued(_ id: String) async {
-        guard let canPlayEntry = entry(id), canPlay(canPlayEntry) else { return }
-        failureStreak = 0
-        generation += 1
-        let mine = generation
-        guard let result = await queue("QueueJump", ["id": id]), let target = result.id, let playlistId = result.playlistId else { return }
-        guard mine == generation else { return }
-        await load(id: target, playlistId: playlistId)
-    }
-
     /// サムネイルと動画を切り替える（利用者の操作。選んだ側を、次の曲でも続ける）。動画がないときは何もしない。
     func setVideoMode(_ on: Bool) {
         prefersVideo = on && (videoAvailable || videoMode)
@@ -428,6 +449,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             backend.load(url: target)
             backend.seek(to: position)
             loadedFile = target
+            applyLeveling(file: target, generation: generation) // 別のファイルなので、音量の倍率も測り直す（前のファイルの倍率を残さない）
         }
         if playing { backend.play() }
         refresh()
@@ -456,6 +478,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             let duration = self.duration
             Task { await counts.observe(position: duration, duration: duration, paused: false, ended: true) }
         }
+        playTime.observe(position: duration, paused: true, rate: speed)
+        playTime.flush()
         if sleepTimer.consumeEndOfSong() { // 「この曲の終わりまで」：次の曲へ進まず、ここで止める
             backend.pause()
             refresh()
@@ -513,21 +537,9 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     }
 
     /// アプリが背面へ移るとき・終了するときに、保存を確定する。
-    func flushResume() { resumeStore?.flush() }
-
-    /// 自動リスト（よく聴く曲・最近追加した曲・未再生）。選び方は共通JS（src/core/auto-lists.cjs。PC版と同じ）。ここは、曲のキーと再生回数を集めて渡すだけ。
-    func autoLists() async -> AutoListsResult? {
-        var seen = Set<String>(), unique: [EntryItem] = []
-        for entry in (store.document?.playlists ?? []).flatMap(\.entries) where seen.insert(entry.id).inserted { unique.append(entry) }
-        let keys = await countKeys(for: unique)
-        var keyMap: [String: String] = [:]
-        for (entry, key) in zip(unique, keys) { if let key { keyMap[entry.id] = key } }
-        let countMap = await counts?.counts(for: Array(Set(keyMap.values))) ?? [:]
-        let request: [String: Any] = ["text": store.currentText, "keys": keyMap, "counts": countMap]
-        guard let data = try? JSONSerialization.data(withJSONObject: request),
-              let reply = try? await core.callAsync("AutoLists", String(decoding: data, as: UTF8.self)),
-              let result = try? JSONDecoder().decode(AutoListsResult.self, from: Data(reply.utf8)) else { return nil }
-        return result
+    func flushResume() {
+        resumeStore?.flush()
+        playTime.flush()
     }
 
     /// 起動後、前回の曲を、一時停止の状態で表示する（読み込まず、鳴らさない）。ライブラリの読み込みのあとに呼ぶ。
@@ -559,8 +571,12 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     private func tick() {
         refresh()
+        startCrossfadeIfDue()
         saveResume()
         if isPlaying && position > 0.5 { failureStreak = 0 } // 実際に再生できたら、失敗の連続を数え直す
+        if current != nil, !isPreparing {
+            playTime.observe(position: position, paused: !isPlaying, rate: speed)
+        }
         if let counts, current != nil, !isPreparing {
             let position = self.position, duration = self.duration, paused = !isPlaying
             Task { await counts.observe(position: position, duration: duration, paused: paused) }
@@ -605,10 +621,10 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         return image
     }
 
-    private func refresh() {
+    func refresh() {
         isPlaying = backend.isPlaying
         position = backend.position
         duration = backend.duration
-        system?.update(title: current?.title, position: position, duration: duration, playing: isPlaying, artwork: currentArtwork())
+        system?.update(title: current?.title, position: position, duration: duration, playing: isPlaying, artwork: currentArtwork(), rate: speed)
     }
 }

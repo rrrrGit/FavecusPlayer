@@ -28,8 +28,12 @@ struct AlarmItem: Codable, Equatable, Identifiable {
     var enabled: Bool
     var label: String
     var sound: AlarmSound?
+    /// 「ランダム」：保存済みの曲から、抽選で選ぶ（v0.7.4 H）。このとき sound は、いま抽選で選ばれている曲（最初の30秒）。
+    var randomSound: Bool
+    /// ランダムの抽選が対象にした、次に鳴る時刻。この時刻を過ぎたあと、アプリを開くと、次の曲を抽選し直す。
+    var rolledFor: Date?
 
-    init(id: UUID = UUID(), hour: Int, minute: Int, weekdays: Set<Int> = [], enabled: Bool = true, label: String = "", sound: AlarmSound? = nil) {
+    init(id: UUID = UUID(), hour: Int, minute: Int, weekdays: Set<Int> = [], enabled: Bool = true, label: String = "", sound: AlarmSound? = nil, randomSound: Bool = false, rolledFor: Date? = nil) {
         self.id = id
         self.hour = hour
         self.minute = minute
@@ -37,7 +41,28 @@ struct AlarmItem: Codable, Equatable, Identifiable {
         self.enabled = enabled
         self.label = label
         self.sound = sound
+        self.randomSound = randomSound
+        self.rolledFor = rolledFor
     }
+
+    enum CodingKeys: String, CodingKey { case id, hour, minute, weekdays, enabled, label, sound, randomSound, rolledFor }
+
+    /// 古い保存（ランダムの項目がない）も読める（項目がなければ、ランダムなし）。
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        hour = try values.decode(Int.self, forKey: .hour)
+        minute = try values.decode(Int.self, forKey: .minute)
+        weekdays = try values.decode(Set<Int>.self, forKey: .weekdays)
+        enabled = try values.decode(Bool.self, forKey: .enabled)
+        label = try values.decode(String.self, forKey: .label)
+        sound = try values.decodeIfPresent(AlarmSound.self, forKey: .sound)
+        randomSound = try values.decodeIfPresent(Bool.self, forKey: .randomSound) ?? false
+        rolledFor = try values.decodeIfPresent(Date.self, forKey: .rolledFor)
+    }
+
+    /// 音を設定している（曲を選んだ、またはランダム）。
+    var hasSound: Bool { sound != nil || randomSound }
 
     var isValid: Bool {
         (0...23).contains(hour) && (0...59).contains(minute) && weekdays.allSatisfy { (1...7).contains($0) }

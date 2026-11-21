@@ -39,6 +39,17 @@ function Capture(before, after, action, now) {
   return null;
 }
 
+// 複数の曲を外した操作（remove-many）は、曲ごとの保管（単独の remove と同じ形）に分ける。それ以外は、Capture の1件。
+function CaptureMany(before, after, action, now) {
+  if (action && action.type === 'remove-many' && Array.isArray(action.entryIds)) {
+    const items = [];
+    for (const entryId of new Set(action.entryIds)) { const item = Capture(before, after, { type: 'remove', playlistId: action.playlistId, entryId }, now); if (item) items.push(item); }
+    return items;
+  }
+  const one = Capture(before, after, action, now);
+  return one ? [one] : [];
+}
+
 // 保管ファイルは外部入力として扱い、形を検証する（壊れたものは、使わない）。
 function ValidItem(item) {
   try {
@@ -111,4 +122,4 @@ function Summary(item, now) {
   return { id: item.id, kind: item.kind, label: item.label, deletedAt: item.deletedAt, daysLeft: left };
 }
 
-module.exports = { Capture, Restore, ValidItem, Prune, Summary, RETENTION_DAYS, MAX_ITEMS };
+module.exports = { Capture, CaptureMany, Restore, ValidItem, Prune, Summary, RETENTION_DAYS, MAX_ITEMS };

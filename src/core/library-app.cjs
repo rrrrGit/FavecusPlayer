@@ -9,6 +9,12 @@ const Transfer = require('./library-transfer.cjs');
 const { Queue } = require('./queue.cjs');
 const Ledger = require('./play-ledger.cjs');
 const AutoListsCore = require('./auto-lists.cjs');
+const LibrarySearch = require('../ui/library-search.js');
+const EntryView = require('../ui/entry-view.js');
+const History = require('./play-history.cjs');
+const LibraryAudit = require('./library-audit.cjs');
+const SongNotes = require('./song-notes.cjs');
+const AutoListSettings = require('./auto-list-settings.cjs');
 const Trash = require('./trash.cjs');
 
 const ID = /^[a-f0-9-]{36}$/;
@@ -59,8 +65,9 @@ function Apply(options) {
     Tree.ValidateGraph(library.playlists, library.rootPlaylistIds);
     if (!library.playlists.some(p => p.id === library.activePlaylistId)) library.activePlaylistId = library.rootPlaylistIds[0] || library.playlists[0].id;
     // 削除（プレイリスト・曲）は、最近削除へ保管する内容を添える（保管は、保存に成功したあとに、呼び出し側が行う）。JSON文字列で返す。
-    const trash = options.keepTrash === true ? Trash.Capture(before, library, options.action, ctx.now()) : null; // keepTrash を渡した呼び出し（iPhone版）だけ。共通テストデータの出力は変えない
-    return trash ? { text: Pretty(library), trash: JSON.stringify(trash) } : { text: Pretty(library) };
+    const trashItems = options.keepTrash === true ? Trash.CaptureMany(before, library, options.action, ctx.now()) : [], trash = trashItems[0] || null; // keepTrash を渡した呼び出し（iPhone版）だけ。共通テストデータの出力は変えない
+    // trash：1件目（従来の形）。trashItems：すべて（複数の曲を外したときは、曲ごと）。
+    return trash ? { text: Pretty(library), trash: JSON.stringify(trash), trashItems: trashItems.map(item => JSON.stringify(item)) } : { text: Pretty(library) };
   } catch (error) { return { error: error instanceof TypeError || error instanceof SyntaxError ? '編集を適用できません（保存データの形式が正しくありません）。' : String(error && error.message || error) }; }
 }
 // ---- ZIPの出力・取り込み（入れ物・暗号・ファイル操作はSwift、規則はlibrary-transfer.cjs）
@@ -109,9 +116,24 @@ function PlayableEntries(options) {
   }
   return Tree.Entries(library, options.scope).filter(entry => playable.has(entry.id));
 }
-// 自動リストの選び方（共通：src/core/auto-lists.cjs）。options：{ text（ライブラリのJSON）, keys, counts, limits }
+// 曲の並べ替え・絞り込み（規則は ui/entry-view.js。PC版と同じ）。options：{ items: [{ id, title, type, videoId, addedAt, duration, count, favorite, saved }], view }。返すのは、並べ替え・絞り込みしたあとの、曲のIDの並び。
+function ArrangeEntries(options) {
+  try {
+    const items = Array.isArray(options.items) ? options.items : [];
+    const ctx = { count: e => e.count, favorite: e => e.favorite === true, saved: e => e.saved === true };
+    return { ids: EntryView.Apply(items, options.view, ctx).map(item => item.id) };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+// 検索（PC版の一覧と同じ規則：全角半角・大小・ひらがな/カタカナを同一視、空白区切りのAND、所属リストの経路も対象、50件ごと）。
+function Search(options) {
+  try {
+    const result = LibrarySearch.Page(LibrarySearch.Index(JSON.parse(options.text)), String(options.query || ''), options.page);
+    return { total: result.total, page: result.page, pages: result.pages, items: result.items.map(item => ({ playlistId: item.playlistId, entryId: item.entry.id, path: item.pathText })) };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+// 自動リストの選び方（共通：src/core/auto-lists.cjs）。options：{ text（ライブラリのJSON）, keys, counts, limits, favorites（お気に入りのメディアキー） }
 function AutoLists(options) {
-  try { return AutoListsCore.Select({ library: JSON.parse(options.text), keys: options.keys, counts: options.counts, limits: options.limits }); }
+  try { return AutoListsCore.Select({ library: JSON.parse(options.text), keys: options.keys, counts: options.counts, limits: options.limits, favorites: options.favorites, history: options.history, frequentMin: options.frequentMin, recentDays: options.recentDays, nowMs: options.nowMs }); }
   catch (error) { return { error: String(error && error.message || error) }; }
 }
 const Found = (entries, id) => { const entry = entries.find(e => e.id === id); return { id: id || null, playlistId: entry ? entry.playlistId : null }; };
@@ -181,6 +203,13 @@ function QueueJump(options) {
     return id === null ? { id: null, playlistId: null } : { id, playlistId: (queue.catalog.get(id) || {}).playlistId || null };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
+// 再生キューへの追加：「次に再生」（next）・「最後に追加」（end）。
+function QueueInsert(options) {
+  try {
+    const entry = options.entry || {}, ok = options.where === 'end' ? queue.AddToEnd(entry) : queue.PlayNext(entry);
+    return { ok, upcoming: queue.Upcoming() };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
 function QueuePeek(options) {
   try {
     const id = queue.Peek(options.repeat, options.automatic !== false);
@@ -210,10 +239,40 @@ function LedgerOpen(options) {
 // keys：曲のキーの配列 → { counts: { キー: 回数 } }（現在の世代の合計）と、抽選の重み（weights）
 function LedgerCounts(options) {
   try {
-    const totals = Ledger.Totals(JSON.parse(options.text)), counts = {}, weights = {};
-    for (const key of options.keys || []) { const n = totals.get(key) || 0; counts[key] = n; weights[key] = Ledger.Weight(n); }
+    const totals = Ledger.Totals(JSON.parse(options.text)), counts = {}, weights = {}, favorites = new Set(Array.isArray(options.favorites) ? options.favorites : []);
+    // favorites：お気に入りの曲のキー（任意）。お気に入りは、重みに倍率が掛かる（共通：play-ledger.cjs）
+    for (const key of options.keys || []) { const n = totals.get(key) || 0; counts[key] = n; weights[key] = Ledger.WeightOf(n, favorites.has(key)); }
     return { counts, weights };
   } catch (error) { return { error: String(error && error.message || error) }; }
+}
+// 再生の統計（月ごとの回数・回数の多い曲。規則は play-ledger.cjs の Stats）。options：{ text（台帳）, topLimit?, months?, nowMs? }
+function LedgerStats(options) {
+  try { return Ledger.Stats(JSON.parse(options.text), { topLimit: options.topLimit, months: options.months, nowMs: options.nowMs }); }
+  catch (error) { return { error: String(error && error.message || error) }; }
+}
+// 曲の情報（アーティスト・タグ・メモ・チャプター。規則は song-notes.cjs）。入力を、安全な形にする。
+function NotesNormalize(options) {
+  try { return { record: SongNotes.Normalize(options.record), empty: SongNotes.IsEmpty(options.record) }; } catch (error) { return { error: String(error && error.message || error) }; }
+}
+// チャプターの、文⇔一覧（貼り付けた目次から読み取る・編集用の文にする）。options：{ text } → { chapters }、または { chapters } → { text }。
+function NotesChapters(options) {
+  try { return options.text !== undefined ? { chapters: SongNotes.ParseChapters(options.text) } : { text: SongNotes.FormatChapters(options.chapters) }; } catch (error) { return { error: String(error && error.message || error) }; }
+}
+// ライブラリの点検（重複・リンク切れの報告だけ。規則は library-audit.cjs）。options：{ text（ライブラリのJSON）, existingFiles（メディアの置き場のファイル名） }
+function Audit(options) {
+  try { return LibraryAudit.Audit(JSON.parse(options.text), options.existingFiles); } catch (error) { return { error: String(error && error.message || error) }; }
+}
+// 再生履歴（規則は play-history.cjs）。items：[{ key, at }]（新しい順）。
+function HistoryAdd(options) {
+  try { return { items: History.Add(options.items, options.key, options.at) }; } catch (error) { return { error: String(error && error.message || error) }; }
+}
+function HistoryKeys(options) {
+  try { return { keys: History.RecentKeys(History.Clean({ items: options.items }), options.limit) }; } catch (error) { return { error: String(error && error.message || error) }; }
+}
+// 自動リストの設定（件数・条件。規則は auto-list-settings.cjs）。知らない値は、既定・いちばん近い選択肢にする。
+function AutoListSettingsNormalize(options) {
+  try { return { settings: AutoListSettings.Normalize(options.settings), choices: { limits: AutoListSettings.LIMIT_CHOICES, frequentMin: AutoListSettings.FREQUENT_MIN_CHOICES, recentDays: AutoListSettings.RECENT_DAYS_CHOICES } }; }
+  catch (error) { return { error: String(error && error.message || error) }; }
 }
 function LedgerIncrement(options) {
   try { const ledger = JSON.parse(options.text), row = Ledger.Increment(ledger, options.key, options.now); return { text: JSON.stringify(ledger), row }; }
@@ -260,4 +319,4 @@ function MediaKeys(options) {
     return { keys: (options.entries || []).map(entry => { try { return keyOf({ type: 'bilibili', url: entry.url }); } catch { return null; } }) };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
-module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueRun, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };
+module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueInsert, QueueRun, ArrangeEntries, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerStats, NotesNormalize, NotesChapters, Audit, HistoryAdd, HistoryKeys, AutoListSettingsNormalize, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };

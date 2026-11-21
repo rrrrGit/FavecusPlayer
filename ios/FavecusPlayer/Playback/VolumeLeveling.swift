@@ -51,32 +51,54 @@ enum VolumeLeveling {
     }
 }
 
-/// 測った平均音量の記録（曲のファイルの識別＝パス・大きさ・更新時刻 → dB）。
+/// 測った平均音量の記録（曲のファイルの識別＝ファイル名・大きさ・更新時刻 → dB）。
+/// Application Support/FavecusPlayer/loudness.json に、原子的に保存する（件数の上限は2000。超えたら、最後に測った時刻が古いものから消す）。
+/// 識別にフォルダのパスを含めない（アプリのコンテナのパスが変わっても、測り直さない）。以前の版（UserDefaults）の記録は、パスつきで引き継げないため、捨てる。
 @MainActor
 final class LoudnessCache {
-    private let defaults: UserDefaults
-    private let key = "loudnessCache"
+    static let limit = 2000
+    private struct Record: Codable { var db: Double; var at: Double }
+    private struct Document: Codable { var version: Int; var records: [String: Record] }
 
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
+    private let fileURL: URL
+    private var records: [String: Record] = [:]
+    private let now: () -> Date
+
+    init(defaults: UserDefaults = .standard, directory: URL? = nil, now: @escaping () -> Date = Date.init) {
+        self.now = now
+        let folder = directory ?? AtomicJsonFile.defaultDirectory()
+        fileURL = folder.appendingPathComponent("loudness.json")
+        defaults.removeObject(forKey: "loudnessCache") // 以前の版の記録（パスつきの識別）
+        if let document = AtomicJsonFile.readOptional(Document.self, from: fileURL), document.version == 1 {
+            records = document.records
+        }
     }
 
     private func identity(_ url: URL) -> String? {
         // URLの値の保持（キャッシュ）に頼らず、毎回ファイルから読む（ファイルが変わったことを見逃さない）
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path), let size = attributes[.size] as? NSNumber, let date = attributes[.modificationDate] as? Date else { return nil }
-        return "\(url.path)|\(size.int64Value)|\(Int(date.timeIntervalSince1970 * 1000))"
+        return "\(url.lastPathComponent)|\(size.int64Value)|\(Int(date.timeIntervalSince1970 * 1000))"
     }
 
     func cachedGain(_ url: URL) -> Double? {
-        guard let identity = identity(url), let table = defaults.dictionary(forKey: key) as? [String: Double], let db = table[identity] else { return nil }
-        return VolumeLeveling.gain(meanDb: db)
+        guard let identity = identity(url), let record = records[identity] else { return nil }
+        return VolumeLeveling.gain(meanDb: record.db)
     }
 
     func store(_ url: URL, meanDb: Double) {
         guard let identity = identity(url) else { return }
-        var table = (defaults.dictionary(forKey: key) as? [String: Double]) ?? [:]
-        table[identity] = meanDb
-        if table.count > 2000 { for extra in table.keys.prefix(table.count - 2000) { table[extra] = nil } } // 古いものの整理（件数の上限）
-        defaults.set(table, forKey: key)
+        records[identity] = Record(db: meanDb, at: now().timeIntervalSince1970)
+        if records.count > Self.limit {
+            let oldest = records.sorted { $0.value.at < $1.value.at }.prefix(records.count - Self.limit).map(\.key)
+            for key in oldest { records[key] = nil }
+        }
+        save()
+    }
+
+    var count: Int { records.count }
+
+    private func save() {
+        // 保存できなくても、再生は妨げない（次の起動で測り直すだけ）
+        try? AtomicJsonFile.write(Document(version: 1, records: records), to: fileURL)
     }
 }
