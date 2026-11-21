@@ -212,6 +212,7 @@ struct SettingsTab: View {
     @AppStorage("downloadVideoHeight") private var videoHeight = 720
     @AppStorage("weightedShuffle") private var weighted = true
     @AppStorage("volumeLeveling") private var leveling = true
+    @AppStorage(Crossfade.defaultsKey) private var crossfade = 0
     @State private var confirmResetCounts = false
 
     var body: some View {
@@ -251,6 +252,15 @@ struct SettingsTab: View {
                     Text("音量")
                 } footer: {
                     Text("音量が大きい曲だけを、小さくします（大きくはしません）。保存済み・ローカルの曲が対象で、初めて再生する曲は、音量を測るため、数秒だけ遅れて反映されます。測った結果は、この端末に覚えます。")
+                }
+                Section {
+                    Picker("クロスフェード", selection: $crossfade) {
+                        ForEach(Crossfade.choices, id: \.self) { Text($0 == 0 ? "しない" : "\($0)秒").tag($0) }
+                    }
+                } header: {
+                    Text("曲のつなぎ目")
+                } footer: {
+                    Text("曲の終わりに、次の曲を重ねて始めます。保存済み・ローカルの曲どうしだけで、動画の表示中・1曲リピート・オンラインで取得する曲には使いません。")
                 }
                 Section("自動リストと統計") {
                     NavigationLink { AutoListSettingsView(store: services.player?.autoSettings ?? AutoListSettingsStore(), player: services.player) } label: { Label("自動リストの設定", systemImage: "list.bullet.rectangle") }

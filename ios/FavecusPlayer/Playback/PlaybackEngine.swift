@@ -76,6 +76,9 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     let listViews = ListViewStore()
     /// 再生履歴（最近聴いた曲）と、自動リストの設定（件数・条件）。この端末内だけ。
     var history: PlayHistoryStore?
+    /// クロスフェードを、この曲では、すでに始めた（同じ曲で、何度も始めない）。
+    var crossfadeStartedFor: String?
+    var crossfadePending = false
     let autoSettings = AutoListSettingsStore()
     /// 曲の情報（アーティスト・タグ・メモ・チャプター）。この端末内だけ。変わったら notesRevision が増える。
     let notes = SongNotesStore()
@@ -326,7 +329,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         return request
     }
 
-    private func advance(direction: Int, automatic: Bool) async {
+    func advance(direction: Int, automatic: Bool) async {
         guard let sync = syncRequest() else { return }
         generation += 1
         let mine = generation
@@ -385,6 +388,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             guard mine == generation else { return } // 取得している間に、別の曲を選ばれた・止められた
             isPreparing = false
         }
+        backend.crossfade = crossfadePending ? Double(Crossfade.seconds(stored: UserDefaults.standard.integer(forKey: Crossfade.defaultsKey))) : 0 // 重ねて始めるのは、つなぎ目の自動の曲送りのときだけ
+        crossfadePending = false
         backend.load(url: file)
         applyLeveling(file: file, generation: mine)
         if let seek = resumeSeek, seek.id == id { backend.seek(to: seek.position) } // 前回の続きから（位置は、再生を始める前に合わせる）
@@ -552,6 +557,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     private func tick() {
         refresh()
+        startCrossfadeIfDue()
         saveResume()
         if isPlaying && position > 0.5 { failureStreak = 0 } // 実際に再生できたら、失敗の連続を数え直す
         if let counts, current != nil, !isPreparing {

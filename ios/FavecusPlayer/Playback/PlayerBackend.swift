@@ -17,6 +17,8 @@ protocol PlayerBackend: AnyObject {
     var gain: Float { get set }
     /// 再生速度（0.5〜2.0。1＝そのまま）。音の高さは変えない。
     var speed: Float { get set }
+    /// 次の load で、いま鳴っている曲を、この秒数で小さくしながら、新しい曲を重ねて始める（0＝しない。load のあとは、0に戻される）。
+    var crossfade: Double { get set }
     func load(url: URL)
     func play()
     func pause()
@@ -38,6 +40,10 @@ extension PlayerBackend {
     }
     var speed: Float {
         get { 1 }
+        set {}
+    }
+    var crossfade: Double {
+        get { 0 }
         set {}
     }
 }
@@ -72,7 +78,50 @@ final class AVPlayerBackend: PlayerBackend {
 
     private var fade: Float = 1
     private var levelGain: Float = 1
-    private func applyVolume() { player.volume = fade * levelGain }
+    /// クロスフェードの間の、新しい曲の音量の割合（0→1）。おやすみタイマーの音量（fade）とは別。
+    private var mix: Float = 1
+    private var ghost: AVPlayer?
+    private var fadeTask: Task<Void, Never>?
+    var crossfade: Double = 0
+    private func applyVolume() { player.volume = fade * levelGain * mix }
+
+    /// いま鳴っている曲を、別の再生（ghost）へ移して鳴らし続け、秒数をかけて小さくする。新しい曲は、大きくしていく。
+    private func startCrossfade() {
+        let seconds = crossfade
+        crossfade = 0
+        guard seconds > 0, player.rate > 0, let old = player.currentItem, old.duration.seconds.isFinite else { return }
+        let time = player.currentTime()
+        removeItemObservers()
+        player.replaceCurrentItem(with: nil) // 古い曲を、この再生から外す（1つの曲を、2つの再生に結びつけない）
+        let outgoing = AVPlayer(playerItem: old)
+        outgoing.volume = fade * levelGain
+        ghost = outgoing
+        outgoing.seek(to: time) { _ in outgoing.play() }
+        mix = 0
+        applyVolume()
+        fadeTask?.cancel()
+        fadeTask = Task { @MainActor [weak self] in
+            let steps = max(1, Int(seconds * 20))
+            for step in 1...steps {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                guard let self, !Task.isCancelled else { return }
+                let progress = Float(step) / Float(steps)
+                self.mix = progress
+                self.applyVolume()
+                self.ghost?.volume = self.fade * self.levelGain * (1 - progress)
+            }
+            self?.endCrossfade()
+        }
+    }
+
+    private func endCrossfade() {
+        fadeTask?.cancel()
+        fadeTask = nil
+        ghost?.pause()
+        ghost = nil
+        mix = 1
+        applyVolume()
+    }
 
     var volume: Float {
         get { fade }
@@ -97,6 +146,7 @@ final class AVPlayerBackend: PlayerBackend {
     var isPlaying: Bool { player.rate > 0 }
 
     func load(url: URL) {
+        startCrossfade()
         removeItemObservers()
         let item = AVPlayerItem(url: url)
         item.audioTimePitchAlgorithm = .spectral // 速度を変えても、音の高さを変えない
@@ -135,13 +185,14 @@ final class AVPlayerBackend: PlayerBackend {
 
     func play() { player.play() }
 
-    func pause() { player.pause() }
+    func pause() { ghost?.pause(); player.pause() }
 
     func seek(to seconds: Double) {
         player.seek(to: CMTime(seconds: max(0, seconds), preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
     func stop() {
+        endCrossfade()
         player.pause()
         removeItemObservers()
         player.replaceCurrentItem(with: nil)
