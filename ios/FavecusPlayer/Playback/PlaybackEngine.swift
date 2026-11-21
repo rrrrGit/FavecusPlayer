@@ -76,6 +76,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     let listViews = ListViewStore()
     /// 再生履歴（最近聴いた曲）と、自動リストの設定（件数・条件）。この端末内だけ。
     var history: PlayHistoryStore?
+    /// 月ごとの再生時間（バックグラウンド再生を含む）。この端末内だけ。
+    let playTime = PlayTimeStore()
     /// クロスフェードを、この曲では、すでに始めた（同じ曲で、何度も始めない）。
     var crossfadeStartedFor: String?
     var crossfadePending = false
@@ -269,12 +271,15 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         if restoredPending { Task { await playRestored(fromStart: false) }; return }
         backend.play()
         refresh()
+        playTime.observe(position: position, paused: false, rate: speed)
     }
 
     func pause() {
         backend.pause()
         refresh()
+        playTime.observe(position: position, paused: true, rate: speed)
         saveResume()
+        playTime.flush()
     }
 
     func toggle() {
@@ -290,6 +295,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     func stop() {
         generation += 1
         if let counts { Task { await counts.stop() } }
+        playTime.stop()
         isPreparing = false
         videoMode = false
         videoAvailable = false
@@ -341,6 +347,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             // 最後まで再生した（リピートなし）／前がない：止める。曲の表示は残す。
             backend.pause()
             refresh()
+            playTime.observe(position: position, paused: true, rate: speed)
+            playTime.flush()
             return
         }
         await load(id: id, playlistId: playlistId)
@@ -394,6 +402,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         applyLeveling(file: file, generation: mine)
         if let seek = resumeSeek, seek.id == id { backend.seek(to: seek.position) } // 前回の続きから（位置は、再生を始める前に合わせる）
         resumeSeek = nil
+        playTime.begin()
         backend.play()
         audioFile = file
         loadedFile = file
@@ -469,6 +478,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             let duration = self.duration
             Task { await counts.observe(position: duration, duration: duration, paused: false, ended: true) }
         }
+        playTime.observe(position: duration, paused: true, rate: speed)
+        playTime.flush()
         if sleepTimer.consumeEndOfSong() { // 「この曲の終わりまで」：次の曲へ進まず、ここで止める
             backend.pause()
             refresh()
@@ -526,7 +537,10 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     }
 
     /// アプリが背面へ移るとき・終了するときに、保存を確定する。
-    func flushResume() { resumeStore?.flush() }
+    func flushResume() {
+        resumeStore?.flush()
+        playTime.flush()
+    }
 
     /// 起動後、前回の曲を、一時停止の状態で表示する（読み込まず、鳴らさない）。ライブラリの読み込みのあとに呼ぶ。
     func restoreLast() {
@@ -560,6 +574,9 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         startCrossfadeIfDue()
         saveResume()
         if isPlaying && position > 0.5 { failureStreak = 0 } // 実際に再生できたら、失敗の連続を数え直す
+        if current != nil, !isPreparing {
+            playTime.observe(position: position, paused: !isPlaying, rate: speed)
+        }
         if let counts, current != nil, !isPreparing {
             let position = self.position, duration = self.duration, paused = !isPlaying
             Task { await counts.observe(position: position, duration: duration, paused: paused) }

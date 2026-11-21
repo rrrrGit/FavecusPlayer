@@ -47,6 +47,7 @@ const SongNotes = require('./core/song-notes.cjs');
 const { OutputDeviceStore } = require('./core/output-device.cjs');
 const { SongNotesStore } = require('./core/song-notes-store.cjs');
 const { HistoryStore } = require('./core/play-history-store.cjs');
+const { PlayTimeStore } = require('./core/play-time-store.cjs');
 const { AutoListSettingsStore } = require('./core/auto-list-settings-store.cjs');
 const { ListViewStore } = require('./core/list-views.cjs');
 const { TrashStore } = require('./core/trash-store.cjs');
@@ -63,7 +64,7 @@ app.setPath('sessionData', dataDirectory);
 let win, store, presence, remoteView, mini, volumeSaveTimer, backgroundMode, sync;
 let viewVisible = false;
 let current = null, playback = null;
-let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null, trashStore = null, loudness = null, songGain = 1, favorites = null, speedStore = null, mediaKeys = null, listViews = null, historyStore = null, autoListSettings = null, notesStore = null, outputStore = null;
+let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null, trashStore = null, loudness = null, songGain = 1, favorites = null, speedStore = null, mediaKeys = null, listViews = null, historyStore = null, playTimeStore = null, autoListSettings = null, notesStore = null, outputStore = null;
 let visibleBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 let statuses = { discord: { code: 'off', text: 'Discord連携はオフです' }, taskbar: { code: 'off', text: '下向き矢印を押すと埋め込みを試します' } };
 let playCounts;
@@ -335,13 +336,14 @@ async function LoadThumbnail() {
   thumbnail = { entryId: current.entryId, image, pending: false }; Emit('thumbnail', thumbnail);
 }
 function AcceptPlayback(data) {
-  playback = data; playCounts?.Observe(data); Emit('playback', data); UpdatePresence();
+  playback = data; playCounts?.Observe(data); playTimeStore?.Observe(data); Emit('playback', data); UpdatePresence();
   // 前回の続きから再生：曲・再生範囲・位置を、この端末にだけ保存する（約10秒ごと・一時停止の瞬間）
   if (current?.playlistId && queue?.playlistId) resumeStore?.Observe({ entryId: current.entryId, playlistId: current.playlistId, scope: AUTO_NAMES[queue.playlistId] ? '*' : queue.playlistId, position: data.position, duration: data.duration }, data.paused === true);
   if (current?.officialPlayer && !data.paused && data.position >= 3) { officialPreferred.add(current.entry.videoId); const season = playbackMetadata.get(current.entry.videoId)?.ugc_season?.id; if (season) officialPreferred.add(`season:${season}`); if (officialPreferred.size > 1000) officialPreferred.delete(officialPreferred.values().next().value); }
 }
 function StopPlayer() {
   loadRequest++;
+  playTimeStore?.Stop();
   CloseView(); current = null; playback = null; thumbnail = null; queue.Clear();
   Emit('current', null); Emit('playback', null); Emit('resume', ResumeOffer()); UpdatePresence(); backgroundMode?.Refresh();
 }
@@ -549,6 +551,7 @@ async function LoadEntry(playlistId, entryId, pageMode = false, { allowRecovery 
   }
   const gen = generation; view.resume = resume;
   if (!preserveCount) playCounts?.Begin(entry);
+  playTimeStore?.Begin();
   songGain = 1; void LevelCurrent(request, saved ? offline.ResolvePath(saved.file) : entry.type === 'local' ? path.join(store.media, entry.fileName) : null);
   current = { source, queuePlaylistId: queue.playlistId, playlistId, entryId, entry: structuredClone(entry), pageMode, officialPlayer, recoveryAttempt, offline: saved ? { token: saved.token, kind: saved.kind, height: saved.height } : null };
   PlayerDiagnostic('track-change', { source, saved: !!saved });
@@ -594,11 +597,17 @@ function Handle(channel, callback) {
     catch (error) { return { ok: false, error: error.message || '操作に失敗しました。' }; }
   });
 }
+function SyncMediaKeys() {
+  const enabled = store?.data?.settings?.mediaKeysEnabled !== false;
+  if (enabled) { if (!mediaKeys) mediaKeys = MediaKeys.Register(globalShortcut, command => Command(command)); }
+  else { mediaKeys?.Dispose(); mediaKeys = null; }
+}
 async function Configure() {
   const settings = store.data.settings;
   presence.Configure(settings.discordEnabled, settings.discordClientId);
   UpdatePresence();
   SetVolume();
+  SyncMediaKeys();
   await mini?.Configure?.();
 }
 function Resources(folder) { return app.isPackaged ? path.join(process.resourcesPath, folder) : path.join(app.getAppPath(), folder); }
@@ -833,6 +842,7 @@ async function Start() {
   });
   require('./main/ipc-queue.cjs')(ctx);
   historyStore = new HistoryStore(path.join(app.getPath('userData'), 'play-history.json'));
+  playTimeStore = new PlayTimeStore(path.join(app.getPath('userData'), 'play-time.json'));
   autoListSettings = new AutoListSettingsStore(path.join(app.getPath('userData'), 'auto-list-settings.json'));
   playCounts.onCounted = (key, at) => historyStore.Add(key, at); // 回数を数えたとき（実再生の3秒など）に、再生履歴へ足す
   // 自動リストの設定（件数・条件）と、再生履歴・再生統計
@@ -840,9 +850,11 @@ async function Start() {
   Handle('history:clear', () => { historyStore.Clear(); return true; });
   Handle('stats:get', () => {
     const stats = playCounts.Stats({ topLimit: 20, months: 12 }), byKey = new Map();
+    const time = playTimeStore ? playTimeStore.Stats({ months: 12 }) : { totalSeconds: 0, months: [] };
+    const secondsByMonth = new Map(time.months.map(m => [m.month, m.seconds]));
     for (const list of store.data.playlists) for (const entry of list.entries) { const key = playCounts.KeyOf(entry); if (key && !byKey.has(key)) byKey.set(key, entry); }
     const name = ({ key, count }) => { const entry = byKey.get(key); return { count, title: entry ? (entry.title || entry.videoId || 'ローカルファイル') : '（ライブラリにない曲）', found: !!entry }; };
-    return { total: stats.total, months: stats.months, top: stats.top.map(name), thisMonthTop: stats.thisMonthTop.map(name) };
+    return { total: stats.total, totalSeconds: time.totalSeconds, months: stats.months.map(m => ({ ...m, seconds: secondsByMonth.get(m.month) || 0 })), top: stats.top.map(name), thisMonthTop: stats.thisMonthTop.map(name) };
   });
   listViews = new ListViewStore(path.join(app.getPath('userData'), 'list-views.json'));
   // ライブラリの点検（重複・リンク切れ。報告だけで、何も消さない。規則は core/library-audit.cjs）
@@ -881,7 +893,7 @@ async function Start() {
     return sleepTimer.State();
   });
   // キーボードのメディアキー（再生/一時停止・次・前・停止）。アプリが前面でなくても効く（Chromium 側の標準の処理は、二重に反応するため切ってある）。
-  mediaKeys = MediaKeys.Register(globalShortcut, command => Command(command));
+  SyncMediaKeys();
   Handle('window:mini', () => mini.Show());
   Handle('player:official', () => {
     if (current?.entry.type === 'bilibili') return shell.openExternal(ParseBilibili(current.entry.url).url);
@@ -956,7 +968,7 @@ app.on('child-process-gone', (_event, details = {}) => PlayerDiagnostic('child-p
 process.on?.('uncaughtExceptionMonitor', (error, origin) => PlayerDiagnostic('uncaught-exception', { origin, name: error.name, code: error.code, message: String(error.message).slice(0, 240), stack: String(error.stack || '').split('\n').slice(0, 8).join('\n').slice(0, 3000) }));
 app.on('before-quit', () => {
   mediaKeys?.Dispose(); mediaKeys = null;
-  quitting = true; resumeStore?.Flush(); loadRequest++; sync?.Dispose(); offline?.CancelEstimate();
+  quitting = true; resumeStore?.Flush(); playTimeStore?.Flush(); loadRequest++; sync?.Dispose(); offline?.CancelEstimate();
   offline?.Cancel();
   if (volumeSaveTimer) { clearTimeout(volumeSaveTimer); volumeSaveTimer = null; try { store?.Save(); } catch {} }
   biliBrowser?.Destroy(); backgroundMode?.Dispose(); mini?.Destroy(); mini = null; presence?.Stop(); CloseView(); for (const view of retiredPlayers.keys()) DisposePlayer(view); offline?.cleanup.Dispose();

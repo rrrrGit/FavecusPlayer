@@ -41,20 +41,6 @@ function RenderNext() {
   box.title = next ? `${path || queueInfo.name} / ${next.index}. ${next.title}` : '';
   if (timelineOpen) RenderTimeline(!timelineManual);
 }
-// 再生中の曲と、これから再生する曲（キューの順）を、新しいプレイリストとして保存する（共通の操作 queue-playlist）。
-function SaveQueueAsPlaylist() {
-  const data = queueInfo?.timeline; if (!data?.current) return;
-  const entries = [data.current, ...data.upcoming].filter(track => track.id && track.playlistId).map(track => ({ playlistId: track.playlistId, entryId: track.id }));
-  if (!entries.length) { Toast('保存できる曲がありません。'); return; }
-  const now = new Date(), stamp = `${now.getMonth() + 1}/${now.getDate()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  let picker;
-  OpenModal('キューをプレイリストに保存', `<p class="form-note">再生中の曲と、これから再生する曲（${entries.length}曲）を、新しいプレイリストにします。同じ曲は1つにまとめます。</p><label class="field">名前<input id="queue-name-input" maxlength="60" required></label><div class="field"><span>親プレイリスト</span><div id="queue-parent"></div></div>`, async () => {
-    await Action({ type: 'queue-playlist', name: $('queue-name-input').value, parentId: picker.get(), entries });
-    Toast('プレイリストに保存しました。');
-  }, '保存する');
-  picker = window.FavecusParentPicker($('queue-parent'), state, { selected: null });
-  $('queue-name-input').value = `再生キュー ${stamp}`; $('queue-name-input').focus();
-}
 function RenderTimeline(focusNext = false) {
   const list = $('queue-timeline'), previousTop = list.scrollTop; list.replaceChildren();
   const data = queueInfo?.timeline; if (!data) return;
@@ -73,7 +59,6 @@ function RenderTimeline(focusNext = false) {
     }
   }
   if (!data.upcoming.length) list.append(Element('p', 'form-note', 'この曲で再生リストが終了します。'));
-  if (data.current) list.append(Button('このキューをプレイリストに保存', 'button secondary timeline-save', () => { queueFollower?.Interact(); SaveQueueAsPlaylist(); }));
   if (focusNext && first) list.scrollTop += first.getBoundingClientRect().top - list.getBoundingClientRect().top;
   else list.scrollTop = previousTop;
 }

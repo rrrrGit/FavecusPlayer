@@ -112,13 +112,122 @@ struct StatsSong: Equatable, Identifiable {
 struct StatsMonth: Equatable, Identifiable {
     let month: String
     let plays: Int
+    var seconds: Int = 0
     var id: String { month }
 }
 
 /// 再生統計（共通JSの LedgerStats ＝ PC版と同じ規則）。
 struct PlayStats: Equatable {
     var total = 0
+    var totalSeconds = 0
     var months: [StatsMonth] = []
     var top: [StatsSong] = []
     var thisMonthTop: [StatsSong] = []
+}
+
+/// 月ごとの再生時間（バックグラウンド再生を含む。この端末内だけ、Application Support/FavecusPlayer/play-time.json に保存）。
+@MainActor
+final class PlayTimeStore {
+    private struct Document: Codable { var version: Int; var months: [String: Double] }
+    private let fileURL: URL
+    private var months: [String: Double] = [:]
+    private var lastPosition: Double?
+    private var lastAt: Date?
+    private var wasPlaying = false
+    private var lastFlush: Date = .distantPast
+    private var dirty = false
+    static let maxElapsed: Double = 60
+    static let maxMonths = 120
+    static let flushInterval: TimeInterval = 10
+    private static let jst = TimeZone(secondsFromGMT: 9 * 3600)!
+
+    init(directory: URL? = nil) {
+        fileURL = (directory ?? AtomicJsonFile.defaultDirectory()).appendingPathComponent("play-time.json")
+        if let document = AtomicJsonFile.readOptional(Document.self, from: fileURL), document.version == 1 {
+            months = Self.clean(document.months)
+        }
+    }
+
+    private static func monthOf(_ date: Date) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = jst
+        let c = calendar.dateComponents([.year, .month], from: date)
+        return String(format: "%04d-%02d", c.year ?? 1970, c.month ?? 1)
+    }
+
+    private static func clean(_ raw: [String: Double]) -> [String: Double] {
+        let valid = raw.filter { key, value in
+            key.range(of: #"^\d{4}-(?:0[1-9]|1[0-2])$"#, options: .regularExpression) != nil && value.isFinite && value >= 0
+        }
+        if valid.count <= maxMonths { return valid }
+        return Dictionary(uniqueKeysWithValues: valid.sorted { $0.key < $1.key }.suffix(maxMonths))
+    }
+
+    func begin(now: Date = Date()) {
+        lastPosition = nil
+        lastAt = now
+        wasPlaying = false
+    }
+
+    func stop() {
+        flush()
+        lastPosition = nil
+        lastAt = nil
+        wasPlaying = false
+    }
+
+    func observe(position: Double, paused: Bool, rate: Double = 1, now: Date = Date()) {
+        guard position.isFinite else { return }
+        if lastAt == nil { begin(now: now) }
+        let previousPosition = lastPosition ?? position
+        let elapsed = now.timeIntervalSince(lastAt ?? now)
+        let delta = position - previousPosition
+        if wasPlaying && elapsed > 0 && elapsed <= Self.maxElapsed && delta > 0 && delta <= elapsed * max(1, rate) + 2.0 {
+            let month = Self.monthOf(now)
+            months[month, default: 0] += min(delta, elapsed)
+            if months.count > Self.maxMonths { months = Self.clean(months) }
+            dirty = true
+        }
+        let becamePaused = paused && wasPlaying
+        lastPosition = position
+        lastAt = now
+        wasPlaying = !paused
+        if dirty && (becamePaused || now.timeIntervalSince(lastFlush) >= Self.flushInterval) {
+            flush(now: now)
+        }
+    }
+
+    func flush(now: Date = Date()) {
+        guard dirty else { return }
+        dirty = false
+        lastFlush = now
+        try? AtomicJsonFile.write(Document(version: 1, months: months), to: fileURL)
+    }
+
+    func stats(months count: Int = 12, now: Date = Date()) -> (totalSeconds: Int, byMonth: [String: Int]) {
+        let totalSeconds = Int(months.values.reduce(0, +).rounded())
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = Self.jst
+        let c = calendar.dateComponents([.year, .month], from: now)
+        let baseYear = c.year ?? 1970, baseMonth = c.month ?? 1
+        let span = max(1, min(60, count))
+        var byMonth: [String: Int] = [:]
+        for back in 0..<span {
+            let idx = baseYear * 12 + (baseMonth - 1) - back
+            let year = Int(floor(Double(idx) / 12.0))
+            let month = ((idx % 12) + 12) % 12 + 1
+            let key = String(format: "%04d-%02d", year, month)
+            byMonth[key] = Int((months[key] ?? 0).rounded())
+        }
+        return (totalSeconds, byMonth)
+    }
+
+    static func formatDuration(_ seconds: Int) -> String {
+        let s = max(0, seconds)
+        if s == 0 { return "0分" }
+        if s < 60 { return "\(s)秒" }
+        let minutes = s / 60, hours = minutes / 60, rem = minutes % 60
+        if hours == 0 { return "\(minutes)分" }
+        return rem > 0 ? "\(hours)時間\(rem)分" : "\(hours)時間"
+    }
 }

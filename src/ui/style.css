@@ -123,8 +123,8 @@ body{grid-template-columns:var(--sidebar-width,218px) minmax(0,1fr)}.sidebar{pad
 .local-menu-item:hover{background:#4a4064}
 
 .stat-heading{margin:18px 0 8px;font-size:13px;color:#b1a2ff}
-.stat-row{display:grid;grid-template-columns:64px 1fr 44px;align-items:center;gap:8px;font-size:12px;padding:2px 0}
-.stat-label{color:#9297ad;font-variant-numeric:tabular-nums}.stat-bar{display:block;height:8px;border-radius:4px;background:#242837;overflow:hidden}.stat-bar i{display:block;height:100%;background:#8c7dff}.stat-value{text-align:right;color:#edf0f8;font-variant-numeric:tabular-nums}
+.stat-row{display:grid;grid-template-columns:64px 1fr minmax(44px,auto);align-items:center;gap:8px;font-size:12px;padding:2px 0}
+.stat-label{color:#9297ad;font-variant-numeric:tabular-nums}.stat-bar{display:block;height:8px;border-radius:4px;background:#242837;overflow:hidden}.stat-bar i{display:block;height:100%;background:#8c7dff}.stat-value{text-align:right;color:#edf0f8;font-variant-numeric:tabular-nums;white-space:nowrap}
 .stat-top{margin:0;padding:0;list-style:none}.stat-top li{display:grid;grid-template-columns:1fr auto;gap:10px;padding:5px 0;border-bottom:1px solid #242837;font-size:12px}.stat-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 .bulk-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 10px;margin:0 0 8px;border:1px solid #3a3d52;border-radius:10px;background:#1f2230}.bulk-bar.hidden{display:none}.bulk-count{margin-right:auto;font-size:12px;color:#b1a2ff}.bulk-bar .button{padding:5px 10px;font-size:12px}

@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 /// アラームの一覧（設定タブから開く）。追加・編集・有効／無効・削除。
@@ -8,6 +9,7 @@ struct AlarmListView: View {
     var startEditing = false
     @State private var editing: AlarmItem?
     @State private var pendingDelete: AlarmItem?
+    @State private var songTitles: [String: String] = [:]
 
     static let weekdayNames = ["日", "月", "火", "水", "木", "金", "土"]
 
@@ -21,11 +23,14 @@ struct AlarmListView: View {
                     Button { editing = item } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(Self.timeText(item)).font(.system(size: 32, weight: .regular)).monospacedDigit()
-                            HStack(spacing: 6) {
-                                Text(Self.summary(item))
-                                if item.hasSound { Image(systemName: item.randomSound ? "dice" : "music.note").imageScale(.small) }
+                            Text(Self.summary(item))
+                                .font(.footnote).foregroundStyle(Theme.muted)
+                            HStack(spacing: 5) {
+                                Image(systemName: item.randomSound ? "dice" : (item.sound != nil ? "music.note" : "bell")).imageScale(.small)
+                                Text(Self.soundSummary(item) { songTitles[$0] }).lineLimit(1)
                             }
-                            .font(.footnote).foregroundStyle(Theme.muted)
+                            .font(.footnote)
+                            .foregroundStyle(item.hasSound ? Theme.accent : Theme.muted)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
@@ -69,8 +74,27 @@ struct AlarmListView: View {
         }
         .task {
             await service.resync()
+            refreshSongTitles()
             if startEditing, editing == nil { editing = service.alarms.first ?? AlarmItem(hour: 7, minute: 0) }
         }
+        .onAppear { refreshSongTitles() }
+        .onChange(of: service.alarms) { _ in refreshSongTitles() }
+        .onReceive(documentChanges) { _ in Task { @MainActor in refreshSongTitles() } }
+        .onReceive(keyChanges) { _ in Task { @MainActor in refreshSongTitles() } }
+    }
+
+    private func refreshSongTitles() {
+        songTitles = catalog?.titlesByKey() ?? [:]
+    }
+
+    private var documentChanges: AnyPublisher<Void, Never> {
+        guard let store = catalog?.store else { return Empty(completeImmediately: false).eraseToAnyPublisher() }
+        return store.$document.map { _ in () }.eraseToAnyPublisher()
+    }
+
+    private var keyChanges: AnyPublisher<Void, Never> {
+        guard let downloads = catalog?.downloads else { return Empty(completeImmediately: false).eraseToAnyPublisher() }
+        return downloads.$entryKeys.map { _ in () }.eraseToAnyPublisher()
     }
 
     private var sorted: [AlarmItem] {
@@ -87,6 +111,19 @@ struct AlarmListView: View {
         else if item.weekdays.count == 7 { days = "毎日" }
         else { days = item.weekdays.sorted().map { weekdayNames[$0 - 1] }.joined(separator: " ") }
         return item.label.isEmpty ? days : "\(item.label)・\(days)"
+    }
+
+    static func soundSummary(_ item: AlarmItem, titleOf: (String) -> String?) -> String {
+        if item.randomSound {
+            if let key = item.sound?.mediaKey {
+                return titleOf(key).map { "ランダム：\($0)" } ?? "ランダム（曲未取得）"
+            }
+            return "ランダム（既定の音）"
+        }
+        if let key = item.sound?.mediaKey {
+            return titleOf(key) ?? "曲が見つかりません"
+        }
+        return "既定の音"
     }
 }
 

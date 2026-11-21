@@ -344,8 +344,6 @@ struct CurrentSongMenu: View {
 struct QueuePanel: View {
     @ObservedObject var player: PlaybackEngine
     let close: () -> Void
-    @State private var showSave = false
-    @State private var saveName = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -390,16 +388,6 @@ struct QueuePanel: View {
                     guard from != to else { return }
                     Task { await player.moveQueued(from: from, to: to) }
                 }
-                Button {
-                    let now = Date(), format = DateFormatter()
-                    format.dateFormat = "M/d HH:mm"
-                    saveName = "再生キュー " + format.string(from: now)
-                    showSave = true
-                } label: {
-                    Label("このキューをプレイリストに保存", systemImage: "square.and.arrow.down").font(.system(size: 14)).foregroundStyle(Theme.accent)
-                }
-                .disabled(player.current == nil)
-                .listRowBackground(Color.clear)
                 if player.upcoming.isEmpty {
                     Text(player.repeatMode == .off ? "このあとの曲はありません" : "この周の最後です。このあと、最初から続きます").font(.system(size: 12)).foregroundStyle(Theme.muted)
                         .listRowBackground(Color.clear)
@@ -410,12 +398,5 @@ struct QueuePanel: View {
             .environment(\.editMode, .constant(.active)) // 右端に「≡」（並べ替え）を出す
         }
         .task { await player.refreshQueue() }
-        .alert("プレイリストに保存", isPresented: $showSave) {
-            TextField("名前", text: $saveName)
-            Button("保存") { player.saveQueueAsPlaylist(name: saveName.trimmingCharacters(in: .whitespacesAndNewlines)) }
-            Button("キャンセル", role: .cancel) {}
-        } message: {
-            Text("再生中の曲と、これから再生する曲を、新しいプレイリストにします。同じ曲は1つにまとめます。")
-        }
     }
 }

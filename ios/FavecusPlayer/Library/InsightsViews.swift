@@ -49,7 +49,10 @@ struct StatsView: View {
     var body: some View {
         List {
             if let stats {
-                Section { Text("合計 \(stats.total) 回").font(.system(size: 15, weight: .semibold)) } footer: { Text("同期した他の端末の回数を含みます。") }
+                Section {
+                    Text("合計 \(stats.total) 回").font(.system(size: 15, weight: .semibold))
+                    Text("この端末の再生時間 \(PlayTimeStore.formatDuration(stats.totalSeconds))").font(.system(size: 14))
+                } footer: { Text("回数は同期した他の端末を含みます。再生時間はバックグラウンド再生を含み、この端末だけに記録します。") }
                 Section("月ごとの再生回数（最近12か月）") {
                     let peak = max(1, stats.months.map(\.plays).max() ?? 1)
                     ForEach(stats.months) { month in
@@ -60,6 +63,19 @@ struct StatsView: View {
                             }
                             .frame(height: 12)
                             Text("\(month.plays)").font(.system(size: 12).monospacedDigit()).frame(width: 44, alignment: .trailing)
+                        }
+                    }
+                }
+                Section("月ごとの再生時間（最近12か月）") {
+                    let peakSeconds = max(1, stats.months.map(\.seconds).max() ?? 1)
+                    ForEach(stats.months) { month in
+                        HStack(spacing: 8) {
+                            Text(month.month).font(.system(size: 12).monospacedDigit()).foregroundStyle(Theme.muted).frame(width: 64, alignment: .leading)
+                            GeometryReader { proxy in
+                                Capsule().fill(Theme.accent).frame(width: max(2, proxy.size.width * CGFloat(month.seconds) / CGFloat(peakSeconds)), height: 8).frame(maxHeight: .infinity, alignment: .center)
+                            }
+                            .frame(height: 12)
+                            Text(PlayTimeStore.formatDuration(month.seconds)).font(.system(size: 12).monospacedDigit()).lineLimit(1).frame(minWidth: 56, alignment: .trailing)
                         }
                     }
                 }

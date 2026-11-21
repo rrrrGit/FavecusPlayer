@@ -10,7 +10,7 @@ const { LibraryMediaKey, PlanMediaIds } = require('./library-identity.cjs');
 const { ParseBilibili } = require('./urls.cjs');
 const Trash = require('./trash.cjs');
 
-const TYPES = new Set(['create', 'select', 'rename', 'playlist-properties', 'delete', 'playlist-move', 'playlist-attach', 'playlist-reorder', 'remove', 'title', 'move', 'reorder', 'add-video', 'restore', 'queue-playlist', 'remove-many', 'entries-transfer']);
+const TYPES = new Set(['create', 'select', 'rename', 'playlist-properties', 'delete', 'playlist-move', 'playlist-attach', 'playlist-reorder', 'remove', 'title', 'move', 'reorder', 'add-video', 'restore', 'remove-many', 'entries-transfer']);
 
 function Playlist(data, id) {
   const result = data.playlists.find(p => p.id === id);
@@ -73,30 +73,6 @@ function Apply(data, action, ctx) {
     const before = list.entries.length;
     list.entries = list.entries.filter(e => !wanted.has(e.id));
     if (list.entries.length === before) throw new Error('外す曲が見つかりません。');
-    return true;
-  }
-  // 再生キューを、新しいプレイリストとして保存する（v0.7.4）。action：{ name, parentId?, entries: [{ playlistId, entryId }]（キューの順）, select? }。
-  // 同じメディアの曲は1つにまとめ、各曲は、元の曲を複製して新しいIDで登録する（元のリストは変えない）。元の曲が見つからないものは飛ばす。
-  if (action.type === 'queue-playlist') {
-    if (!Array.isArray(action.entries) || !action.entries.length || action.entries.length > MAX_ENTRIES) throw new Error('保存する曲がありません。');
-    ValidatePlaylistCount(data.playlists.length + 1);
-    const keyOf = LibraryMediaKey(data.videoAliases || []), seen = new Set(), items = [];
-    for (const ref of action.entries) {
-      const source = data.playlists.find(x => x.id === ref?.playlistId)?.entries.find(e => e.id === ref?.entryId);
-      if (!source) continue;
-      const key = keyOf(source);
-      if (seen.has(key)) continue;
-      seen.add(key); items.push(source);
-    }
-    if (!items.length) throw new Error('保存できる曲が見つかりません。');
-    if (data.playlists.reduce((n, q) => n + q.entries.length, 0) + items.length > MAX_ENTRIES) throw new Error('登録数の上限は全リスト合計10000件です。');
-    const parent = action.parentId ? Playlist(data, action.parentId) : null;
-    const created = NewPlaylist(ctx, action.name || '再生キュー'); data.playlists.push(created);
-    (parent ? parent.childIds : data.rootPlaylistIds).push(created.id);
-    if (parent) parent.lastAddedAt = created.createdAt;
-    for (const source of items) created.entries.push({ ...structuredClone(source), id: ctx.createId() });
-    created.lastAddedAt = ctx.now();
-    if (action.select === true) data.activePlaylistId = created.id;
     return true;
   }
   const p = action.playlistId ? Playlist(data, action.playlistId) : null;

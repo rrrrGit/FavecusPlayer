@@ -40,20 +40,6 @@ extension PlaybackEngine {
         store.document?.playlists.first { $0.entries.contains { $0.id == item.id } }?.id
     }
 
-    /// 再生中の曲と、これから再生する曲（キューの順）を、新しいプレイリストとして保存する（共通の操作 queue-playlist。同じ曲は1つにまとめる）。
-    @discardableResult
-    func saveQueueAsPlaylist(name: String) -> Bool {
-        let items = (current.flatMap { entry($0.entryId) }.map { [$0] } ?? []) + upcoming
-        let refs: [[String: String]] = items.compactMap { item in
-            guard let owner = ownerListId(of: item) else { return nil }
-            return ["playlistId": owner, "entryId": item.id]
-        }
-        guard !refs.isEmpty else { message = "保存できる曲がありません"; return false }
-        store.perform(["type": "queue-playlist", "name": name, "entries": refs])
-        message = "プレイリストに保存しました"
-        return true
-    }
-
     /// 曲の終わりが近く、次の曲が、この端末で、すぐ鳴らせるとき（ローカル・保存済み）、次の曲を重ねて始める（設定の秒数。0ならしない）。
     func startCrossfadeIfDue() {
         let seconds = Crossfade.seconds(stored: UserDefaults.standard.integer(forKey: Crossfade.defaultsKey))
@@ -124,11 +110,12 @@ extension PlaybackEngine {
                 return StatsSong(title: titles[key] ?? "（ライブラリにない曲）", count: count)
             }
         }
+        let time = playTime.stats(months: 12)
         let months = (raw["months"] as? [[String: Any]] ?? []).compactMap { row -> StatsMonth? in
             guard let month = row["month"] as? String, let plays = row["plays"] as? Int else { return nil }
-            return StatsMonth(month: month, plays: plays)
+            return StatsMonth(month: month, plays: plays, seconds: time.byMonth[month] ?? 0)
         }
-        return PlayStats(total: raw["total"] as? Int ?? 0, months: months, top: songs(raw["top"]), thisMonthTop: songs(raw["thisMonthTop"]))
+        return PlayStats(total: raw["total"] as? Int ?? 0, totalSeconds: time.totalSeconds, months: months, top: songs(raw["top"]), thisMonthTop: songs(raw["thisMonthTop"]))
     }
 
     /// 再生速度を変える（決められた値のなかから）。再生中なら、すぐ反映する。

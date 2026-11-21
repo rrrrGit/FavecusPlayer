@@ -42,8 +42,26 @@ test('keys another app already owns are skipped, failures in the handler never e
 
 test('main registers the media keys, releases them on quit, and turns off the duplicate Chromium handling', () => {
   const main = readMain();
-  assert.match(main, /mediaKeys = MediaKeys\.Register\(globalShortcut, command => Command\(command\)\)/);
+  assert.match(main, /function SyncMediaKeys\(\)/);
+  assert.match(main, /MediaKeys\.Register\(globalShortcut, command => Command\(command\)\)/);
   assert.match(main, /mediaKeys\?\.Dispose\(\)/);
   assert.match(main, /appendSwitch\('disable-features', 'HardwareMediaKeyHandling'\)/);
   assert.match(main, /safeStorage, globalShortcut \} = require\('electron'\)/);
+});
+
+test('mediaKeysEnabled defaults to true, persists false, and toggles in settings UI', () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const { Store } = require('../src/core/store.cjs');
+  const { readApp } = require('./support-source.cjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'favecus-mediakey-'));
+  try {
+    const store = new Store(dir);
+    assert.equal(store.data.settings.mediaKeysEnabled, true);
+    store.Apply({ type: 'settings', settings: { mediaKeysEnabled: false } });
+    assert.equal(new Store(dir).data.settings.mediaKeysEnabled, false);
+    assert.match(readApp(), /media-keys-enabled/);
+    assert.match(readApp(), /mediaKeysEnabled/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -28,6 +28,20 @@ struct AlarmSongCatalog {
 
     func file(forKey key: String) -> URL? { songs().first { $0.key == key }?.file }
 
+    /// ライブラリ全曲のメディアキー → 曲名（一覧の表示用。保存済みでなくても名前が引ける）。
+    func titlesByKey() -> [String: String] {
+        var result: [String: String] = [:]
+        for playlist in store.document?.playlists ?? [] {
+            for entry in playlist.entries {
+                let key: String?
+                if entry.type == "bilibili" { key = downloads?.entryKeys[entry.id] }
+                else { key = entry.fileName.map { "local:" + $0 } }
+                if let key, result[key] == nil { result[key] = entry.title.isEmpty ? "（無題）" : entry.title }
+            }
+        }
+        return result
+    }
+
     /// メディアキーの曲の、登録曲ID（再生に使う）。保存の有無は問わない。
     func entryId(forKey key: String) -> String? {
         for playlist in store.document?.playlists ?? [] {

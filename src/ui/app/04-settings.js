@@ -101,8 +101,9 @@ function SyncSettings() {
 }
 function KeySettings() {
   const keys = window.FavecusKeys, draft = { ...keys.Validate(state.settings.keybindings) }, inputs = new Map();
-  const save = () => SaveSettingsSection({ keybindings: keys.Validate(draft) });
-  OpenModal('キーコンフィグ', '<p class="form-note">欄を選択して使用するキーを押してください。修飾キーとの組み合わせも使えます。Backspace・Deleteで解除します。アプリが前面のときだけ有効で、入力欄・設定画面では再生キーを動作させません。</p><div id="keybinding-fields"></div><button id="keybinding-reset" class="button secondary" type="button">初期設定に戻す</button>', save, '保存して戻る', save);
+  const save = () => SaveSettingsSection({ keybindings: keys.Validate(draft), mediaKeysEnabled: $('media-keys-enabled').checked });
+  OpenModal('キーコンフィグ', '<p class="form-note">欄を選択して使用するキーを押してください。修飾キーとの組み合わせも使えます。Backspace・Deleteで解除します。アプリが前面のときだけ有効で、入力欄・設定画面では再生キーを動作させません。</p><div id="keybinding-fields"></div><button id="keybinding-reset" class="button secondary" type="button">初期設定に戻す</button><label class="check-row"><input id="media-keys-enabled" type="checkbox">キーボードのメディアキーを使う（再生・一時停止・次・前・停止）</label><p class="form-note">オンにすると、アプリが前面にないときもキーボードのメディアキーで操作できます。他のアプリで使いたいときはオフにしてください。</p>', save, '保存して戻る', save);
+  $('media-keys-enabled').checked = state.settings.mediaKeysEnabled !== false;
   const paint = () => { for (const [action, input] of inputs) input.value = keys.Display(draft[action]); };
   for (const [action, title] of Object.entries(keys.Labels)) {
     const label = Element('label', 'keybinding-row', title), input = Element('input'); input.type = 'text'; input.readOnly = true; input.setAttribute('aria-label', title);

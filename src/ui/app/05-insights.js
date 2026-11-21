@@ -25,14 +25,29 @@ function AutoListSettings() {
 // 自動リストのカードを、設定の変更のあとに作り直す（ホームを開いているとき）。
 function RenderAutoLists() { if (typeof RenderHome === 'function' && !$('home')?.classList.contains('hidden')) RenderHome(); }
 
+function FormatPlayDuration(totalSeconds) {
+  const s = Math.max(0, Math.floor(Number.isFinite(totalSeconds) ? totalSeconds : 0));
+  if (s === 0) return '0分';
+  if (s < 60) return `${s}秒`;
+  const minutes = Math.floor(s / 60), hours = Math.floor(minutes / 60), rem = minutes % 60;
+  if (hours === 0) return `${minutes}分`;
+  return rem > 0 ? `${hours}時間${rem}分` : `${hours}時間`;
+}
+
 function StatsSettings() {
   Run(async () => {
     const stats = await api.stats();
     const peak = Math.max(1, ...stats.months.map(m => m.plays));
     const bars = stats.months.map(m => `<div class="stat-row"><span class="stat-label">${m.month}</span><span class="stat-bar"><i style="width:${Math.round((m.plays / peak) * 100)}%"></i></span><span class="stat-value">${m.plays}</span></div>`).join('');
+    const peakSeconds = Math.max(1, ...stats.months.map(m => m.seconds || 0));
+    const timeBars = stats.months.map(m => {
+      const sec = m.seconds || 0;
+      return `<div class="stat-row"><span class="stat-label">${m.month}</span><span class="stat-bar"><i style="width:${Math.round((sec / peakSeconds) * 100)}%"></i></span><span class="stat-value">${FormatPlayDuration(sec)}</span></div>`;
+    }).join('');
     const list = items => (items.length ? `<ol class="stat-top">${items.map(item => `<li><span class="stat-title"></span><span class="stat-value">${item.count}回</span></li>`).join('')}</ol>` : '<p class="form-note">まだ記録がありません。</p>');
-    OpenModal('再生統計', `<p class="form-note">この再生回数の記録（同期した他の端末の回数を含みます）の、合計は <strong>${stats.total}</strong> 回です。</p>
+    OpenModal('再生統計', `<p class="form-note">この再生回数の記録（同期した他の端末の回数を含みます）の、合計は <strong>${stats.total}</strong> 回です。<br>このPCでの合計再生時間：<strong>${FormatPlayDuration(stats.totalSeconds || 0)}</strong>（バックグラウンド再生を含みます）</p>
       <h3 class="stat-heading">月ごとの再生回数（最近12か月）</h3>${bars}
+      <h3 class="stat-heading">月ごとの再生時間（最近12か月）</h3>${timeBars}
       <h3 class="stat-heading">今月よく聴いた曲</h3><div id="stat-month">${list(stats.thisMonthTop)}</div>
       <h3 class="stat-heading">これまでによく聴いた曲（上位20）</h3><div id="stat-all">${list(stats.top)}</div>`, null);
     // 曲名は、文字として入れる（曲名に、HTML の記号があっても、そのまま出す）
