@@ -97,5 +97,5 @@ test('the favorites list is wired on both platforms', () => {
   assert.match(readMain(), /favorites: favorites \? favorites\.List\(\) : \[\]/);
   assert.match(readApp(), /kind: 'favorites'/);
   assert.match(read('ios/FavecusPlayer/Library/AutoLists.swift'), /case frequent, recent, unplayed, favorites/);
-  assert.match(read('ios/FavecusPlayer/Playback/PlaybackEngine.swift'), /"favorites": Array\(favorites\.keys\)/);
+  assert.match(read('ios/FavecusPlayer/Playback/PlaybackEngine+Queue.swift'), /"favorites": Array\(favorites\.keys\)/);
 });

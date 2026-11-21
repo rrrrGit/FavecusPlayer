@@ -774,7 +774,7 @@ async function Start() {
   });
   Handle('app:state', () => ({ favorites: FavoriteIds(), sleep: sleepTimer?.State() || { mode: 'off' }, resume: ResumeOffer(), state: store.Snapshot(), statuses, current, playback, thumbnail, queue: QueueState(), downloads: offline.Snapshot(), foreground: Foreground(), accounts: accountStatus, version: app.getVersion(), platform: process.platform }));
   Handle('player:reset-counts', () => { playCounts.Reset(); return true; });
-  const ctx = MakeContext();
+  const ctx = MakeContext(); ctx.ffmpeg = ffmpeg; // Start() の中の局所変数（ローカル曲の長さの取得に使う）
   require('./main/ipc-downloads.cjs')(ctx);
   require('./main/ipc-library.cjs')(ctx);
   Handle('player:play', (playlistId, entryId) => Play(playlistId, entryId));

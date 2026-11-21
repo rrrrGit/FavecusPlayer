@@ -172,7 +172,7 @@ function CloseModal() { CancelModalTask(); modalEpoch++; $('modal').close(); Bac
 // 画面が開いているあいだに来た操作は、断らずに覚えておき、閉じたあとに続ける（最後の1件だけ）。
 let afterModal = null;
 function AfterModal(run) { afterModal = run; }
-function RunAfterModal() { const next = afterModal; afterModal = null; if (next) setTimeout(() => { if (!$('modal').open) next(); }, 0); }
+function RunAfterModal() { const next = afterModal; afterModal = null; if (next) setTimeout(() => { if ($('modal').open) afterModal ??= next; else next(); }, 0); }
 function PerformModal(handler, close) {
   const epoch = modalEpoch;
   if (!handler || pendingModal === epoch) return;

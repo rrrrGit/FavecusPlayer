@@ -26,3 +26,21 @@ test('every src/main/*.cjs module is required by main.cjs with the shared contex
     assert.doesNotMatch(code, /require\(['"]\.\.?\/core\//, `${name} は core を直接読まない（main.cjs 経由。テストの差し替えを保つ）`);
   }
 });
+
+test('every name an ipc module takes from ctx (destructured or S.name) is provided by MakeContext or assigned to ctx in main.cjs', () => {
+  const main = read('src/main.cjs');
+  const body = main.slice(main.indexOf('function MakeContext()'), main.indexOf('async function Start()')).split('\r\n').join('\n');
+  const provided = new Set([...body.matchAll(/get ([A-Za-z0-9_]+)\(\)/g)].map(m => m[1]));
+  const list = /\n    ([A-Za-z0-9_, ]+)\n  \};/.exec(body);
+  assert.ok(list, 'MakeContext の名前の一覧');
+  for (const name of list[1].split(',')) provided.add(name.trim());
+  for (const m of main.matchAll(/\bctx\.([A-Za-z0-9_]+) = /g)) provided.add(m[1]);
+  const dir = path.join(root, 'src/main');
+  for (const file of fs.readdirSync(dir).filter(n => n.endsWith('.cjs'))) {
+    const code = fs.readFileSync(path.join(dir, file), 'utf8');
+    const taken = new Set([...code.matchAll(/\bS\.([A-Za-z0-9_]+)/g)].map(m => m[1]));
+    const destructured = /const \{([^}]*)\} = ctx;/.exec(code);
+    if (destructured) for (const name of destructured[1].split(',')) if (name.trim()) taken.add(name.trim());
+    for (const name of taken) assert.ok(provided.has(name), `${file}: ctx に ${name} がない`);
+  }
+});

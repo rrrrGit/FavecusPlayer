@@ -44,9 +44,9 @@ v0.7.0（配布済み・main）の工程・検証記録は、本ファイルの�
   - PC 画面：app.js（1397行）を、src/ui/app/01〜06 と app.js に、読み込み順のまま分けた（classic script。index.html の読み込み順・main.cjs の許可リスト・scripts/preview.cjs を更新）。ソース文字列を見るテストは、test/support-source.cjs（readMain・readApp・appScripts）経由にした。ui-046 は、ブラウザと同じく1つずつ読み込む。
   - 性能：一覧の行を、画面の近く（900px）に来てから作る（先頭80行はすぐ）。1万曲の模擬データ（preview.cjs --large）で RenderEntries 4830ms → 279ms、DOM 約11万 → 約1.1万。UpdateDuration の全走査を整理。
   - 使い勝手：通知を最大3件まで重ねて出す（同じ内容は1つ）。追加・画質変更の要求が、画面の表示中に来ても断らず、閉じたあとに続ける。
-  - iPhone：LibraryViews・MiniPlayerView を、ビューごとのファイルに分けた（LibraryTab・PlaylistDetailView・LibraryComponents・FullPlayerView・VideoViews・PlayerMenus）。PlaybackEngine（キュー・自動リスト・速度・検索）と DownloadService（画質・オフライン用データ・オンライン再生）は、extension のファイルへ（使われる private は internal に緩めた）。分割後のスクリーンショット（ホーム・リスト・再生画面・検索）は、崩れなし。
+  - iPhone：LibraryViews・MiniPlayerView を、ビューごとのファイルに分けた（LibraryTab・PlaylistDetailView・LibraryComponents・FullPlayerView・VideoViews・PlayerMenus）。PlaybackEngine（キュー・自動リスト・速度・検索）は、extension のファイルへ（使われる private は internal に緩めた）。DownloadService は分割しない。分割後のスクリーンショット（ホーム・リスト・再生画面・検索）は、崩れなし。
   - 対応しなかったもの：media.cjs の分割（sandbox の preload は他ファイルを読めない）／サムネイルの独自プロトコル配信（一覧のサムネイルは、すでに128KB以下に縮小して渡している。3MBは取得元画像の上限）／iOS の UIScreen.main・0.4秒の遅延スクロール・nonisolated(unsafe)（画面の挙動が変わるおそれ）。
-  - 検証：PCのテスト 684件（失敗0・スキップ12）。Electron実機・実GUIは未確認。ブラウザのプレビューでは、分割したスクリプトが読み込まれ、一覧が動くことを確認。
+  - 検証（checker による差分の検証あり）：指摘4件を修正（library:duration の ffmpeg が ctx になかった／移したファイルを読まないテスト／画面を開き直した直後に続きの操作が消える経路／画面内の通知の改行）。ctx の名前の取りこぼしを防ぐテストを追加。DownloadService の extension への分割は、波括弧がずれたため取り消した（PlaybackEngine の分割だけ残す）。iOS CI 成功（44845186716）。PCのテスト 685件（失敗0・スキップ12）。Electron実機・実GUIは未確認。ブラウザのプレビューでは、分割したスクリプトが読み込まれ、一覧が動くことを確認。
 
 - **後で直す（2026-11-20、ユーザー指示。今は実装しない）：iPhoneのお気に入りの表示**
   - 再生画面の「お気に入りにする」の文言をなくし、ハートのマークだけにする。ハートの位置は、曲名の後ろ側（曲名の右）へ移す。現在は、操作欄の左端に、文言つきで置いている（FavoriteToggle・FullPlayerView）。
