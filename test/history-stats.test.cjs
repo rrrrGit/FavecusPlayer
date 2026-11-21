@@ -114,3 +114,26 @@ test('the shared entry points work for iPhone', () => {
   assert.equal(App.LedgerStats({ text: JSON.stringify(ledger), nowMs: Date.UTC(2026, 10, 21), months: 3 }).months.at(-1).plays, 1);
   assert.ok(App.LedgerStats({ text: '{' }).error);
 });
+
+test('the iPhone choices, kinds and wiring match the shared JS', () => {
+  const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+  const swift = read('ios/FavecusPlayer/Library/Insights.swift');
+  const list = values => values.join(', ');
+  assert.ok(swift.includes(`limitChoices = [${list(Settings.LIMIT_CHOICES)}]`));
+  assert.ok(swift.includes(`frequentMinChoices = [${list(Settings.FREQUENT_MIN_CHOICES)}]`));
+  assert.ok(swift.includes(`recentDaysChoices = [${list(Settings.RECENT_DAYS_CHOICES)}]`));
+  for (const [kind, limit] of Object.entries(Settings.DEFAULT.limits)) assert.ok(swift.includes(`"${kind}": ${limit}`), `既定の件数 ${kind}`);
+  const kinds = read('ios/FavecusPlayer/Library/AutoLists.swift');
+  assert.match(kinds, /case frequent, recent, unplayed, favorites, history/);
+  assert.match(read('ios/FavecusPlayer/Playback/PlayCountStore.swift'), /onCounted\?\(key\)/);
+  assert.match(read('ios/FavecusPlayer/FavecusPlayerApp.swift'), /playCounts\.onCounted = /);
+  assert.match(read('ios/FavecusPlayer/Playback/PlaybackEngine+Queue.swift'), /"history"\] = await history\?\.keys\(limit: 500\)/);
+  // PC の配線
+  const { readMain } = require('./support-source.cjs');
+  const main = readMain();
+  assert.match(main, /playCounts\.onCounted = \(key, at\) => historyStore\.Add\(key, at\)/);
+  assert.match(main, /Handle\('stats:get'/);
+  assert.match(main, /Handle\('autolist:settings'/);
+  assert.match(main, /'auto:history': '最近聴いた曲'/);
+  assert.match(read('src/core/play-counts.cjs'), /this\.onCounted\?\.\(key, this\.now\(\)\)/);
+});

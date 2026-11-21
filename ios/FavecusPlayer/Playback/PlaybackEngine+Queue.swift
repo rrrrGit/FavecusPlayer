@@ -88,11 +88,35 @@ extension PlaybackEngine {
         var keyMap: [String: String] = [:]
         for (entry, key) in zip(unique, keys) { if let key { keyMap[entry.id] = key } }
         let countMap = await counts?.counts(for: Array(Set(keyMap.values))) ?? [:]
-        let request: [String: Any] = ["text": store.currentText, "keys": keyMap, "counts": countMap, "favorites": Array(favorites.keys)]
+        let settings = autoSettings.settings
+        var request: [String: Any] = ["text": store.currentText, "keys": keyMap, "counts": countMap, "favorites": Array(favorites.keys),
+                                      "limits": settings.limits, "frequentMin": settings.frequentMin, "recentDays": settings.recentDays, "nowMs": (Date().timeIntervalSince1970 * 1000).rounded()]
+        request["history"] = await history?.keys(limit: 500) ?? []
         guard let data = try? JSONSerialization.data(withJSONObject: request),
               let reply = try? await core.callAsync("AutoLists", String(decoding: data, as: UTF8.self)),
               let result = try? JSONDecoder().decode(AutoListsResult.self, from: Data(reply.utf8)) else { return nil }
         return result
+    }
+
+    /// 再生統計（月ごとの回数・よく聴いた曲）。曲名は、いまのライブラリから引く（なければ「ライブラリにない曲」）。
+    func playStats() async -> PlayStats? {
+        guard let raw = await counts?.stats() else { return nil }
+        var seen = Set<String>(), unique: [EntryItem] = []
+        for entry in (store.document?.playlists ?? []).flatMap(\.entries) where seen.insert(entry.id).inserted { unique.append(entry) }
+        let keys = await countKeys(for: unique)
+        var titles: [String: String] = [:]
+        for (entry, key) in zip(unique, keys) { if let key, titles[key] == nil { titles[key] = entry.title.isEmpty ? "（無題）" : entry.title } }
+        func songs(_ value: Any?) -> [StatsSong] {
+            (value as? [[String: Any]] ?? []).compactMap { row in
+                guard let key = row["key"] as? String, let count = row["count"] as? Int else { return nil }
+                return StatsSong(title: titles[key] ?? "（ライブラリにない曲）", count: count)
+            }
+        }
+        let months = (raw["months"] as? [[String: Any]] ?? []).compactMap { row -> StatsMonth? in
+            guard let month = row["month"] as? String, let plays = row["plays"] as? Int else { return nil }
+            return StatsMonth(month: month, plays: plays)
+        }
+        return PlayStats(total: raw["total"] as? Int ?? 0, months: months, top: songs(raw["top"]), thisMonthTop: songs(raw["thisMonthTop"]))
     }
 
     /// 再生速度を変える（決められた値のなかから）。再生中なら、すぐ反映する。

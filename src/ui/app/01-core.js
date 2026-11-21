@@ -75,7 +75,8 @@ const AUTO_LIST_KINDS = [
   { kind: 'frequent', title: 'よく聴く曲', note: '再生回数の多い順（上位50曲）' },
   { kind: 'recent', title: '最近追加した曲', note: '登録の新しい順（50曲）' },
   { kind: 'unplayed', title: '未再生', note: 'まだ聴いていない曲（登録の新しい順）' },
-  { kind: 'favorites', title: 'お気に入り', note: 'お気に入りにした曲（登録の新しい順）' }
+  { kind: 'favorites', title: 'お気に入り', note: 'お気に入りにした曲（登録の新しい順）' },
+  { kind: 'history', title: '最近聴いた曲', note: '最近再生した曲（新しい順）' }
 ];
 function MakeAutoLists() {
   if (!api?.autoList || !api?.autoPlay) return null;

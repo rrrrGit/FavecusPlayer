@@ -19,6 +19,8 @@ final class PlayCountStore {
     private var observing = false
     /// 台帳を読めず、元のファイルを別名で残して作り直したときの知らせ。
     private(set) var notice: String?
+    /// 回数を数えたとき（再生履歴へ足すため）。曲のキー。
+    var onCounted: ((String) -> Void)?
 
     static let weightedKey = "weightedShuffle"
     static let weightedAtKey = "weightedShuffleAt"
@@ -94,6 +96,12 @@ final class PlayCountStore {
         _ = try? await call("PlayBegin", ["key": key ?? "", "now": Self.nowMs()])
     }
 
+    /// 再生の統計（共通JSの LedgerStats ＝ PC版と同じ規則）。{ total, months, top[{key,count}], thisMonthTop }。
+    func stats() async -> [String: Any]? {
+        guard !text.isEmpty, let result = try? await call("LedgerStats", ["text": text, "topLimit": 20, "months": 12, "nowMs": Self.nowMs()]), result["error"] == nil else { return nil }
+        return result
+    }
+
     func stop() async { _ = try? await call("PlayStop", [:]) }
 
     /// 再生位置を知らせる。数え終えたとき（実再生3秒など）、この端末の行を1つ増やす。通信が重なったときは、その回を飛ばす（共通JSが、経過時間と位置の増分を照合する）。
@@ -122,6 +130,7 @@ final class PlayCountStore {
                   let next = result["text"] as? String else { return }
             text = next
             persist()
+            onCounted?(key)
             if let row = result["row"] as? [String: Any], let id = row["id"] as? String, key.hasPrefix("bili") {
                 dirty.insert(id)
                 if inFlight.contains(id) { touched.insert(id) } // 今回の同期の読み取りのあとに変わった行：送信後も、印を残す

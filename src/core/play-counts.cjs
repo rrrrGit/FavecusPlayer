@@ -48,11 +48,14 @@ class PlayCounts {
     return entry?.type === 'local' && /^[A-Za-z0-9._-]{1,200}$/.test(String(entry.fileName || '')) ? `local:${entry.fileName}` : '';
   }
   Count(entry) { const key = this.KeyOf(entry); if (!key) return 0; this.totals ||= Ledger.Totals(this.ledger); return this.totals.get(key) || 0; }
+  // 再生の統計（月ごとの回数・回数の多い曲。規則は play-ledger.cjs の Stats）。
+  Stats(options) { return Ledger.Stats(this.ledger, options); }
   Begin(entry) { this.tracker.Begin(this.KeyOf(entry), this.now()); }
   Observe(media) {
     const key = this.tracker.Observe(media, this.now());
     if (!key) return;
-    const row = Ledger.Increment(this.ledger, key, this.now()); this.totals = null; this.dirty.add(row.id); if (this.inFlight.has(row.id)) this.touched.add(row.id);
+    const row = Ledger.Increment(this.ledger, key, this.now()); this.totals = null;
+    try { this.onCounted?.(key, this.now()); } catch { /* 履歴の失敗は、数えることを妨げない */ } this.dirty.add(row.id); if (this.inFlight.has(row.id)) this.touched.add(row.id);
     try { this.Persist(); } catch (error) { this.warn(`再生回数を保存できません: ${error.message}`); }
     this.onChange?.({ rows: Ledger.IsSyncKey(key) ? [row] : [] });
   }

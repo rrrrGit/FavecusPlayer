@@ -5,7 +5,7 @@ module.exports = function RegisterLists(ctx) {
   const S = ctx;
   const { AutoEntries, AutoPlay, BuildAutoLists, Emit, FavoriteIds, Handle } = ctx;
   Handle('library:auto-list', kind => {
-    if (!kind) { const lists = BuildAutoLists(); return { frequent: lists.frequent.length, recent: lists.recent.length, unplayed: lists.unplayed.length, favorites: lists.favorites.length }; }
+    if (!kind) { const lists = BuildAutoLists(); return { frequent: lists.frequent.length, recent: lists.recent.length, unplayed: lists.unplayed.length, favorites: lists.favorites.length, history: lists.history.length }; }
     return AutoEntries(kind).map(e => ({ id: e.id, playlistId: e.playlistId, title: e.title || e.videoId || 'ローカルファイル', type: e.type, count: S.playCounts?.Count(e) || 0 }));
   });
   Handle('player:auto-play', (kind, entryId, shuffled) => AutoPlay(kind, typeof entryId === 'string' ? entryId : null, shuffled === true));

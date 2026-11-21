@@ -74,6 +74,9 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     var counts: PlayCountStore?
     /// 曲の並べ替え・絞り込みの選択（リストごと。この端末内だけ）。再生順にも使う。
     let listViews = ListViewStore()
+    /// 再生履歴（最近聴いた曲）と、自動リストの設定（件数・条件）。この端末内だけ。
+    var history: PlayHistoryStore?
+    let autoSettings = AutoListSettingsStore()
     /// アプリを開いている（前面にある）か。背面では、映像の層が外れるため、動画へ切り替えない（前面へ戻ったとき、切り替える）。テストでは差し替える。
     var isActive: () -> Bool = { UIApplication.shared.applicationState == .active }
     /// 再生の範囲（"*" はすべて、または、リストのID）。曲の所在の表示に使う。
@@ -89,7 +92,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     /// 曲の切り替え・停止のたびに増やす。待っている間に状態が変わった古い処理の結果を捨てるため。
     var generation = 0
     private var libraryObserver: AnyCancellable?
-    private let provider: MediaProvider?
+    let provider: MediaProvider?
     /// ロック画面に出す、曲のサムネイル（アプリが設定する）。
     var artworkProvider: ((EntryItem) -> UIImage?)?
     private var artworkCache: (id: String, image: UIImage)?

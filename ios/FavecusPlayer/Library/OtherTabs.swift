@@ -252,6 +252,10 @@ struct SettingsTab: View {
                 } footer: {
                     Text("音量が大きい曲だけを、小さくします（大きくはしません）。保存済み・ローカルの曲が対象で、初めて再生する曲は、音量を測るため、数秒だけ遅れて反映されます。測った結果は、この端末に覚えます。")
                 }
+                Section("自動リストと統計") {
+                    NavigationLink { AutoListSettingsView(store: services.player?.autoSettings ?? AutoListSettingsStore(), player: services.player) } label: { Label("自動リストの設定", systemImage: "list.bullet.rectangle") }
+                    NavigationLink { StatsView(player: services.player) } label: { Label("再生統計", systemImage: "chart.bar.xaxis") }
+                }
                 Section("最近削除") {
                     NavigationLink { TrashView(store: store) } label: { Label("最近削除", systemImage: "trash.circle") }
                 }

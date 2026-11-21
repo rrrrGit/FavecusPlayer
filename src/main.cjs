@@ -39,6 +39,8 @@ const AutoListsCore = require('./core/auto-lists.cjs');
 const PlaybackSpeed = require('./core/playback-speed.cjs');
 const MediaKeys = require('./core/media-keys.cjs');
 const EntryView = require('./ui/entry-view.js');
+const { HistoryStore } = require('./core/play-history-store.cjs');
+const { AutoListSettingsStore } = require('./core/auto-list-settings-store.cjs');
 const { ListViewStore } = require('./core/list-views.cjs');
 const { TrashStore } = require('./core/trash-store.cjs');
 const { LoudnessStore } = require('./core/loudness.cjs');
@@ -54,7 +56,7 @@ app.setPath('sessionData', dataDirectory);
 let win, store, presence, remoteView, mini, volumeSaveTimer, backgroundMode, sync;
 let viewVisible = false;
 let current = null, playback = null;
-let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null, trashStore = null, loudness = null, songGain = 1, favorites = null, speedStore = null, mediaKeys = null, listViews = null;
+let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null, trashStore = null, loudness = null, songGain = 1, favorites = null, speedStore = null, mediaKeys = null, listViews = null, historyStore = null, autoListSettings = null;
 let visibleBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 let statuses = { discord: { code: 'off', text: 'Discord連携はオフです' }, taskbar: { code: 'off', text: '下向き矢印を押すと埋め込みを試します' } };
 let playCounts;
@@ -83,7 +85,7 @@ const Emit = (type, value) => {
 };
 // 自動リスト（よく聴く曲・最近追加した曲・未再生）。保存せず、その都度、共通の規則（core/auto-lists.cjs）で選ぶ。
 // 再生するときは、そのときの曲の並び（スナップショット）を再生範囲（auto:…）にする。再生回数が増えても、再生中の並びは変わらない。
-const AUTO_NAMES = { 'auto:frequent': 'よく聴く曲', 'auto:recent': '最近追加した曲', 'auto:unplayed': '未再生', 'auto:favorites': 'お気に入り' };
+const AUTO_NAMES = { 'auto:frequent': 'よく聴く曲', 'auto:recent': '最近追加した曲', 'auto:unplayed': '未再生', 'auto:favorites': 'お気に入り', 'auto:history': '最近聴いた曲' };
 const autoSnapshots = new Map();
 function BuildAutoLists() {
   const keys = {}, counts = {};
@@ -91,7 +93,9 @@ function BuildAutoLists() {
     const key = playCounts?.KeyOf(entry);
     if (key) { keys[entry.id] = key; if (!(key in counts)) counts[key] = playCounts.Count(entry); }
   }
-  return AutoListsCore.Select({ library: store.data, keys, counts, favorites: favorites ? favorites.List() : [] });
+  // 件数・条件は、自動リストの設定（この端末内。既定は、これまでの動き）。最近聴いた曲は、再生履歴から。
+  const settings = autoListSettings ? autoListSettings.Get() : null;
+  return AutoListsCore.Select({ library: store.data, keys, counts, favorites: favorites ? favorites.List() : [], history: historyStore ? historyStore.Keys(500) : [], ...(settings ? { limits: settings.limits, frequentMin: settings.frequentMin, recentDays: settings.recentDays } : {}) });
 }
 function AutoEntries(kind) {
   const scope = `auto:${kind}`;
@@ -689,7 +693,7 @@ async function Start() {
       if (!MEDIA_NAME.test(name) || !store.data.playlists.some(p => p.entries.some(e => e.type === 'local' && e.fileName === name))) return new Response(null, { status: 403 });
       return MediaResponse(request, path.join(store.media, name));
     }
-    const names = new Set(['keybindings.js', 'library-tree.js', 'home-view.js', 'library-search.js', 'tree-view.js', 'parent-picker.js', 'index.html', 'entry-view.js', 'app/01-core.js', 'app/02-add.js', 'app/03-downloads.js', 'app/04-settings.js', 'app/05-transfer.js', 'app/06-list-view.js', 'app.js', 'style.css', 'local.html', 'local.js', 'preview.js', 'transport-model.js', 'playlist-reader.js', 'queue-follow.js', 'queue-drag.js', 'list-artwork.js', 'browse.html', 'browse.js', 'browse.css', 'mini.html', 'mini.js', 'mini.css', 'icons.svg', 'icon.png', 'music.png']);
+    const names = new Set(['keybindings.js', 'library-tree.js', 'home-view.js', 'library-search.js', 'tree-view.js', 'parent-picker.js', 'index.html', 'entry-view.js', 'app/01-core.js', 'app/02-add.js', 'app/03-downloads.js', 'app/04-settings.js', 'app/05-transfer.js', 'app/05-insights.js', 'app/06-list-view.js', 'app.js', 'style.css', 'local.html', 'local.js', 'preview.js', 'transport-model.js', 'playlist-reader.js', 'queue-follow.js', 'queue-drag.js', 'list-artwork.js', 'browse.html', 'browse.js', 'browse.css', 'mini.html', 'mini.js', 'mini.css', 'icons.svg', 'icon.png', 'music.png']);
     const name = url.pathname.slice(1);
     if (url.host !== 'app' || !names.has(name)) return new Response(null, { status: 404 });
     return net.fetch(pathToFileURL(['icon.png', 'music.png'].includes(name) ? path.join(__dirname, '../build', name) : path.join(__dirname, 'ui', name)).href);
@@ -812,6 +816,18 @@ async function Start() {
   });
   require('./main/ipc-queue.cjs')(ctx);
   // 再生速度（0.5〜2.0倍。この端末内だけに保存）。再生中の画面へ、すぐ反映する。
+  historyStore = new HistoryStore(path.join(app.getPath('userData'), 'play-history.json'));
+  autoListSettings = new AutoListSettingsStore(path.join(app.getPath('userData'), 'auto-list-settings.json'));
+  playCounts.onCounted = (key, at) => historyStore.Add(key, at); // 回数を数えたとき（実再生の3秒など）に、再生履歴へ足す
+  // 自動リストの設定（件数・条件）と、再生履歴・再生統計
+  Handle('autolist:settings', value => (value === undefined || value === null ? autoListSettings.Get() : autoListSettings.Set(value)));
+  Handle('history:clear', () => { historyStore.Clear(); return true; });
+  Handle('stats:get', () => {
+    const stats = playCounts.Stats({ topLimit: 20, months: 12 }), byKey = new Map();
+    for (const list of store.data.playlists) for (const entry of list.entries) { const key = playCounts.KeyOf(entry); if (key && !byKey.has(key)) byKey.set(key, entry); }
+    const name = ({ key, count }) => { const entry = byKey.get(key); return { count, title: entry ? (entry.title || entry.videoId || 'ローカルファイル') : '（ライブラリにない曲）', found: !!entry }; };
+    return { total: stats.total, months: stats.months, top: stats.top.map(name), thisMonthTop: stats.thisMonthTop.map(name) };
+  });
   listViews = new ListViewStore(path.join(app.getPath('userData'), 'list-views.json'));
   // 曲の並べ替え・絞り込み：選択の保存と、画面の表示に使う材料（その リストの曲ごとの、再生回数・お気に入り・保存済み）
   Handle('list:view-set', (playlistId, view) => { store.Playlist(String(playlistId)); const saved = listViews.Set(String(playlistId), view); Emit('list-views', listViews.All()); return saved; });

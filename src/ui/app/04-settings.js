@@ -27,7 +27,7 @@ function Settings() {
     </section>
     <nav id="settings-sections" class="settings-sections" aria-label="設定項目"></nav>`, null);
   // 新しい設定カテゴリはこの配列の末尾へ追加する。
-  for (const [name, open] of [['プレイリストの出力', Transfer], ['使い方', () => api.help()], ['自動消去単語設定', TitleWordsSettings], ['Discordアクティビティ', DiscordSettings], ['ミニプレイヤー、タスクバー', TaskbarSettings], ['再生・表示', PlaybackSettings], ['キーコンフィグ', KeySettings], ['シャッフルの再生回数', ShuffleSettings], ['バージョン更新', ReleaseSettings], ['プレイリストの同期', SyncSettings], ['最近削除', TrashSettings]]) {
+  for (const [name, open] of [['プレイリストの出力', Transfer], ['使い方', () => api.help()], ['自動消去単語設定', TitleWordsSettings], ['Discordアクティビティ', DiscordSettings], ['ミニプレイヤー、タスクバー', TaskbarSettings], ['再生・表示', PlaybackSettings], ['キーコンフィグ', KeySettings], ['シャッフルの再生回数', ShuffleSettings], ['バージョン更新', ReleaseSettings], ['プレイリストの同期', SyncSettings], ['自動リスト', AutoListSettings], ['再生統計', StatsSettings], ['最近削除', TrashSettings]]) {
     const button = Button(name, 'settings-category', open); button.append(Element('span', '', '›')); $('settings-sections').append(button);
   }
   SyncVolume(state.settings.volume); $('master-volume').oninput = () => VolumeInput($('master-volume'));

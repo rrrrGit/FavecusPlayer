@@ -121,3 +121,8 @@ body{grid-template-columns:var(--sidebar-width,218px) minmax(0,1fr)}.sidebar{pad
 .local-menu .local-menu-note{margin:8px 0 0;font-size:10px;color:var(--muted)}
 .local-menu-item{display:block;width:100%;padding:9px 10px;text-align:left;border-radius:6px;background:#373148;font-size:12px}
 .local-menu-item:hover{background:#4a4064}
+
+.stat-heading{margin:18px 0 8px;font-size:13px;color:#b1a2ff}
+.stat-row{display:grid;grid-template-columns:64px 1fr 44px;align-items:center;gap:8px;font-size:12px;padding:2px 0}
+.stat-label{color:#9297ad;font-variant-numeric:tabular-nums}.stat-bar{display:block;height:8px;border-radius:4px;background:#242837;overflow:hidden}.stat-bar i{display:block;height:100%;background:#8c7dff}.stat-value{text-align:right;color:#edf0f8;font-variant-numeric:tabular-nums}
+.stat-top{margin:0;padding:0;list-style:none}.stat-top li{display:grid;grid-template-columns:1fr auto;gap:10px;padding:5px 0;border-bottom:1px solid #242837;font-size:12px}.stat-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
