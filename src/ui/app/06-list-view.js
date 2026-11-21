@@ -78,8 +78,45 @@ function RenderTimeline(focusNext = false) {
   else list.scrollTop = previousTop;
 }
 function ClearDropMarks() { for (const e of document.querySelectorAll('.drop-before, .drop-after, .playlist-entry.drop-child')) e.classList.remove('drop-before', 'drop-after', 'drop-child'); }
+// 曲の並べ替え・絞り込み（リストごと。規則は ui/entry-view.js。材料は main の list:stats）。選んでいる間は、手動の並べ替え（ドラッグ）は使えない。
+const listViewStats = new Map();
+const ListView = playlistId => (window.FavecusEntryView && listViews[playlistId]) || null;
+function ViewStatsFor(playlistId) {
+  if (listViewStats.has(playlistId)) return listViewStats.get(playlistId);
+  listViewStats.set(playlistId, null); // 取得中
+  api.listStats?.(playlistId).then(value => { listViewStats.set(playlistId, value || {}); RenderEntries(); }).catch(() => listViewStats.set(playlistId, {}));
+  return null;
+}
+function ArrangeRows(playlist, rows) {
+  const view = ListView(playlist.id);
+  if (!view || allListsView) return rows;
+  const stats = ViewStatsFor(playlist.id);
+  if (!stats) return rows; // 材料が届くまでは、保存した順（届いたら、描き直す）
+  const ctx = { count: entry => stats[entry.id]?.count || 0, favorite: entry => stats[entry.id]?.favorite === true || IsFavorite(entry.id), saved: entry => stats[entry.id]?.saved === true };
+  return window.FavecusEntryView.Apply(rows, view, ctx, row => row.entry);
+}
 function DisplayRows(filter) {
-  return tree.Rows(state, ViewScope(), expandedEntryLists, filter);
+  return tree.Rows(state, ViewScope(), expandedEntryLists, filter, ArrangeRows);
+}
+function RenderViewButton() {
+  const button = $('view-open'); if (!button) return;
+  const on = !!ListView(ViewScope()) && !allListsView;
+  button.classList.toggle('enabled', on); button.textContent = on ? '曲の表示 ●' : '曲の表示';
+  button.title = on ? '曲の並べ替え・絞り込みを選んでいます（押すと変更）' : '曲の並べ替え・絞り込み';
+  button.classList.toggle('hidden', allListsView);
+}
+function ViewSettings() {
+  const playlistId = ViewScope(), EV = window.FavecusEntryView; if (!EV || allListsView) return;
+  const current = EV.Normalize(listViews[playlistId]);
+  const groups = [['sort', '並べ替え', EV.SORTS], ['favorite', 'お気に入り', EV.FILTERS.favorite], ['saved', '保存', EV.FILTERS.saved], ['source', '種類', EV.FILTERS.source], ['played', '再生', EV.FILTERS.played]];
+  const html = '<p class="form-note">この再生リストの曲の、並べ替えと絞り込みです。選んだ順で、このリストを再生します（保存した順は変わりません）。</p>' + groups.map(([key, label]) => `<label class="field">${label}<select data-view="${key}">${(key === 'sort' ? EV.SORTS : EV.FILTERS[key]).map(value => `<option value="${value}"${current[key] === value ? ' selected' : ''}>${EV.Labels[key][value]}</option>`).join('')}</select></label>`).join('');
+  OpenModal('曲の並べ替え・絞り込み', html, async () => {
+    const view = {}; for (const select of $('modal-body').querySelectorAll('select[data-view]')) view[select.dataset.view] = select.value;
+    listViews = { ...listViews }; const saved = await api.listViewSet(playlistId, view);
+    if (saved) listViews[playlistId] = saved; else delete listViews[playlistId];
+    listViewStats.clear(); RenderViewButton(); RenderEntries();
+  }, '決定');
+  const reset = Button('元に戻す', 'button secondary', () => { for (const select of $('modal-body').querySelectorAll('select[data-view]')) select.value = EV.DEFAULT[select.dataset.view]; }); $('modal-body').append(reset);
 }
 function PlayEntry(entry) {
   const selected = allListsView ? PlaybackEntries().find(e => e.id === entry.id || (entry.type === 'local' ? e.fileName === entry.fileName : e.url === entry.url)) : entry;
@@ -134,7 +171,7 @@ function RenderEntries() {
     const build = () => {
       const handle = Button(String(index + 1).padStart(2, '0'), 'entry-number', () => {}, 'ドラッグで並べ替え（Alt＋↑/↓でも移動）');
       handle.addEventListener('keydown', event => { if (!allListsView && event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); Run(() => Action({ type: 'move', playlistId: ownerId, entryId: entry.id, direction: event.key === 'ArrowUp' ? -1 : 1 })); } });
-      queueDrag?.Bind(handle, row, { playlistId: ownerId, entryId: entry.id }, true);
+      if (!ListView(ownerId)) queueDrag?.Bind(handle, row, { playlistId: ownerId, entryId: entry.id }, true); // 並べ替え・絞り込みの間は、ドラッグでの手動の並べ替えは使わない
       row.append(handle);
       const cover = Element('img', 'entry-cover'); cover.alt = ''; cover.draggable = false; cover.width = 56; cover.height = 34; cover.src = 'music.png';
       row.append(cover); listArtwork?.Add(cover, ownerId, entry.id);
@@ -152,7 +189,7 @@ function RenderEntries() {
   }
   if (items.length) { const tail = Element('div', 'queue-tail'); tail.setAttribute('aria-hidden', 'true'); list.append(tail); UpdateQueueTail(); }
   list.scrollTop = scrollTop;
-  UpdateCurrentRows();
+  UpdateCurrentRows(); RenderViewButton();
   $('play-all').disabled = PlaybackEntries().length === 0;
 }
 async function OpenPlaylist(id) {

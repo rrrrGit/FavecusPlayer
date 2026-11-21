@@ -2,7 +2,7 @@
 // 開発用HTTPプレビューでのみ、同じ保存処理をローカルサーバーへ接続する。
 if (!window.favecusApp && location.hostname === '127.0.0.1' && location.search === '?preview=1') {
   const note = document.createElement('div'); note.className = 'preview-note'; note.textContent = '開発用プレビュー：動画再生・Discord接続はデスクトップ版で使用'; document.body.append(note);
-  const listeners = new Set();
+  const listeners = new Set(), previewViews = {};
   // 模擬のサムネイル（実機と同じ128x72以内のPNG）。実際の動画画像は取得しない。
   const Thumbnail = (id, variant) => { let h = 0; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) >>> 0; const canvas = document.createElement('canvas'); const cover = variant === 'cover'; canvas.width = cover ? 300 : 128; canvas.height = cover ? 300 : 72; const g = canvas.getContext('2d'), hue = h % 360;
     const gradient = g.createLinearGradient(0, 0, canvas.width, canvas.height); gradient.addColorStop(0, `hsl(${hue} 70% 55%)`); gradient.addColorStop(1, `hsl(${(hue + 60) % 360} 70% 35%)`); g.fillStyle = gradient; g.fillRect(0, 0, canvas.width, canvas.height);
@@ -28,6 +28,6 @@ if (!window.favecusApp && location.hostname === '127.0.0.1' && location.search =
     else if (command.action === 'now') demoSync.lastSyncAt = Date.now();
     return { ...demoSync };
   };
-  window.favecusApp = { sync: syncApi, state: () => send('state'), action: action => send('action', action), entryThumbnail: async (playlistId, entryId, scope, variant) => Thumbnail(entryId, variant), accounts: async () => ({}), speed: async value => { listeners.forEach(cb => cb({ type: 'speed', value })); return value; }, bounds: () => {}, onEvent: cb => { listeners.add(cb); return () => listeners.delete(cb); } };
+  window.favecusApp = { sync: syncApi, state: () => send('state'), action: action => send('action', action), entryThumbnail: async (playlistId, entryId, scope, variant) => Thumbnail(entryId, variant), accounts: async () => ({}), listViewSet: async (id, view) => { const EV = window.FavecusEntryView, v = EV.Normalize(view); if (!EV.IsActive(v)) delete previewViews[id]; else previewViews[id] = v; return previewViews[id] || null; }, listStats: async id => { const result = {}; const data = (await send('state')).state; const list = data.playlists.find(p => p.id === id); (list ? list.entries : []).forEach((entry, i) => { result[entry.id] = { count: (i * 7) % 5, favorite: i % 4 === 0, saved: i % 3 === 0 }; }); return result; }, speed: async value => { listeners.forEach(cb => cb({ type: 'speed', value })); return value; }, bounds: () => {}, onEvent: cb => { listeners.add(cb); return () => listeners.delete(cb); } };
   for (const name of ['videoFullscreen', 'resetPlayCounts', 'shortcut', 'downloads', 'downloadPlaylist', 'cancelDownload', 'downloadDirectory', 'openDownloads', 'preferSaved', 'addFiles', 'prepareAdd', 'prepareFiles', 'commitAdd', 'cancelAdd', 'importLibrary', 'exportLibrary', 'play', 'shufflePlay', 'browseBilibili', 'command', 'openOfficial', 'help', 'discordPortal', 'login', 'favoriteFolders', 'favoriteVideos', 'playlistSources', 'playlistVideos', 'playlistParts', 'volume', 'mini']) window.favecusApp[name] = () => { throw new Error('この操作はデスクトップ版で使用できます。'); };
 }

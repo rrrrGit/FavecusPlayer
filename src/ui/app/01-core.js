@@ -38,6 +38,7 @@ function RenderSleep() {
 }
 // お気に入り：お気に入りの曲は、シャッフル再生で、少しだけ選ばれやすくなる。曲のメディア単位（同じ動画・パートは共通）。この端末内だけ。
 let favoriteIds = new Set();
+let listViews = {}; // プレイリストごとの、曲の並べ替え・絞り込みの選択（main に保存）
 const IsFavorite = entryId => favoriteIds.has(entryId);
 async function SetFavorite(playlistId, entryId, value) {
   favoriteIds = new Set(await api.favorite(playlistId, entryId, value)); RenderFavorite();

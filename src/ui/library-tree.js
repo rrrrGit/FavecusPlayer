@@ -76,24 +76,26 @@
     }
     return entries;
   }
-  function Rows(data, scope, expanded = new Set(), query = '') {
+  // arrange(playlist, rows)：その リストの曲の行（{ entry, index, depth }）を、並べ替え・絞り込みした配列にして返す（省略すると、保存した順）。
+  function Rows(data, scope, expanded = new Set(), query = '', arrange = null) {
     const map = new Map(data.playlists.map(p => [p.id, p]));
     const songs = (p, depth) => p.entries.map((entry, index) => ({ entry: { ...entry, playlistId: p.id }, index, depth }))
       .filter(({ entry }) => Matches(`${entry.title || entry.videoId || 'ローカルファイル'} ${entry.url || ''}`, query));
+    const arranged = (p, depth) => { const rows = songs(p, depth); return arrange ? arrange(p, rows) : rows; };
     const visit = (id, depth, path, ancestors) => {
       const p = map.get(id); if (!p || ancestors.has(id)) return [];
       const open = !!query || expanded.has(path), descendants = [];
       if (open) {
         const next = new Set([...ancestors, id]);
         for (const child of Ordered(data, p.childIds || [])) descendants.push(...visit(child, depth + 1, `${path}/${child}`, next));
-        descendants.push(...songs(p, depth + 1));
+        descendants.push(...arranged(p, depth + 1));
       }
       if (query && !Matches(p.name, query) && !descendants.length) return [];
       return [{ playlist: p, depth, path, expanded: open }, ...descendants];
     };
     const list = map.get(scope), rows = [];
     for (const id of Ordered(data, scope === '*' ? Roots(data) : list?.childIds || [])) rows.push(...visit(id, 0, `${scope}/${id}`, new Set()));
-    if (list) rows.push(...songs(list, 0));
+    if (list) rows.push(...arranged(list, 0));
     return rows;
   }
   const Parent = (data, id) => Path(data, id).at(-2)?.id || null;
