@@ -39,6 +39,15 @@ v0.7.0（配布済み・main）の工程・検証記録は、本ファイルの�
   - iPhone：再生速度（0.5〜2.0倍の7段階）を、プレーヤー画面のメニューから変更。音の高さは変えない（spectral）。ロック画面の再生位置にも反映。設定は端末内だけに保存。PC版の再生速度は未実装。
   - 検証：PCのテスト追加（auto-lists）。iPhone側は iOS CI で確認する。実機での聞こえ方・操作感は未確認。
 
+- **改善計画 Step3（2026-11-20〜21、ユーザー指示。iPhoneの画面は、GitHub Actionsのスクリーンショットで判断）**
+  - PC main：IPCの登録5グループを src/main/*.cjs へ移した（ipc-downloads・library・lists・queue・account。main.cjs は1031行→約880行）。状態（store・current・queue など）は ctx（MakeContext）経由で、読むたびに最新の値を使う。electron と core は、main.cjs だけが読み込む（test/main-040 の差し替えを保つため）。
+  - PC 画面：app.js（1397行）を、src/ui/app/01〜06 と app.js に、読み込み順のまま分けた（classic script。index.html の読み込み順・main.cjs の許可リスト・scripts/preview.cjs を更新）。ソース文字列を見るテストは、test/support-source.cjs（readMain・readApp・appScripts）経由にした。ui-046 は、ブラウザと同じく1つずつ読み込む。
+  - 性能：一覧の行を、画面の近く（900px）に来てから作る（先頭80行はすぐ）。1万曲の模擬データ（preview.cjs --large）で RenderEntries 4830ms → 279ms、DOM 約11万 → 約1.1万。UpdateDuration の全走査を整理。
+  - 使い勝手：通知を最大3件まで重ねて出す（同じ内容は1つ）。追加・画質変更の要求が、画面の表示中に来ても断らず、閉じたあとに続ける。
+  - iPhone：LibraryViews・MiniPlayerView を、ビューごとのファイルに分けた（LibraryTab・PlaylistDetailView・LibraryComponents・FullPlayerView・VideoViews・PlayerMenus）。PlaybackEngine（キュー・自動リスト・速度・検索）と DownloadService（画質・オフライン用データ・オンライン再生）は、extension のファイルへ（使われる private は internal に緩めた）。分割後のスクリーンショット（ホーム・リスト・再生画面・検索）は、崩れなし。
+  - 対応しなかったもの：media.cjs の分割（sandbox の preload は他ファイルを読めない）／サムネイルの独自プロトコル配信（一覧のサムネイルは、すでに128KB以下に縮小して渡している。3MBは取得元画像の上限）／iOS の UIScreen.main・0.4秒の遅延スクロール・nonisolated(unsafe)（画面の挙動が変わるおそれ）。
+  - 検証：PCのテスト 684件（失敗0・スキップ12）。Electron実機・実GUIは未確認。ブラウザのプレビューでは、分割したスクリプトが読み込まれ、一覧が動くことを確認。
+
 - **後で直す（2026-11-20、ユーザー指示。今は実装しない）：iPhoneのお気に入りの表示**
   - 再生画面の「お気に入りにする」の文言をなくし、ハートのマークだけにする。ハートの位置は、曲名の後ろ側（曲名の右）へ移す。現在は、操作欄の左端に、文言つきで置いている（FavoriteToggle・FullPlayerView）。
 
