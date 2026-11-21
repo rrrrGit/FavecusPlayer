@@ -64,3 +64,20 @@ function AuditSettings() {
   };
   OpenModal('ライブラリの点検', '', null); Run(paint);
 }
+
+// 音声の出力デバイス（保存済み・ローカルの曲の再生だけ。Bilibiliのオンライン再生は、既定のデバイス）。デバイスの名前で選ぶ。
+function OutputSettings() {
+  Run(async () => {
+    const current = await api.outputGet();
+    let names = [];
+    try { names = [...new Set((await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audiooutput' && d.label).map(d => d.label))]; } catch { names = []; }
+    if (current && !names.includes(current)) names.unshift(current);
+    OpenModal('出力デバイス', '<p class="form-note">保存済み・ローカルの曲の再生で使う、音声の出力先です（Bilibiliのオンライン再生は、既定のデバイスのままです）。選んだデバイスが、いまつながっていないときは、既定のデバイスで鳴ります。</p><label class="field">出力先<select id="output-select"></select></label><p class="form-note" id="output-note"></p>', async () => {
+      await api.outputSet($('output-select').value); Toast('出力デバイスを保存しました。');
+    }, '保存する');
+    const select = $('output-select'); select.append(new Option('既定のデバイス', ''));
+    for (const name of names) select.append(new Option(name, name));
+    select.value = current || '';
+    if (!names.length) $('output-note').textContent = 'デバイスの名前を取得できませんでした。既定のデバイスで鳴ります。';
+  });
+}

@@ -43,6 +43,7 @@ const LibraryAudit = require('./core/library-audit.cjs');
 const { ScanFolder } = require('./core/folder-scan.cjs');
 const { ReadTags } = require('./core/media-tags.cjs');
 const SongNotes = require('./core/song-notes.cjs');
+const { OutputDeviceStore } = require('./core/output-device.cjs');
 const { SongNotesStore } = require('./core/song-notes-store.cjs');
 const { HistoryStore } = require('./core/play-history-store.cjs');
 const { AutoListSettingsStore } = require('./core/auto-list-settings-store.cjs');
@@ -61,7 +62,7 @@ app.setPath('sessionData', dataDirectory);
 let win, store, presence, remoteView, mini, volumeSaveTimer, backgroundMode, sync;
 let viewVisible = false;
 let current = null, playback = null;
-let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null, trashStore = null, loudness = null, songGain = 1, favorites = null, speedStore = null, mediaKeys = null, listViews = null, historyStore = null, autoListSettings = null, notesStore = null;
+let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null, trashStore = null, loudness = null, songGain = 1, favorites = null, speedStore = null, mediaKeys = null, listViews = null, historyStore = null, autoListSettings = null, notesStore = null, outputStore = null;
 let visibleBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 let statuses = { discord: { code: 'off', text: 'Discord連携はオフです' }, taskbar: { code: 'off', text: '下向き矢印を押すと埋め込みを試します' } };
 let playCounts;
@@ -347,6 +348,7 @@ function SetVolume(factor = 1) {
       const channel = mediaChannels.get(wc);
       wc.setAudioMuted(volume === 0 || !channel?.ready);
       channel?.Send('media:command', { type: 'volume', value: volume });
+      if (wc === remoteView?.webContents && String(wc.getURL?.() || '').startsWith('favecus://app/local.html')) channel?.Send('media:command', { type: 'sink', label: outputStore ? outputStore.Get() : '' }); // 出力デバイス（保存済み・ローカルの再生だけ）
       if (wc === remoteView?.webContents) channel?.Send('media:command', { type: 'rate', value: speedStore ? speedStore.Get() : 1 }); // 再生速度も、読み込みのたびに合わせ直す
     }
   }
@@ -722,7 +724,7 @@ async function Start() {
   } });
   thumbnails = new Thumbnails(biliAccount, (...args) => net.fetch(...args), ffmpeg, store.media, { resize: data => SmallImage(data, nativeImage), resizeCover: data => CoverImage(data, nativeImage), flat: data => FlatImage(data, nativeImage), crop: (data, rect) => ImageData(nativeImage.createFromDataURL(data).crop(rect).toPNG()) });
   session.defaultSession.setPermissionRequestHandler((_c, permission, callback) => callback(permission === 'fullscreen'));
-  session.defaultSession.setPermissionCheckHandler((_c, permission) => permission === 'fullscreen');
+  session.defaultSession.setPermissionCheckHandler((_c, permission, origin) => permission === 'fullscreen' || (permission === 'media' && origin === 'favecus://app')); // 出力デバイスの名前の確認だけ（自分のページのみ。マイク・カメラの要求は、許可しない）
   Menu.setApplicationMenu(null);
   if (process.platform === 'win32') app.setAppUserModelId(APP_ID);
   win = new BrowserWindow({ width: 1440, height: 900, minWidth: 1060, minHeight: 680, backgroundColor: '#11131b', title: 'Favecus Player', icon: path.join(__dirname, '../build/icon.png'),
@@ -851,6 +853,10 @@ async function Start() {
     Emit('notes', { entryId: String(entryId) });
     return saved;
   });
+  // 音声の出力デバイス（保存済み・ローカルの曲の再生だけ。デバイスの名前で覚える。空は既定）
+  outputStore = new OutputDeviceStore(path.join(app.getPath('userData'), 'output-device.json'));
+  Handle('output:get', () => outputStore.Get());
+  Handle('output:set', label => { const saved = outputStore.Set(label); SetVolume(); return saved; });
   Handle('list:view-set', (playlistId, view) => { store.Playlist(String(playlistId)); const saved = listViews.Set(String(playlistId), view); Emit('list-views', listViews.All()); return saved; });
   Handle('list:stats', playlistId => {
     const context = ViewContext(), result = {};
