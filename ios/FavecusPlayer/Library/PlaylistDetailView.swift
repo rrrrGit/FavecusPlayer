@@ -218,6 +218,10 @@ struct PlaylistDetail: View {
             if defaults.bool(forKey: "FavecusDemoEdit") { editMode = .active }
             if defaults.bool(forKey: "FavecusDemoAdd") { showAdd = true }
             if defaults.bool(forKey: "FavecusDemoSave") { showSave = true }
+            if defaults.bool(forKey: "FavecusDemoSelect") { selecting = true; selection = Set(entries.prefix(2).map(\.id)) }
+            if defaults.bool(forKey: "FavecusDemoView") { showView = true }
+            if defaults.bool(forKey: "FavecusDemoInfo") { infoTarget = entries.first }
+            if defaults.bool(forKey: "FavecusDemoBulkAdd") { showBulkAdd = true }
         }
         } // ScrollViewReader
     }

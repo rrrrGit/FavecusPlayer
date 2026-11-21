@@ -25,6 +25,8 @@ struct LibraryRootView: View {
     @State private var showExport = false
     @State private var showSync = false
     @State private var alarmDemo: AlarmDemoMode?
+    /// 画面確認用：stats / auto / audit の画面を、そのまま開く。
+    @State private var insightsDemo: String?
     @State private var showBilibili = false
     @State private var showDiagnostics = false
 
@@ -76,6 +78,7 @@ struct LibraryRootView: View {
             if defaults.object(forKey: "FavecusDemoTab") != nil { tab = defaults.integer(forKey: "FavecusDemoTab") }
             if defaults.bool(forKey: "FavecusDemoSync") { showSync = true }
             if let raw = defaults.string(forKey: "FavecusDemoAlarm") { alarmDemo = AlarmDemoMode(rawValue: raw) }
+            if let raw = defaults.string(forKey: "FavecusDemoInsights") { insightsDemo = raw }
             if defaults.bool(forKey: "FavecusDemoMini") { player?.showDemo(title: "朝のピアノ", position: 62, duration: 257) }
             if defaults.bool(forKey: "FavecusDemoPlayer") {
                 // 所在の表示を確かめるため、模擬ライブラリの深い階層のリスト（作業用BGM ＞ 集中 ＞ 試験前）を持つ曲として表示する
@@ -91,6 +94,15 @@ struct LibraryRootView: View {
         }
         .sheet(isPresented: $showDiagnostics) { PlaceholderView() }
         .sheet(item: $alarmDemo) { AlarmDemoView(mode: $0, store: store, downloads: downloads) }
+        .sheet(isPresented: Binding(get: { insightsDemo != nil }, set: { if !$0 { insightsDemo = nil } })) {
+            NavigationStack {
+                switch insightsDemo {
+                case "auto": AutoListSettingsView(store: player?.autoSettings ?? AutoListSettingsStore(), player: player)
+                case "audit": AuditView(store: store, player: player)
+                default: StatsView(player: player)
+                }
+            }
+        }
         .fileImporter(isPresented: $showPicker, allowedContentTypes: [.zip]) { result in
             guard let importer else { return }
             switch result {

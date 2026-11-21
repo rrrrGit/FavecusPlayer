@@ -212,6 +212,13 @@ jobs:
           shot 14-search -FavecusDemoSearch Lo-fi
           shot 10-home-edit -FavecusDemoHomeEdit YES
           shot 11-sync -FavecusDemoSync YES
+          shot 20-select -FavecusDemoPath $P1 -FavecusDemoSelect YES
+          shot 21-sort-sheet -FavecusDemoPath $P1 -FavecusDemoView YES
+          shot 22-song-info -FavecusDemoPath $P1 -FavecusDemoInfo YES
+          shot 23-bulk-add -FavecusDemoPath $P1 -FavecusDemoBulkAdd YES
+          shot 24-stats -FavecusDemoInsights stats
+          shot 25-auto-settings -FavecusDemoInsights auto
+          shot 26-audit -FavecusDemoInsights audit
           shot 15-alarm-list -FavecusDemoAlarm list
           shot 16-alarm-edit -FavecusDemoAlarm edit
           shot 17-alarm-picker -FavecusDemoAlarm picker
