@@ -284,7 +284,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     // MARK: 内部
 
-    private struct QueueResult: Decodable {
+    struct QueueResult: Decodable {
         var id: String?
         var playlistId: String?
         var error: String?
