@@ -255,6 +255,7 @@ struct SettingsTab: View {
                 Section("自動リストと統計") {
                     NavigationLink { AutoListSettingsView(store: services.player?.autoSettings ?? AutoListSettingsStore(), player: services.player) } label: { Label("自動リストの設定", systemImage: "list.bullet.rectangle") }
                     NavigationLink { StatsView(player: services.player) } label: { Label("再生統計", systemImage: "chart.bar.xaxis") }
+                    NavigationLink { AuditView(store: store, player: services.player) } label: { Label("ライブラリの点検", systemImage: "checklist") }
                 }
                 Section("最近削除") {
                     NavigationLink { TrashView(store: store) } label: { Label("最近削除", systemImage: "trash.circle") }

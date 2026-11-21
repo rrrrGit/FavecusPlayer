@@ -22,6 +22,8 @@ struct PlaylistItem: Decodable, Identifiable, Equatable {
     var childIds: [String]
     var entries: [EntryItem]
     var includeInAll: Bool?
+    /// 自分で設定した画像（PNGのdata URL。PC版で設定。なければ空）。
+    var icon: String?
 }
 
 struct EntryItem: Decodable, Identifiable, Equatable {

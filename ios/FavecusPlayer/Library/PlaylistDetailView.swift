@@ -31,6 +31,21 @@ struct PlaylistDetail: View {
     @State private var showView = false
     @State private var viewTick = 0
     @State private var arrangedIds: [String]?
+    /// 複数の曲を選んで、まとめて操作する（移動・追加・お気に入り・保存・外す）。
+    @State private var selecting = false
+    @State private var selection: Set<String> = []
+    @State private var confirmRemoveSelected = false
+    /// 曲名の変更・1曲の移動/追加・URLのまとめ追加。
+    @State private var renameTarget: EntryItem?
+    @State private var renameSong = ""
+    @State private var transfer: TransferRequest?
+    @State private var showBulkAdd = false
+
+    struct TransferRequest: Identifiable {
+        let id = UUID()
+        let entryIds: [String]
+        let mode: String
+    }
 
     private var parent: PlaylistItem? { store.document?.playlist(parentId) }
     private var entries: [EntryItem] { parent?.entries ?? [] }
@@ -84,9 +99,16 @@ struct PlaylistDetail: View {
             }
             let numbers = originalNumbers
             ForEach(shown) { entry in
-                SongRow(entry: entry, scope: parentId, services: services, number: numbers[entry.id]) {
-                    store.perform(["type": "remove", "playlistId": parentId, "entryId": entry.id])
+                HStack(spacing: 8) {
+                    if selecting {
+                        Image(systemName: selection.contains(entry.id) ? "checkmark.circle.fill" : "circle").font(.system(size: 20)).foregroundStyle(selection.contains(entry.id) ? Theme.accent : Theme.faint)
+                    }
+                    SongRow(entry: entry, scope: parentId, services: services, number: numbers[entry.id], onRemove: {
+                        store.perform(["type": "remove", "playlistId": parentId, "entryId": entry.id])
+                    }, extra: selecting ? [] : songActions(entry))
+                    .allowsHitTesting(!selecting) // 選んでいる間は、行を押すと、選ぶ・外すだけ（再生しない）
                 }
+                .overlay { if selecting { Color.clear.contentShape(Rectangle()).onTapGesture { toggle(entry.id) } } }
             }
             .onMove(perform: viewSetting != nil ? nil : moveEntries)
             Color.clear.frame(height: 90).listRowBackground(Theme.background).listRowSeparator(.hidden) // 右下の＋ボタンと再生バーに隠れないための余白
@@ -106,6 +128,32 @@ struct PlaylistDetail: View {
                 arrangedIds = nil
                 viewTick += 1
             }
+        }
+        .safeAreaInset(edge: .bottom) { if selecting { bulkBar } }
+        .sheet(item: $transfer) { request in
+            PlaylistPickerSheet(document: store.document, exclude: [parentId], title: request.mode == "move" ? "移動先のリスト" : "追加先のリスト", actionLabel: request.mode == "move" ? "移動する" : "追加する") { destinations in
+                store.perform(["type": "entries-transfer", "playlistId": parentId, "entryIds": request.entryIds, "destinationIds": destinations, "mode": request.mode])
+                selection = []
+                if request.mode == "move" { selecting = false }
+            }
+        }
+        .sheet(isPresented: $showBulkAdd) {
+            BulkAddSheet(store: store, downloads: services.downloads, playlistId: parentId, playlistName: parent?.name ?? "", isPresented: $showBulkAdd)
+        }
+        .alert("曲名を変更", isPresented: Binding(get: { renameTarget != nil }, set: { if !$0 { renameTarget = nil } })) {
+            TextField("曲名", text: $renameSong)
+            Button("保存") {
+                if let target = renameTarget { store.perform(["type": "title", "playlistId": parentId, "entryId": target.id, "title": renameSong.trimmingCharacters(in: .whitespacesAndNewlines)]) }
+                renameTarget = nil
+            }
+            Button("キャンセル", role: .cancel) { renameTarget = nil }
+        } message: { Text("このリストでの曲名です。空にすると、動画IDの名前になります。") }
+        .confirmationDialog("選んだ\(selection.count)曲を、このリストから外します。「最近削除」から、30日間、元に戻せます。", isPresented: $confirmRemoveSelected, titleVisibility: .visible) {
+            Button("外す", role: .destructive) {
+                store.perform(["type": "remove-many", "playlistId": parentId, "entryIds": Array(selection)])
+                selection = []; selecting = false
+            }
+            Button("キャンセル", role: .cancel) {}
         }
         .onChange(of: reveal) { _ in scrollToRevealed(proxy) }
         .onDrop(of: [.text], delegate: ClearDrag(dragging: $dragging))
@@ -238,6 +286,8 @@ struct PlaylistDetail: View {
     private var menuButton: some View {
                         Menu {
                             Button { withAnimation { editMode = .active } } label: { Label("編集（曲の並べ替え・削除）", systemImage: "pencil") }
+                            Button { withAnimation { selecting.toggle(); selection = [] } } label: { Label(selecting ? "選択を終わる" : "曲を選ぶ", systemImage: selecting ? "checkmark.circle" : "checkmark.circle.badge.questionmark") }
+                            Button { showBulkAdd = true } label: { Label("URLをまとめて追加", systemImage: "link.badge.plus") }
                             Button { showView = true } label: { Label(viewSetting != nil ? "曲の並べ替え・絞り込み（選択中）" : "曲の並べ替え・絞り込み", systemImage: "line.3.horizontal.decrease.circle") }
                             if services.downloads != nil { Button { showSave = true } label: { Label("このプレイリストの曲を保存", systemImage: "arrow.down.circle") } }
                             if services.downloads != nil { Button { Task { await services.downloads?.ensureFrames(entries: entries) } } label: { Label("サムネイルを取得", systemImage: "photo") } }
@@ -325,6 +375,52 @@ struct PlaylistDetail: View {
         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
         .listRowSeparator(.hidden)
         .listRowBackground(Theme.background)
+    }
+
+    private func toggle(_ id: String) {
+        if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
+    }
+
+    private var selectedEntries: [EntryItem] { shown.filter { selection.contains($0.id) } }
+
+    /// 曲の操作に足す項目：曲名の変更・別のリストへ移動/追加。
+    private func songActions(_ entry: EntryItem) -> [RowAction] {
+        [RowAction(icon: "pencil", title: "曲名を変更") { renameSong = entry.title; renameTarget = entry },
+         RowAction(icon: "arrow.right.circle", title: "別のリストへ移動") { transfer = TransferRequest(entryIds: [entry.id], mode: "move") },
+         RowAction(icon: "plus.circle", title: "別のリストへ追加") { transfer = TransferRequest(entryIds: [entry.id], mode: "copy") }]
+    }
+
+    /// 選んだ曲の操作（画面の下）。
+    private var bulkBar: some View {
+        VStack(spacing: 6) {
+            HStack {
+                Text("\(selection.count)曲を選択中").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.accent)
+                Spacer()
+                Button(selection.count == shown.count ? "選びなおす" : "すべて選ぶ") { selection = selection.count == shown.count ? [] : Set(shown.map(\.id)) }.font(.system(size: 13))
+            }
+            HStack(spacing: 0) {
+                barButton("arrow.right.circle", "移動") { transfer = TransferRequest(entryIds: Array(selection), mode: "move") }
+                barButton("plus.circle", "追加") { transfer = TransferRequest(entryIds: Array(selection), mode: "copy") }
+                barButton("heart", "お気に入り") { let items = selectedEntries; Task { await services.player?.setFavorites(entries: items, true) } }
+                barButton("heart.slash", "外す") { let items = selectedEntries; Task { await services.player?.setFavorites(entries: items, false) } }
+                if services.downloads != nil { barButton("arrow.down.circle", "保存") { services.downloads?.saveAll(entries: selectedEntries.filter { $0.type == "bilibili" }, kind: "audio") } }
+                barButton("minus.circle", "リストから", destructive: true) { confirmRemoveSelected = true }
+            }
+        }
+        .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 4)
+        .background(.ultraThinMaterial)
+    }
+
+    private func barButton(_ icon: String, _ label: String, destructive: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                Image(systemName: icon).font(.system(size: 18))
+                Text(label).font(.system(size: 10))
+            }
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .foregroundStyle(destructive ? Theme.warning : Theme.text)
+        }
+        .disabled(selection.isEmpty)
     }
 
     /// 手動の並べ替え（保存した順。並べ替え・絞り込みを選んでいる間は、使えない）。

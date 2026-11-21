@@ -39,3 +39,28 @@ function StatsSettings() {
     for (const [id, items] of [['stat-month', stats.thisMonthTop], ['stat-all', stats.top]]) $(id).querySelectorAll('.stat-title').forEach((span, index) => { span.textContent = `${index + 1}. ${items[index].title}`; });
   });
 }
+
+// ライブラリの点検（重複・リンク切れ）。報告だけで、何も自動では消さない。外すのは、選んで「リストから外す」（最近削除へ保管される）。
+function AuditSettings() {
+  const paint = async () => {
+    const report = await api.audit(), body = $('modal-body'); body.replaceChildren();
+    body.append(Element('p', 'form-note', `${report.checked}曲を点検しました。重複 ${report.duplicates.length}件・リンク切れ ${report.missing.length}件。自動では、何も消しません。`));
+    const section = (title, note, items, rowFor) => {
+      body.append(Element('h3', 'stat-heading', `${title}（${items.length}）`));
+      if (!items.length) { body.append(Element('p', 'form-note', '見つかりませんでした。')); return; }
+      body.append(Element('p', 'form-note', note));
+      for (const item of items) body.append(rowFor(item));
+    };
+    const remove = (playlistId, entryId) => Run(async () => { await Action({ type: 'remove', playlistId, entryId }); Toast('リストから外しました（最近削除に、30日間、保管します）。'); await paint(); });
+    section('重複', '同じプレイリストに、同じ動画・同じファイルの曲が、2つ以上あります。いらないほうを、外せます。', report.duplicates, item => {
+      const box = Element('div', 'audit-group'); box.append(Element('strong', '', `${item.playlistName}：${item.title}`));
+      item.entries.forEach((entry, index) => { const row = Element('div', 'trash-row'); row.append(Element('span', 'auto-note', `${index + 1}つ目：${entry.title || '（無題）'}`), Button('このリストから外す', 'button secondary', () => remove(item.playlistId, entry.id))); box.append(row); });
+      return box;
+    });
+    section('リンク切れ', 'ローカルの曲で、メディアのファイルが、このPCにありません。「ファイル追加」で入れ直すか、リストから外せます。', report.missing, item => {
+      const row = Element('div', 'trash-row'); const text = Element('div', 'trash-text'); text.append(Element('strong', '', item.title), Element('span', 'auto-note', `${item.playlistName}（${item.fileName}）`));
+      row.append(text, Button('このリストから外す', 'button secondary', () => remove(item.playlistId, item.entryId))); return row;
+    });
+  };
+  OpenModal('ライブラリの点検', '', null); Run(paint);
+}

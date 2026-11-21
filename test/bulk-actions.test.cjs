@@ -102,3 +102,20 @@ test('the Windows store: TransferEntries is all-or-nothing and remove-many goes 
   assert.equal(kept.length, 2);
   assert.equal(new Store(dir).data.playlists[0].entries.length, 1, '保存された');
 });
+
+test('iPhone wiring: enough fresh ids for big actions, every trash item is stored, and the selection, rename, copy/move and URL-add screens exist', () => {
+  const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+  const store = read('ios/FavecusPlayer/Library/LibraryStore.swift'), detail = read('ios/FavecusPlayer/Library/PlaylistDetailView.swift'), bulk = read('ios/FavecusPlayer/Library/BulkViews.swift');
+  assert.match(store, /freshIds\(count: Self\.idsNeeded\(for: action\)\)/);
+  assert.match(store, /entries\.count \+ 4/, 'キューの保存：曲の数に応じて');
+  assert.match(store, /ids\.count \* destinations\.count \+ 4/, '移動・追加：曲×追加先');
+  assert.match(store, /for kept in items \{ trash\.add\(json: kept\) \}/);
+  for (const type of ['entries-transfer', 'remove-many', '"title"']) assert.ok(detail.includes(type), `PlaylistDetail の ${type}`);
+  assert.match(detail, /struct TransferRequest/);
+  assert.match(detail, /songActions\(entry\)/);
+  assert.match(bulk, /struct PlaylistPickerSheet/);
+  assert.match(bulk, /maxLinks = 100/);
+  assert.match(bulk, /isRefusal == true \|\| error is URLError/, '拒否・制限が出たら、続けて取得しない');
+  // 共通の上限（PC・共通JSの1回の追加は100件）と同じ
+  assert.match(read('src/core/store.cjs'), /1回につき1〜100件/);
+});

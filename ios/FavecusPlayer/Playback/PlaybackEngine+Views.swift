@@ -3,6 +3,17 @@ import Foundation
 // 曲の並べ替え・絞り込み（共通JSの ArrangeEntries ＝ ui/entry-view.js。PC版と同じ規則）。表示と、再生順の両方に使う。
 // 本体（PlaybackEngine.swift）から分けたもの。
 extension PlaybackEngine {
+    /// 選んだ曲を、まとめて、お気に入りにする・外す（曲のメディア単位。キーが分からない曲は、飛ばす）。戻り値：変えた曲の数。
+    @discardableResult
+    func setFavorites(entries: [EntryItem], _ value: Bool) async -> Int {
+        let keys = await countKeys(for: entries)
+        var changed = 0
+        for key in Set(keys.compactMap { $0 }) where favorites.set(key, value) { changed += 1 }
+        favoriteRevision += 1
+        message = changed > 0 ? (value ? "お気に入りにしました" : "お気に入りから外しました") : "お気に入りにできる曲がありませんでした"
+        return changed
+    }
+
     /// リストの曲（子のリストの曲も含む。親→子の順）。
     func entriesInScope(_ scope: String) -> [EntryItem] {
         guard let document = store.document else { return [] }

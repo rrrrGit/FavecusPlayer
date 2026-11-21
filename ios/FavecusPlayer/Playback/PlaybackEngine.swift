@@ -62,7 +62,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     let sleepTimer = SleepTimer()
     /// お気に入り（シャッフルで、少しだけ選ばれやすくする）。この端末内だけ。変わったら、一覧の表示を更新する。
     var favorites = FavoritesStore()
-    @Published private(set) var favoriteRevision = 0
+    @Published var favoriteRevision = 0
     /// 音量の自動調整（曲ごとの平均音量の記録）。設定「曲ごとの音量差を自動で揃える」がオンのときだけ使う。
     private let loudness = LoudnessCache()
     /// 前回の続きから再生：最後の曲・位置の保存（端末内。同期しない）。なければ、保存も復元もしない。

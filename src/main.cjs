@@ -39,6 +39,7 @@ const AutoListsCore = require('./core/auto-lists.cjs');
 const PlaybackSpeed = require('./core/playback-speed.cjs');
 const MediaKeys = require('./core/media-keys.cjs');
 const EntryView = require('./ui/entry-view.js');
+const LibraryAudit = require('./core/library-audit.cjs');
 const { HistoryStore } = require('./core/play-history-store.cjs');
 const { AutoListSettingsStore } = require('./core/auto-list-settings-store.cjs');
 const { ListViewStore } = require('./core/list-views.cjs');
@@ -830,6 +831,8 @@ async function Start() {
   });
   listViews = new ListViewStore(path.join(app.getPath('userData'), 'list-views.json'));
   // 曲の並べ替え・絞り込み：選択の保存と、画面の表示に使う材料（その リストの曲ごとの、再生回数・お気に入り・保存済み）
+  // ライブラリの点検（重複・リンク切れ。報告だけで、何も消さない。規則は core/library-audit.cjs）
+  Handle('library:audit', () => { let files = []; try { files = fs.readdirSync(store.media); } catch { /* メディアの置き場がまだない */ } return LibraryAudit.Audit(store.data, files); });
   Handle('list:view-set', (playlistId, view) => { store.Playlist(String(playlistId)); const saved = listViews.Set(String(playlistId), view); Emit('list-views', listViews.All()); return saved; });
   Handle('list:stats', playlistId => {
     const context = ViewContext(), result = {};

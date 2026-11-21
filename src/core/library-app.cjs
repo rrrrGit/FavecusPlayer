@@ -12,6 +12,7 @@ const AutoListsCore = require('./auto-lists.cjs');
 const LibrarySearch = require('../ui/library-search.js');
 const EntryView = require('../ui/entry-view.js');
 const History = require('./play-history.cjs');
+const LibraryAudit = require('./library-audit.cjs');
 const AutoListSettings = require('./auto-list-settings.cjs');
 const Trash = require('./trash.cjs');
 
@@ -248,6 +249,10 @@ function LedgerStats(options) {
   try { return Ledger.Stats(JSON.parse(options.text), { topLimit: options.topLimit, months: options.months, nowMs: options.nowMs }); }
   catch (error) { return { error: String(error && error.message || error) }; }
 }
+// ライブラリの点検（重複・リンク切れの報告だけ。規則は library-audit.cjs）。options：{ text（ライブラリのJSON）, existingFiles（メディアの置き場のファイル名） }
+function Audit(options) {
+  try { return LibraryAudit.Audit(JSON.parse(options.text), options.existingFiles); } catch (error) { return { error: String(error && error.message || error) }; }
+}
 // 再生履歴（規則は play-history.cjs）。items：[{ key, at }]（新しい順）。
 function HistoryAdd(options) {
   try { return { items: History.Add(options.items, options.key, options.at) }; } catch (error) { return { error: String(error && error.message || error) }; }
@@ -305,4 +310,4 @@ function MediaKeys(options) {
     return { keys: (options.entries || []).map(entry => { try { return keyOf({ type: 'bilibili', url: entry.url }); } catch { return null; } }) };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
-module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueInsert, QueueRun, ArrangeEntries, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerStats, HistoryAdd, HistoryKeys, AutoListSettingsNormalize, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };
+module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueInsert, QueueRun, ArrangeEntries, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerStats, Audit, HistoryAdd, HistoryKeys, AutoListSettingsNormalize, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };

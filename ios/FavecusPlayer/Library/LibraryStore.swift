@@ -193,7 +193,7 @@ final class LibraryStore: ObservableObject {
     private func run(_ action: [String: Any]) async -> Bool {
         guard let core, state == .ready else { return false }
         do {
-            let request: [String: Any] = ["text": text, "action": action, "ids": Self.freshIds(), "now": Self.now(), "keepTrash": true]
+            let request: [String: Any] = ["text": text, "action": action, "ids": Self.freshIds(count: Self.idsNeeded(for: action)), "now": Self.now(), "keepTrash": true]
             let response = try await core.callAsync("LibraryApply", try Self.json(request))
             let result = try JSONDecoder().decode(ApplyResult.self, from: Data(response.utf8))
             if let message = result.error {
@@ -206,7 +206,8 @@ final class LibraryStore: ObservableObject {
             }
             try persist(updated) // 保存できなければ、画面も更新しない
             try show(updated)
-            if let kept = result.trash { trash.add(json: kept) } // 削除は、保存に成功したあとに、最近削除へ保管する
+            // 削除は、保存に成功したあとに、最近削除へ保管する（複数の曲を外したときは、曲ごと）
+            if let items = result.trashItems { for kept in items { trash.add(json: kept) } } else if let kept = result.trash { trash.add(json: kept) }
             return true
         } catch {
             notice = "保存できません：\(ErrorText.safe(error))"
@@ -227,6 +228,8 @@ final class LibraryStore: ObservableObject {
         var error: String?
         /// 削除（プレイリスト・曲）のとき、最近削除へ保管する内容（JSON文字列）。`keepTrash` を渡したときだけ。
         var trash: String?
+        /// 保管する内容のすべて（複数の曲を外したときは、曲ごと）。
+        var trashItems: [String]?
     }
 
     private func open(_ core: SharedCore, _ fileText: String?) async throws -> OpenResult {
@@ -249,7 +252,15 @@ final class LibraryStore: ObservableObject {
     }
 
     /// 新しいID（小文字。共通JSのID規則は小文字のみ）。操作1回に必要な数より十分多く渡す。
-    nonisolated static func freshIds() -> [String] { (0..<16).map { _ in UUID().uuidString.lowercased() } }
+    nonisolated static func freshIds(count: Int = 16) -> [String] { (0..<max(1, count)).map { _ in UUID().uuidString.lowercased() } }
+
+    /// 操作が使う、新しい識別番号の数（キューの保存・複数の曲の移動/追加は、曲の数に応じて増える）。
+    nonisolated static func idsNeeded(for action: [String: Any]) -> Int {
+        var needed = 16
+        if let entries = action["entries"] as? [Any] { needed = max(needed, entries.count + 4) }
+        if let ids = action["entryIds"] as? [Any], let destinations = action["destinationIds"] as? [Any] { needed = max(needed, ids.count * destinations.count + 4) }
+        return min(needed, 20500)
+    }
 
     nonisolated static func now() -> String { ISO8601DateFormatter().string(from: Date()) }
 
