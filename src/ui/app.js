@@ -163,6 +163,7 @@ $('play-all').onclick = () => PlaybackAction(() => api.play(ViewScope()));
 $('shuffle').onclick = () => Run(() => Action({ type: 'settings', settings: { shuffle: !state.settings.shuffle } }));
 $('resume-last').onclick = () => Run(() => api.resumeLast());
 $('favorite').onclick = () => Run(() => current?.playlistId ? SetFavorite(current.playlistId, current.entryId, !IsFavorite(current.entryId)) : undefined);
+$('speed').onclick = () => Run(async () => { playbackSpeed = await api.speed(NextSpeed(playbackSpeed)); RenderSpeed(); });
 $('sleep').onclick = () => Run(async () => { sleepState = await api.sleepTimer(NextSleepCommand(sleepState)); RenderSleep(); });
 $('repeat').onclick = () => Run(() => Action({ type: 'settings', settings: { repeat: { off: 'all', all: 'one', one: 'off' }[state.settings.repeat] } }));
 for (const id of ['next', 'previous']) $(id).onclick = () => PlaybackAction(() => api.command(id));
@@ -188,6 +189,7 @@ if (api) {
     else if (event.type === 'volume') SyncVolume(event.value);
     else if (event.type === 'favorites') { favoriteIds = new Set(event.value || []); RenderFavorite(); }
     else if (event.type === 'resume') { resumeOffer = event.value || null; RenderResume(); }
+    else if (event.type === 'speed') { playbackSpeed = Number(event.value) || 1; RenderSpeed(); }
     else if (event.type === 'sleep') { sleepState = event.value || { mode: 'off' }; RenderSleep(); }
     else if (event.type === 'status') { statuses = event.value; UpdateStatus(); }
     else if (event.type === 'loaded') { loaded = true; RenderPlayer(); }
@@ -211,5 +213,5 @@ if (api) {
   $('modal').addEventListener?.('close', RunAfterModal); // Escキーなどで閉じたときも、覚えておいた操作を続ける
   new ResizeObserver(SendBounds).observe($('player-slot'));
   new ResizeObserver(UpdateQueueTail).observe($('entries'));
-  Run(async () => { const initial = await api.state(); state = initial.state; current = initial.current; playback = initial.playback; thumbnail = initial.thumbnail; statuses = initial.statuses; queueInfo = initial.queue; foreground = initial.foreground === true; accounts = initial.accounts || {}; loaded = !!playback; sleepState = initial.sleep || { mode: 'off' }; RenderSleep(); resumeOffer = initial.resume || null; favoriteIds = new Set(initial.favorites || []); UpdateDownloads(initial.downloads); $('version').textContent = initial.version; document.body.classList.toggle('mac', initial.platform === 'darwin'); Render(); queueFollower?.Request(); accounts = await api.accounts(); UpdateAccounts(); });
+  Run(async () => { const initial = await api.state(); state = initial.state; current = initial.current; playback = initial.playback; thumbnail = initial.thumbnail; statuses = initial.statuses; queueInfo = initial.queue; foreground = initial.foreground === true; accounts = initial.accounts || {}; loaded = !!playback; sleepState = initial.sleep || { mode: 'off' }; RenderSleep(); playbackSpeed = Number(initial.speed) || 1; RenderSpeed(); resumeOffer = initial.resume || null; favoriteIds = new Set(initial.favorites || []); UpdateDownloads(initial.downloads); $('version').textContent = initial.version; document.body.classList.toggle('mac', initial.platform === 'darwin'); Render(); queueFollower?.Request(); accounts = await api.accounts(); UpdateAccounts(); });
 } else Toast('この画面はFavecus Playerのアプリから開いてください。');

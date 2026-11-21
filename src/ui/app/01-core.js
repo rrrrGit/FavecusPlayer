@@ -7,6 +7,15 @@ const { HasPlayback, TransportState } = window.FavecusTransport;
 const api = window.favecusApp;
 // おやすみタイマー（規則は core/sleep-timer.cjs。ここは表示と、押したときの次の指定だけ）。
 let sleepState = { mode: 'off' };
+// 再生速度（0.5〜2.0倍。ボタンを押すたびに、次の段階へ。段階と保存は main 側＝core/playback-speed.cjs）
+const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+let playbackSpeed = 1;
+function NextSpeed(value) { const at = SPEED_OPTIONS.indexOf(value); return SPEED_OPTIONS[(at + 1) % SPEED_OPTIONS.length]; }
+function RenderSpeed() {
+  const button = $('speed'); if (!button) return;
+  const text = `${playbackSpeed}x`, label = `再生速度 ${text}（押すと${NextSpeed(playbackSpeed)}x）`;
+  button.textContent = text; button.title = label; button.setAttribute('aria-label', label); button.classList.toggle('enabled', playbackSpeed !== 1);
+}
 const SLEEP_MINUTES = [15, 30, 45, 60, 90];
 function NextSleepCommand(value) {
   const index = value?.mode === 'minutes' ? SLEEP_MINUTES.indexOf(value.minutes) : value?.mode === 'song' ? SLEEP_MINUTES.length : SLEEP_MINUTES.length + 1;

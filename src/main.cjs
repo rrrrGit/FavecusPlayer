@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, WebContentsView, ipcMain, dialog, shell, session, protocol, net, Menu, nativeImage, crashReporter, safeStorage } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, dialog, shell, session, protocol, net, Menu, nativeImage, crashReporter, safeStorage, globalShortcut } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs');
@@ -36,6 +36,8 @@ const { Thumbnails, SmallImage, CoverImage, FlatImage, ImageData } = require('./
 const { SleepTimer } = require('./core/sleep-timer.cjs');
 const { ResumeStore } = require('./core/resume-point.cjs');
 const AutoListsCore = require('./core/auto-lists.cjs');
+const PlaybackSpeed = require('./core/playback-speed.cjs');
+const MediaKeys = require('./core/media-keys.cjs');
 const { TrashStore } = require('./core/trash-store.cjs');
 const { LoudnessStore } = require('./core/loudness.cjs');
 const { FavoriteStore } = require('./core/favorites.cjs');
@@ -50,7 +52,7 @@ app.setPath('sessionData', dataDirectory);
 let win, store, presence, remoteView, mini, volumeSaveTimer, backgroundMode, sync;
 let viewVisible = false;
 let current = null, playback = null;
-let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null, trashStore = null, loudness = null, songGain = 1, favorites = null;
+let thumbnails, thumbnail = null, sleepTimer = null, resumeStore = null, trashStore = null, loudness = null, songGain = 1, favorites = null, speedStore = null, mediaKeys = null;
 let visibleBounds = { x: 0, y: 0, width: 0, height: 0, visible: false };
 let statuses = { discord: { code: 'off', text: 'Discord連携はオフです' }, taskbar: { code: 'off', text: '下向き矢印を押すと埋め込みを試します' } };
 let playCounts;
@@ -327,6 +329,7 @@ function SetVolume(factor = 1) {
       const channel = mediaChannels.get(wc);
       wc.setAudioMuted(volume === 0 || !channel?.ready);
       channel?.Send('media:command', { type: 'volume', value: volume });
+      if (wc === remoteView?.webContents) channel?.Send('media:command', { type: 'rate', value: speedStore ? speedStore.Get() : 1 }); // 再生速度も、読み込みのたびに合わせ直す
     }
   }
 }
@@ -772,7 +775,7 @@ async function Start() {
     else throw new Error('対応していない操作です。');
     return sync.Status();
   });
-  Handle('app:state', () => ({ favorites: FavoriteIds(), sleep: sleepTimer?.State() || { mode: 'off' }, resume: ResumeOffer(), state: store.Snapshot(), statuses, current, playback, thumbnail, queue: QueueState(), downloads: offline.Snapshot(), foreground: Foreground(), accounts: accountStatus, version: app.getVersion(), platform: process.platform }));
+  Handle('app:state', () => ({ speed: speedStore ? speedStore.Get() : 1, favorites: FavoriteIds(), sleep: sleepTimer?.State() || { mode: 'off' }, resume: ResumeOffer(), state: store.Snapshot(), statuses, current, playback, thumbnail, queue: QueueState(), downloads: offline.Snapshot(), foreground: Foreground(), accounts: accountStatus, version: app.getVersion(), platform: process.platform }));
   Handle('player:reset-counts', () => { playCounts.Reset(); return true; });
   const ctx = MakeContext(); ctx.ffmpeg = ffmpeg; // Start() の中の局所変数（ローカル曲の長さの取得に使う）
   require('./main/ipc-downloads.cjs')(ctx);
@@ -799,12 +802,17 @@ async function Start() {
     onChange: state => Emit('sleep', state)
   });
   require('./main/ipc-queue.cjs')(ctx);
+  // 再生速度（0.5〜2.0倍。この端末内だけに保存）。再生中の画面へ、すぐ反映する。
+  speedStore = new PlaybackSpeed.SpeedStore(path.join(app.getPath('userData'), 'playback-speed.json'));
+  Handle('player:speed', value => { const speed = speedStore.Set(value); SetVolume(); Emit('speed', speed); return speed; });
   Handle('player:sleep', command => {
     if (command?.cancel) sleepTimer.Cancel();
     else if (command?.song) sleepTimer.StartEndOfSong();
     else sleepTimer.Start(Number(command?.minutes));
     return sleepTimer.State();
   });
+  // キーボードのメディアキー（再生/一時停止・次・前・停止）。アプリが前面でなくても効く（Chromium 側の標準の処理は、二重に反応するため切ってある）。
+  mediaKeys = MediaKeys.Register(globalShortcut, command => Command(command));
   Handle('window:mini', () => mini.Show());
   Handle('player:official', () => {
     if (current?.entry.type === 'bilibili') return shell.openExternal(ParseBilibili(current.entry.url).url);
@@ -872,11 +880,13 @@ else {
   nativeDiagnostics = StartCrashDiagnostics({ app, crashReporter, installRoot: process.env.FAVECUS_INSTALL_ROOT, runId: process.env.FAVECUS_RUN_ID });
   PlayerDiagnostic('diagnostics-start', { started: nativeDiagnostics.started, error: nativeDiagnostics.error, electron: process.versions.electron, chromium: process.versions.chrome, platform: process.platform, arch: process.arch });
   app.on('second-instance', () => mini?.Restore());
+  app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling'); // メディアキーは、アプリ（core/media-keys.cjs）で1回だけ受ける
   app.whenReady().then(Start).catch(error => { PlayerDiagnostic('app-start', { message: String(error.message).slice(0, 240) }); dialog.showErrorBox('Favecus Playerを起動できません', `[FP-PLAYER-APP-START] ${error.message}`); app.quit(); });
 }
 app.on('child-process-gone', (_event, details = {}) => PlayerDiagnostic('child-process-exited', { processType: details.type, exitReason: details.reason, exitCode: details.exitCode }));
 process.on?.('uncaughtExceptionMonitor', (error, origin) => PlayerDiagnostic('uncaught-exception', { origin, name: error.name, code: error.code, message: String(error.message).slice(0, 240), stack: String(error.stack || '').split('\n').slice(0, 8).join('\n').slice(0, 3000) }));
 app.on('before-quit', () => {
+  mediaKeys?.Dispose(); mediaKeys = null;
   quitting = true; resumeStore?.Flush(); loadRequest++; sync?.Dispose(); offline?.CancelEstimate();
   offline?.Cancel();
   if (volumeSaveTimer) { clearTimeout(volumeSaveTimer); volumeSaveTimer = null; try { store?.Save(); } catch {} }

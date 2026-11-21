@@ -51,6 +51,12 @@ function FindMedia() {
   const elements = [...document.querySelectorAll('video, audio')];
   return elements.find(e => !e.paused && e.readyState >= 1) || elements.find(e => e.duration > 0) || elements[0];
 }
+let masterRate = null;
+// 再生速度：読み込みのたびに、サイトが速度を戻しても、アプリで選んだ速度に合わせ直す。
+function ApplyRate() {
+  if (masterRate === null) return;
+  for (const e of document.querySelectorAll('video, audio')) if (Math.abs(e.playbackRate - masterRate) > .001) e.playbackRate = masterRate;
+}
 function ApplyVolume() {
   if (masterVolume === null) return;
   for (const e of document.querySelectorAll('video, audio')) {
@@ -88,6 +94,7 @@ window.addEventListener('DOMContentLoaded', () => {
   qualityUntil = Date.now() + 20000; DefaultQuality(); FitOfficialPlayer();
   for (const event of ['play', 'playing', 'pause', 'ended', 'seeking', 'seeked', 'loadedmetadata', 'canplay', 'ratechange']) document.addEventListener(event, e => {
     if (startPending && e.type === 'playing' && startUntil === null) startUntil = Date.now() + 1500;
+    if (e.type === 'loadedmetadata' || e.type === 'play' || e.type === 'playing') ApplyRate(); // 再生速度：サイトが戻しても、選んだ速度に合わせ直す
     Report(true);
   }, true);
   for (const event of ['pointerdown', 'keydown']) document.addEventListener(event, e => { if (startUntil !== null) startPending = false;
@@ -103,6 +110,10 @@ ipcRenderer.on('media:command', (_event, command) => {
   if (!command || typeof command !== 'object') return;
   if (command.type === 'restore' && Number.isFinite(command.position)) { startPending = false; pendingRestore = { position: command.position, paused: command.paused === true }; RestorePlayback(FindMedia()); return; }
   if (command.type === 'refresh-display') { Report(true); return; }
+  if (command.type === 'rate') {
+    if (Number.isFinite(command.value)) { masterRate = Math.max(0.25, Math.min(4, command.value)); ApplyRate(); }
+    return;
+  }
   if (command.type === 'volume') {
     if (Number.isFinite(command.value)) { masterVolume = Math.max(0, Math.min(1, command.value)); ApplyVolume(); }
     return;

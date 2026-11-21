@@ -28,6 +28,6 @@ if (!window.favecusApp && location.hostname === '127.0.0.1' && location.search =
     else if (command.action === 'now') demoSync.lastSyncAt = Date.now();
     return { ...demoSync };
   };
-  window.favecusApp = { sync: syncApi, state: () => send('state'), action: action => send('action', action), entryThumbnail: async (playlistId, entryId, scope, variant) => Thumbnail(entryId, variant), accounts: async () => ({}), bounds: () => {}, onEvent: cb => { listeners.add(cb); return () => listeners.delete(cb); } };
+  window.favecusApp = { sync: syncApi, state: () => send('state'), action: action => send('action', action), entryThumbnail: async (playlistId, entryId, scope, variant) => Thumbnail(entryId, variant), accounts: async () => ({}), speed: async value => { listeners.forEach(cb => cb({ type: 'speed', value })); return value; }, bounds: () => {}, onEvent: cb => { listeners.add(cb); return () => listeners.delete(cb); } };
   for (const name of ['videoFullscreen', 'resetPlayCounts', 'shortcut', 'downloads', 'downloadPlaylist', 'cancelDownload', 'downloadDirectory', 'openDownloads', 'preferSaved', 'addFiles', 'prepareAdd', 'prepareFiles', 'commitAdd', 'cancelAdd', 'importLibrary', 'exportLibrary', 'play', 'shufflePlay', 'browseBilibili', 'command', 'openOfficial', 'help', 'discordPortal', 'login', 'favoriteFolders', 'favoriteVideos', 'playlistSources', 'playlistVideos', 'playlistParts', 'volume', 'mini']) window.favecusApp[name] = () => { throw new Error('この操作はデスクトップ版で使用できます。'); };
 }

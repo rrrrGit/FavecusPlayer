@@ -121,3 +121,13 @@ test('taskbar relaunch uses the Favecus launcher and matching AppUserModelID', (
   assert.equal(details.appId,APP_ID);assert.equal(details.relaunchCommand,'"C:\\My Music\\FavecusPlayer\\FavecusPlayer.exe"');
   assert.equal(details.relaunchDisplayName,'Favecus Player');assert.equal(details.appIconPath,'C:\\My Music\\FavecusPlayer\\FavecusPlayer.exe');
 });
+
+test('the playback speed chosen in the app is applied at once and put back when the site resets it on load or play', () => {
+  const h = MediaHarness(false);
+  h.command({ type: 'rate', value: 1.5 }); assert.equal(h.media.playbackRate, 1.5);
+  h.media.playbackRate = 1; h.event('loadedmetadata'); assert.equal(h.media.playbackRate, 1.5, '読み込みのあと');
+  h.media.playbackRate = 1; h.event('playing'); assert.equal(h.media.playbackRate, 1.5, '再生が始まったあと');
+  h.command({ type: 'rate', value: 99 }); assert.equal(h.media.playbackRate, 4, '範囲の上限');
+  h.command({ type: 'rate', value: 'fast' }); assert.equal(h.media.playbackRate, 4, '数でない値は、無視する');
+  h.command({ type: 'rate', value: 1 }); assert.equal(h.media.playbackRate, 1);
+});
