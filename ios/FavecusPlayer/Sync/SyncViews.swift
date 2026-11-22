@@ -32,6 +32,15 @@ struct SyncSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     statusCard
+                    if !status.extrasNotice.isEmpty {
+                        Text(status.extrasNotice)
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.warning)
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.panel))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.line, lineWidth: 1))
+                    }
                     if let message {
                         HStack(alignment: .top) {
                             Text(message).font(.system(size: 13)).foregroundStyle(failed ? Theme.warning : Theme.mint).textSelection(.enabled)

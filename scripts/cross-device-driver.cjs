@@ -12,6 +12,9 @@ const assert = require('node:assert/strict');
 const { Store, ValidateLibrary } = require('../src/core/store.cjs');
 const { SyncService, StoreAdapter } = require('../src/core/sync-service.cjs');
 const Storage = require('../src/core/sync-storage.cjs');
+const { PlayCounts } = require('../src/core/play-counts.cjs');
+const { FavoriteStore } = require('../src/core/favorites.cjs');
+const { HistoryStore } = require('../src/core/play-history-store.cjs');
 const { KEY } = require('../test/fake-supabase.cjs');
 
 const dir = path.resolve(process.argv[2] || ''), serverURL = process.argv[3];
@@ -43,15 +46,33 @@ function WindowsDevice() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'favecus-cross-')), data = path.join(root, 'data'), syncDir = path.join(data, 'sync');
   fs.mkdirSync(data, { recursive: true });
   const store = new Store(data, { committed: () => service.Changed() });
-  const service = new SyncService({ directory: syncDir, adapter: StoreAdapter(store, { validateLibrary: input => ValidateLibrary(input) }), vault: new Storage.SessionVault(syncDir, FakeSafe()), request: Request, now: Date.now, timers: { set: () => ({ unref() {} }), clear() {} } });
-  return { store, service };
+  const counts = new PlayCounts(path.join(data, 'play-ledger.json'));
+  const favs = new FavoriteStore(path.join(data, 'favorites.json'));
+  const hist = new HistoryStore(path.join(data, 'play-history.json'));
+  let now = Date.now();
+  counts.now = () => now;
+  counts.onCounted = (key, at) => hist.Add(key, at);
+  const service = new SyncService({
+    directory: syncDir, adapter: StoreAdapter(store, { validateLibrary: input => ValidateLibrary(input) }),
+    vault: new Storage.SessionVault(syncDir, FakeSafe()), request: Request, now: Date.now,
+    timers: { set: () => ({ unref() {} }), clear() {} },
+    extras: () => ({
+      Read: async () => counts.SyncRead({ weighted: store.data.settings.weightedShuffle !== false, at: store.data.settings.weightedShuffleAt || 0 }),
+      Apply: async ({ rows, epoch, cursor, prefs }) => { counts.SyncApply({ rows, epoch, cursor }); if (prefs) store.Apply({ type: 'settings', settings: { weightedShuffle: prefs.weighted, weightedShuffleAt: prefs.at } }); },
+      Pushed: async () => counts.SyncPushed(),
+      favorites: { Read: async () => favs.SyncRead(counts.ledger.deviceId), Apply: async v => favs.SyncApply(v), Pushed: async () => favs.SyncPushed() },
+      history: { Read: async () => hist.SyncRead(counts.ledger.deviceId), Apply: async v => hist.SyncApply(v), Pushed: async () => hist.SyncPushed() }
+    })
+  });
+  const playEntry = entry => { counts.Begin(entry); for (let i = 0; i < 6; i++) { now += 1000; counts.Observe({ position: i, duration: 200, paused: false }); } };
+  return { store, service, counts, favs, hist, playEntry };
 }
 const Id = (store, name) => store.data.playlists.find(p => p.name === name).id;
 const Add = (store, name, n, title) => store.Apply({ type: 'add', playlistId: Id(store, name), urls: `https://www.bilibili.com/video/BV1${String(n).padStart(9, 'x')}/`, title });
 
 async function main() {
-  const w = WindowsDevice(), { store, service } = w;
-  // ---- windows-1：深い階層と共有の子リスト
+  const w = WindowsDevice(), { store, service, counts, favs, hist, playEntry } = w;
+  // ---- windows-1：深い階層と共有の子リスト＋お気に入り・再生回数・履歴
   store.Apply({ type: 'rename', playlistId: store.data.playlists[0].id, name: '独立' });
   for (const name of ['親A', '親B']) store.Apply({ type: 'create', name, select: false });
   store.Apply({ type: 'create', name: '共有子', parentId: Id(store, '親A'), select: false });
@@ -59,6 +80,9 @@ async function main() {
   store.Apply({ type: 'create', name: '子A2', parentId: Id(store, '親A'), select: false });
   store.Apply({ type: 'create', name: '孫A2', parentId: Id(store, '子A2'), select: false });
   Add(store, '親A', 1, '曲A1'); Add(store, '親A', 2, '曲A2'); Add(store, '親B', 3, '曲B1'); Add(store, '共有子', 4, '曲S1'); Add(store, '共有子', 5, '曲S2'); Add(store, '孫A2', 6, '曲G1');
+  const entryA1 = store.Playlist(Id(store, '親A')).entries[0], entryG1 = store.Playlist(Id(store, '孫A2')).entries[0], entryB1 = store.Playlist(Id(store, '親B')).entries[0];
+  favs.Set(counts.KeyOf(entryA1), true);
+  playEntry(entryA1); playEntry(entryA1);
   service.Configure({ url: serverURL, anonKey: KEY }); await service.SendCode('driver@example.com'); await service.VerifyCode('driver@example.com', '123456'); service.Start();
   let result = await service.Enable(); assert.equal(result.ok, true, JSON.stringify(result));
   Write('windows-1.json', Canon(store.data)); fs.writeFileSync(path.join(dir, 'windows-1.done'), '1');
@@ -71,6 +95,8 @@ async function main() {
   Add(store, '独立', 7, '曲W1');
   store.Apply({ type: 'remove', playlistId: Id(store, '共有子'), entryId: store.data.playlists.find(p => p.name === '共有子').entries.find(e => e.title === '曲S2').id });
   store.Apply({ type: 'move', playlistId: Id(store, '親A'), entryId: store.data.playlists.find(p => p.name === '親A').entries[0].id, direction: 1 });
+  favs.Set(counts.KeyOf(entryG1), true);
+  playEntry(entryG1);
   result = await service.SyncNow(); assert.equal(result.ok, true, JSON.stringify(result));
   fs.writeFileSync(path.join(dir, 'windows-2.done'), '1'); console.log('windows-2 done');
 
@@ -89,6 +115,13 @@ async function main() {
   assert.ok(!flat.includes('曲S2'), 'Windowsの削除が反映されていません');
   const shared = windows.flatMap(function find(n) { return [n, ...n.children.flatMap(find)]; }).filter(n => n.name === '共有子(iOS改名)');
   assert.equal(shared.length, 2, '共有の子リストが両方の親の下にあること');
-  console.log('cross-device sync verified: lists=' + names.length);
+  // お気に入り・再生回数・再生履歴の端末間一致確認
+  const iosExtras = JSON.parse(fs.readFileSync(path.join(dir, 'ios-extras.json'), 'utf8'));
+  const kA1 = counts.KeyOf(entryA1), kB1 = counts.KeyOf(entryB1), kG1 = counts.KeyOf(entryG1);
+  assert.deepEqual(iosExtras.favorites.slice().sort(), favs.List().sort(), 'お気に入りが一致しません');
+  for (const k of [kA1, kB1, kG1]) assert.ok(favs.Has(k), `お気に入り欠落: ${k}`);
+  assert.deepEqual(iosExtras.counts, { [kA1]: counts.Count(entryA1), [kB1]: counts.Count(entryB1), [kG1]: counts.Count(entryG1) }, '再生回数が一致しません');
+  assert.deepEqual(iosExtras.history.slice().sort(), hist.Keys(20).sort(), '再生履歴が一致しません');
+  console.log('cross-device sync verified: lists=' + names.length + ' extras=ok');
 }
 main().then(() => process.exit(0), error => { console.error(error); process.exit(1); });

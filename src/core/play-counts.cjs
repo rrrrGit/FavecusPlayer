@@ -94,6 +94,8 @@ class PlayCounts {
   }
   // 送れた行の印だけを消す（読み取りのあとにさらに変わった行は、次の同期でもう一度送る）
   SyncPushed() { for (const id of this.inFlight) if (!this.touched.has(id)) this.dirty.delete(id); this.inFlight = new Set(); this.touched = new Set(); this.pushedOnce = true; }
+  // 接続初期化時：cursor と送信印を戻し、次の接続先で全行を送り直せるようにする。
+  ResetSync() { this.ledger.syncCursor = 0; this.pushedOnce = false; this.dirty.clear(); this.inFlight.clear(); this.touched.clear(); try { this.Persist(); } catch {} }
   // 同期へ送る行（Bilibiliの曲だけ）と世代。
   SyncState() { return { deviceId: this.ledger.deviceId, epoch: this.ledger.epoch, rows: Ledger.SyncRows(this.ledger) }; }
 }

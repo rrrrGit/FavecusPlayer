@@ -51,10 +51,11 @@ class SyncService {
     this.now = options.now || Date.now; this.timers = options.timers || { set: setTimeout, clear: clearTimeout };
     this.onStatus = options.onStatus || (() => {}); this.onApplied = options.onApplied || (() => {});
     this.extras = options.extras || null; this.extrasNotice = ''; // extras(): sync-counts.cjs のアダプター
+    this.onResetExtras = options.onResetExtras || null;
     this.config = Storage.ReadConfig(this.dir); this.blocked = ''; this.error = ''; this.state = 'off';
     this.session = new SyncSession({ adapter: this.adapter, repository: () => this.Repository(), persist: session => Storage.WriteState(this.dir, session.device, session.Extra()), now: this.now, onApplied: () => this.onApplied(), deviceId: () => `win-${randomUUID().slice(0, 8)}` });
     this.chain = Promise.resolve(); this.debounce = null; this.interval = null; this.disposed = false;
-    this.pendingCode = null; this.loaded = false;
+    this.pendingCode = null; this.loaded = false; this.applyingExtras = false;
   }
   get device() { return this.session.device; }
   get lastSyncAt() { return this.session.lastSyncAt; }
@@ -126,10 +127,13 @@ class SyncService {
   Mismatch() { const session = this.vault.Get(); const origin = this.session.origin; return !!this.device && !!origin.url && (origin.url !== this.config.url || (session && origin.userId !== session.userId)); }
   // 別のプロジェクト・アカウントへ切り替える：同期データは別名で残し、手元のライブラリから新しく始める。
   ResetLink() {
-    this.Disable(); Storage.SetAside(this.dir); this.session.Reset(); this.blocked = ''; this.Emit('off');
+    this.Disable(); Storage.SetAside(this.dir); this.session.Reset(); this.blocked = ''; this.extrasNotice = '';
+    try { this.onResetExtras?.(); } catch {}
+    this.Emit('off');
   }
   // ---- ストアの変更・同期
-  Changed() { this.session.Changed(); if (this.session.applying || !this.config.enabled || this.blocked || !this.device) return; this.Schedule(1500); }
+  Changed() { this.session.Changed(); if (this.session.applying || this.applyingExtras || !this.config.enabled || this.blocked || !this.device) return; this.Schedule(1500); }
+  ScheduleExtras() { if (!this.config.enabled || this.blocked || !this.device || this.disposed) return; this.Schedule(1500); }
   Schedule(ms) { if (this.disposed) return; if (this.debounce) this.timers.clear(this.debounce); this.debounce = this.timers.set(() => { this.debounce = null; this.Request().catch(() => {}); }, ms); this.debounce.unref?.(); }
   Request() { return this.SyncNow(); }
   // 直列化：同時に1つだけ実行する。
@@ -141,8 +145,13 @@ class SyncService {
     const result = await this.session.Cycle(); // データの安全に関わる規則は共通の sync-session.cjs
     if (result.blocked) { this.blocked = result.blocked; this.Emit('blocked'); return { ok: false, error: result.blocked }; }
     if (result.ok && this.extras) {
-      const extra = await SyncExtras(this.extras(), this.Repository());
-      this.extrasNotice = extra.ok ? '' : extra.error; // テーブル未作成（SQL未実行）などは、お知らせとして表示するだけ
+      this.applyingExtras = true;
+      try {
+        const extra = await SyncExtras(this.extras(), this.Repository());
+        this.extrasNotice = extra.ok ? '' : extra.error; // テーブル未作成（SQL未実行）などは、お知らせとして表示するだけ
+      } finally {
+        this.applyingExtras = false;
+      }
     }
     this.Emit(result.ok ? 'idle' : 'error', result.ok ? '' : result.error);
     return result;

@@ -8,9 +8,14 @@ final class StoreSyncHost: SyncHost, @unchecked Sendable {
     private let session: URLSession
     /// 再生回数の台帳（MainActorで使う）。なければ、再生回数の同期はしない。
     private let counts: PlayCountStore?
+    private let favorites: FavoritesStore?
+    private let history: PlayHistoryStore?
+    private let fallbackDeviceId = "ios-\(String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(12)))"
 
-    init(store: LibraryStore, directory: URL, vault: SessionVault, session: URLSession = .shared, counts: PlayCountStore? = nil) {
+    init(store: LibraryStore, directory: URL, vault: SessionVault, session: URLSession = .shared, counts: PlayCountStore? = nil, favorites: FavoritesStore? = nil, history: PlayHistoryStore? = nil) {
         self.counts = counts
+        self.favorites = favorites
+        self.history = history
         self.store = store
         self.directory = directory
         self.vault = vault
@@ -81,9 +86,28 @@ final class StoreSyncHost: SyncHost, @unchecked Sendable {
 
     func saveSession(_ json: String) { try? vault.set(json) }
 
-    // MARK: 再生回数・設定（共通JSの sync-counts.cjs が、この3つを呼ぶ）
+    // MARK: 再生回数・設定・お気に入り・再生履歴（共通JSの sync-counts.cjs が、これらを呼ぶ）
+
+    private func sharedDeviceId() async -> String {
+        let id = await MainActor.run { counts?.deviceId ?? "" }
+        return id.isEmpty ? fallbackDeviceId : id
+    }
 
     func countsRead() async -> String? { await counts?.syncRead() }
     func countsApply(_ json: String) async { await counts?.syncApply(json) }
     func countsPushed() async { await counts?.syncPushed() }
+
+    func favoritesRead() async -> String? {
+        guard let favorites else { return nil }
+        return await favorites.syncRead(deviceId: await sharedDeviceId())
+    }
+    func favoritesApply(_ json: String) async { await favorites?.syncApply(json) }
+    func favoritesPushed() async { await favorites?.syncPushed() }
+
+    func historyRead() async -> String? {
+        guard let history else { return nil }
+        return await history.syncRead(deviceId: await sharedDeviceId())
+    }
+    func historyApply(_ json: String) async { await history?.syncApply(json) }
+    func historyPushed() async { await history?.syncPushed() }
 }

@@ -60,9 +60,10 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     /// おやすみタイマー（終わりに、音量を下げて一時停止する）。端末内の一時的な状態。
     let sleepTimer = SleepTimer()
-    /// お気に入り（シャッフルで、少しだけ選ばれやすくする）。この端末内だけ。変わったら、一覧の表示を更新する。
-    var favorites = FavoritesStore()
+    /// お気に入り（シャッフルで、少しだけ選ばれやすくする）。Bilibili曲は同期対象（v0.7.5）。変わったら、一覧の表示を更新する。
+    let favorites: FavoritesStore
     @Published var favoriteRevision = 0
+    @Published private(set) var extrasRevision = 0
     /// 音量の自動調整（曲ごとの平均音量の記録）。設定「曲ごとの音量差を自動で揃える」がオンのときだけ使う。
     private let loudness = LoudnessCache()
     /// 前回の続きから再生：最後の曲・位置の保存（端末内。同期しない）。なければ、保存も復元もしない。
@@ -100,6 +101,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     /// 曲の切り替え・停止のたびに増やす。待っている間に状態が変わった古い処理の結果を捨てるため。
     var generation = 0
     private var libraryObserver: AnyCancellable?
+    private var extrasObservers = Set<AnyCancellable>()
     let provider: MediaProvider?
     /// ロック画面に出す、曲のサムネイル（アプリが設定する）。
     var artworkProvider: ((EntryItem) -> UIImage?)?
@@ -112,11 +114,12 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     /// 動画を映すプレイヤー（画面の映像用）。
     var videoPlayer: AVPlayer? { backend.videoPlayer }
 
-    init(core: SharedCore, store: LibraryStore, backend: PlayerBackend, provider: MediaProvider? = nil, makeSystem: ((PlaybackControls) -> SystemAudioHooks)? = nil) {
+    init(core: SharedCore, store: LibraryStore, backend: PlayerBackend, provider: MediaProvider? = nil, favorites: FavoritesStore? = nil, makeSystem: ((PlaybackControls) -> SystemAudioHooks)? = nil) {
         self.provider = provider
         self.core = core
         self.store = store
         self.backend = backend
+        self.favorites = favorites ?? FavoritesStore(core: core)
         backend.speed = Float(speed)
         system = makeSystem?(self)
         backend.onEnded = { [weak self] in self?.ended() }
@@ -131,6 +134,25 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         _ = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.applyPreferredVideo() }
         }
+        bindExtras()
+    }
+
+    /// 再生回数・お気に入り・再生履歴・自動リスト設定の変化を画面側へ知らせる（同期反映後も含む）。
+    func bindExtras() {
+        extrasObservers.removeAll()
+        favorites.$revision.dropFirst().sink { [weak self] _ in
+            self?.favoriteRevision += 1
+            self?.extrasRevision += 1
+        }.store(in: &extrasObservers)
+        counts?.$revision.dropFirst().sink { [weak self] _ in
+            self?.extrasRevision += 1
+        }.store(in: &extrasObservers)
+        history?.$revision.dropFirst().sink { [weak self] _ in
+            self?.extrasRevision += 1
+        }.store(in: &extrasObservers)
+        autoSettings.$settings.dropFirst().sink { [weak self] _ in
+            self?.extrasRevision += 1
+        }.store(in: &extrasObservers)
     }
 
     /// 動画を選んでいて、この曲に動画があり、まだ動画で映していなければ、動画へ切り替える（前面にあるときだけ）。
@@ -220,7 +242,6 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             message = "この曲は、まだ識別できないため、お気に入りにできません。"
             return false
         }
-        favoriteRevision += 1
         return true
     }
 

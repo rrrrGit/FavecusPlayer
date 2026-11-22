@@ -78,12 +78,22 @@ const AUTO_LIST_KINDS = [
   { kind: 'favorites', title: 'お気に入り', note: 'お気に入りにした曲（登録の新しい順）' },
   { kind: 'history', title: '最近聴いた曲', note: '最近再生した曲（新しい順）' }
 ];
+let autoListCounts = null;
+function RefreshAutoLists() {
+  if (!api?.autoList || !autoListCounts || $('home')?.classList.contains('hidden')) return;
+  const targets = autoListCounts;
+  void api.autoList().then(result => {
+    if (targets !== autoListCounts) return;
+    for (const meta of AUTO_LIST_KINDS) { const el = targets.get(meta.kind); if (el) el.textContent = `${result?.[meta.kind] ?? 0}曲`; }
+  }).catch(() => {});
+}
 function MakeAutoLists() {
   if (!api?.autoList || !api?.autoPlay) return null;
   const section = Element('section', 'auto-lists'); section.setAttribute('aria-label', '自動リスト');
   section.append(Element('h2', '', '自動リスト'));
   const cards = Element('div', 'auto-cards'); section.append(cards);
   const counts = new Map();
+  autoListCounts = counts;
   for (const meta of AUTO_LIST_KINDS) {
     const card = Element('button', 'auto-card'); card.type = 'button';
     const name = Element('strong', '', meta.title), note = Element('span', 'auto-note', meta.note), count = Element('span', 'auto-count', '');
@@ -91,7 +101,7 @@ function MakeAutoLists() {
     card.addEventListener('click', () => Run(() => OpenAutoList(meta)));
     cards.append(card);
   }
-  void api.autoList().then(result => { for (const meta of AUTO_LIST_KINDS) { const n = result?.[meta.kind] ?? 0; counts.get(meta.kind).textContent = `${n}曲`; } }).catch(() => {});
+  RefreshAutoLists();
   return section;
 }
 async function OpenAutoList(meta) {

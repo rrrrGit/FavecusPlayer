@@ -9,7 +9,6 @@ extension PlaybackEngine {
         let keys = await countKeys(for: entries)
         var changed = 0
         for key in Set(keys.compactMap { $0 }) where favorites.set(key, value) { changed += 1 }
-        favoriteRevision += 1
         message = changed > 0 ? (value ? "お気に入りにしました" : "お気に入りから外しました") : "お気に入りにできる曲がありませんでした"
         return changed
     }

@@ -63,12 +63,19 @@ function PaintSync(status) {
   $('sync-send').disabled = !ready || !status?.encryption; $('sync-verify').disabled = !ready; $('sync-signout').disabled = !signed || on;
   $('sync-enable').disabled = on || !signed; $('sync-disable').disabled = !on; $('sync-reset').disabled = on; $('sync-now').disabled = !on || status?.state === 'syncing';
   $('sync-encryption').classList.toggle('hidden', !status || status.encryption);
+  const notice = $('sync-extras-notice');
+  if (notice) {
+    const text = status?.extrasNotice || '';
+    notice.textContent = text;
+    notice.classList.toggle('hidden', !text);
+  }
   $('sync-blocked').classList.toggle('hidden', !(status && status.enabled && status.state === 'blocked' && status.canUnblock));
 }
 function SyncSettings() {
   OpenModal('プレイリストの同期', `
     <p class="form-note">自分のSupabaseプロジェクトを使って、プレイリストの構成と曲の登録情報をWindows版・iPhone版で同期します。曲のファイル・保存したメディア・ログイン情報は同期しません。既定はオフです。</p>
     <p id="sync-state" class="status-detail" role="status" aria-live="polite"></p>
+    <p id="sync-extras-notice" class="status-detail hidden" role="status"></p>
     <p id="sync-encryption" class="status-detail hidden">この環境ではサインイン情報を安全に保存できないため、同期を使えません。</p>
     <section class="settings-block"><h3>1. 接続先</h3>
       <label class="field">Project URL<input id="sync-url" maxlength="100" placeholder="https://xxxx.supabase.co" autocomplete="off" spellcheck="false"></label>

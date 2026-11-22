@@ -73,8 +73,9 @@ final class ListViewStore: ObservableObject {
     }
 }
 
-/// 並べ替え・絞り込みの選択か、リストの曲が変わったら、結果を取り直すための印。
+/// 並べ替え・絞り込みの選択か、リストの曲、お気に入り・再生回数が変わったら、結果を取り直すための印。
 struct ArrangeKey: Equatable {
     let view: EntryViewSetting?
     let entries: [EntryItem]
+    var revision: Int = 0
 }

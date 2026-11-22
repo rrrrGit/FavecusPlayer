@@ -191,7 +191,16 @@ if (api) {
     else if (event.type === 'duration') { UpdateDuration(event.value.entryId, event.value.duration); }
     else if (event.type === 'volume') SyncVolume(event.value);
     else if (event.type === 'notes') { void RefreshChapters(); }
-    else if (event.type === 'favorites') { favoriteIds = new Set(event.value || []); listViewStats.clear(); RenderFavorite(); }
+    else if (event.type === 'favorites') {
+      favoriteIds = new Set(event.value || []); listViewStats.clear(); RenderFavorite(); RefreshAutoLists?.();
+      const view = !allListsView && ListView(ViewScope());
+      if (view && (view.favorite !== 'any' || view.sort === 'favorite-first')) RenderEntries();
+    }
+    else if (event.type === 'extras-updated') {
+      listViewStats.clear(); RefreshAutoLists?.();
+      const view = !allListsView && ListView(ViewScope());
+      if (view && (view.played !== 'any' || view.sort === 'count-desc' || view.sort === 'count-asc')) RenderEntries();
+    }
     else if (event.type === 'list-views') { listViews = event.value || {}; listViewStats.clear(); RenderViewButton(); RenderEntries(); }
     else if (event.type === 'resume') { resumeOffer = event.value || null; RenderResume(); }
     else if (event.type === 'speed') { playbackSpeed = Number(event.value) || 1; RenderSpeed(); }

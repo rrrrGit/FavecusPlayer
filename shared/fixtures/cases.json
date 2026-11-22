@@ -18095,5 +18095,190 @@
    }
   ],
   "expect": null
+ },
+ {
+  "name": "favorites merge: migrates v1 keys at t=1, resolves ties to fav=true, clamps future time, excludes local",
+  "call": "FavoritesMerge",
+  "args": [
+   {
+    "doc": {
+     "version": 1,
+     "keys": [
+      "bili:BV1aaaaaaaaa:p1",
+      "local:s.mp3"
+     ]
+    },
+    "ops": [
+     {
+      "set": {
+       "key": "bili:BV1bbbbbbbbb:p1",
+       "value": true,
+       "now": 1000
+      }
+     },
+     {
+      "merge": {
+       "rows": [
+        {
+         "key": "bili:BV1aaaaaaaaa:p1",
+         "fav": false,
+         "at": 1
+        },
+        {
+         "key": "bili:BV1bbbbbbbbb:p1",
+         "fav": false,
+         "at": 2000
+        },
+        {
+         "key": "bili:BV1ccccccccc:p1",
+         "fav": true,
+         "at": 999999999
+        },
+        {
+         "key": "local:ignored.mp3",
+         "fav": true,
+         "at": 5000
+        }
+       ],
+       "cursor": 9,
+       "now": 3000
+      }
+     }
+    ]
+   }
+  ],
+  "expect": {
+   "doc": {
+    "version": 1,
+    "keys": [
+     "bili:BV1aaaaaaaaa:p1",
+     "bili:BV1ccccccccc:p1",
+     "local:s.mp3"
+    ],
+    "states": {
+     "bili:BV1aaaaaaaaa:p1": {
+      "fav": true,
+      "at": 1
+     },
+     "local:s.mp3": {
+      "fav": true,
+      "at": 1
+     },
+     "bili:BV1bbbbbbbbb:p1": {
+      "fav": false,
+      "at": 2000
+     },
+     "bili:BV1ccccccccc:p1": {
+      "fav": true,
+      "at": 603000
+     }
+    },
+    "syncCursor": 9
+   },
+   "migrated": true,
+   "syncRows": [
+    {
+     "key": "bili:BV1aaaaaaaaa:p1",
+     "fav": true,
+     "at": 1
+    },
+    {
+     "key": "bili:BV1bbbbbbbbb:p1",
+     "fav": false,
+     "at": 2000
+    },
+    {
+     "key": "bili:BV1ccccccccc:p1",
+     "fav": true,
+     "at": 603000
+    }
+   ]
+  }
+ },
+ {
+  "name": "history merge: remote clear drops only Bilibili up to clearedAt, deduplicates, and post-clear play beats clearedAt",
+  "call": "HistoryMerge",
+  "args": [
+   {
+    "state": {
+     "version": 1,
+     "items": [
+      {
+       "key": "local:a.mp3",
+       "at": 1500
+      },
+      {
+       "key": "bili:BV1aaaaaaaaa:p1",
+       "at": 1200
+      }
+     ]
+    },
+    "ops": [
+     {
+      "merge": {
+       "rows": [
+        {
+         "key": "bili:BV1aaaaaaaaa:p1",
+         "at": 2000
+        },
+        {
+         "key": "bili:BV1aaaaaaaaa:p1",
+         "at": 1800
+        },
+        {
+         "key": "bili:BV1bbbbbbbbb:p1",
+         "at": 5000
+        }
+       ],
+       "clearedAt": 2500,
+       "cursor": 5
+      },
+      "now": 3000
+     },
+     {
+      "add": {
+       "key": "bili:BV1ccccccccc:p1",
+       "at": 2400
+      }
+     }
+    ]
+   }
+  ],
+  "expect": {
+   "state": {
+    "version": 1,
+    "items": [
+     {
+      "key": "bili:BV1bbbbbbbbb:p1",
+      "at": 5000
+     },
+     {
+      "key": "bili:BV1ccccccccc:p1",
+      "at": 2501
+     },
+     {
+      "key": "local:a.mp3",
+      "at": 1500
+     }
+    ],
+    "clearedAt": 2500,
+    "syncCursor": 5
+   },
+   "keys": [
+    "bili:BV1bbbbbbbbb:p1",
+    "bili:BV1ccccccccc:p1",
+    "local:a.mp3"
+   ],
+   "syncRows": [
+    {
+     "key": "bili:BV1bbbbbbbbb:p1",
+     "at": 5000
+    },
+    {
+     "key": "bili:BV1ccccccccc:p1",
+     "at": 2501
+    }
+   ]
+  }
  }
 ]

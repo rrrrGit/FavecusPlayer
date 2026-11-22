@@ -12,16 +12,28 @@ protocol SyncHost: AnyObject, Sendable {
     func recovered() async -> Bool
     func request(method: String, url: String, json: String) async throws -> String
     func saveSession(_ json: String)
-    /// 再生回数・設定の同期（対応していないhostは nil / 何もしない）。
+    /// 再生回数・設定・お気に入り・再生履歴の同期（対応していないhostは nil / 何もしない）。
     func countsRead() async -> String?
     func countsApply(_ json: String) async
     func countsPushed() async
+    func favoritesRead() async -> String?
+    func favoritesApply(_ json: String) async
+    func favoritesPushed() async
+    func historyRead() async -> String?
+    func historyApply(_ json: String) async
+    func historyPushed() async
 }
 
 extension SyncHost {
     func countsRead() async -> String? { nil }
     func countsApply(_ json: String) async {}
     func countsPushed() async {}
+    func favoritesRead() async -> String? { nil }
+    func favoritesApply(_ json: String) async {}
+    func favoritesPushed() async {}
+    func historyRead() async -> String? { nil }
+    func historyApply(_ json: String) async {}
+    func historyPushed() async {}
 }
 
 final class SyncCore: @unchecked Sendable {
@@ -71,8 +83,16 @@ final class SyncCore: @unchecked Sendable {
         let countsRead: @convention(block) () -> JSValue = { [unowned self] in promise { await host.countsRead() } }
         let countsApply: @convention(block) (String) -> JSValue = { [unowned self] json in promise { await host.countsApply(json); return nil } }
         let countsPushed: @convention(block) () -> JSValue = { [unowned self] in promise { await host.countsPushed(); return nil } }
+        let favoritesRead: @convention(block) () -> JSValue = { [unowned self] in promise { await host.favoritesRead() } }
+        let favoritesApply: @convention(block) (String) -> JSValue = { [unowned self] json in promise { await host.favoritesApply(json); return nil } }
+        let favoritesPushed: @convention(block) () -> JSValue = { [unowned self] in promise { await host.favoritesPushed(); return nil } }
+        let historyRead: @convention(block) () -> JSValue = { [unowned self] in promise { await host.historyRead() } }
+        let historyApply: @convention(block) (String) -> JSValue = { [unowned self] json in promise { await host.historyApply(json); return nil } }
+        let historyPushed: @convention(block) () -> JSValue = { [unowned self] in promise { await host.historyPushed(); return nil } }
         for (name, block) in [("library", library as Any), ("write", write), ("persist", persist), ("backup", backup), ("recovered", recovered), ("request", request), ("saveSession", saveSession),
-                              ("countsRead", countsRead), ("countsApply", countsApply), ("countsPushed", countsPushed)] {
+                              ("countsRead", countsRead), ("countsApply", countsApply), ("countsPushed", countsPushed),
+                              ("favoritesRead", favoritesRead), ("favoritesApply", favoritesApply), ("favoritesPushed", favoritesPushed),
+                              ("historyRead", historyRead), ("historyApply", historyApply), ("historyPushed", historyPushed)] {
             object?.setObject(block, forKeyedSubscript: name as NSString)
         }
         context.setObject(object, forKeyedSubscript: "__favecusHost" as NSString)

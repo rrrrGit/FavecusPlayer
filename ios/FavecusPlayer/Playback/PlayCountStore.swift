@@ -4,11 +4,13 @@ import Foundation
 /// Swiftは、台帳（JSON文字列）のファイルへの保存と、共通JSの呼び出しだけを行う。同期するのはBilibiliの曲の行だけ（ローカルの曲は、この端末の中だけ）。
 /// 数える処理は、同期が無効でも動く。
 @MainActor
-final class PlayCountStore {
+final class PlayCountStore: ObservableObject {
+    @Published private(set) var revision = 0
     private let core: SharedCore
     private let file: URL
     private let defaults: UserDefaults
     private var text: String
+    private(set) var deviceId = ""
     /// 起動後に変わった自分の行（同期へ送る）。起動後の最初の同期では、すべての行を送る。
     private var dirty: Set<String> = []
     private var inFlight: Set<String> = []
@@ -21,6 +23,8 @@ final class PlayCountStore {
     private(set) var notice: String?
     /// 回数を数えたとき（再生履歴へ足すため）。曲のキー。
     var onCounted: ((String) -> Void)?
+    /// 同期対象の変更（再生回数の加算・リセット）が起きたとき。
+    var onChange: (() -> Void)?
 
     static let weightedKey = "weightedShuffle"
     static let weightedAtKey = "weightedShuffleAt"
@@ -31,6 +35,10 @@ final class PlayCountStore {
         self.defaults = defaults
         text = ""
         text = open()
+        if let state = try? Self.object(core.call("LedgerSyncState", Self.json(["text": text]))),
+           let id = state["deviceId"] as? String {
+            deviceId = id
+        }
     }
 
     // MARK: 設定（「再生回数が少ない曲を優先する」。同期では、新しい変更が勝つ）
@@ -42,6 +50,7 @@ final class PlayCountStore {
     func setWeighted(_ value: Bool) {
         defaults.set(value, forKey: Self.weightedKey)
         defaults.set((Date().timeIntervalSince1970 * 1000).rounded(), forKey: Self.weightedAtKey)
+        onChange?()
     }
 
     // MARK: 台帳
@@ -114,14 +123,22 @@ final class PlayCountStore {
         await increment(key: key)
     }
 
-    private func serialized(_ work: @escaping @MainActor () async -> Void) async {
+    private func enqueue(_ work: @escaping @MainActor () async -> Void) {
         let previous = tail
-        let mine = Task { @MainActor in
+        tail = Task { @MainActor in
             await previous.value
             await work()
         }
-        tail = mine
-        await mine.value
+    }
+
+    private func serialized<T>(_ work: @escaping @MainActor () async -> T) async -> T {
+        let previous = tail
+        let mine = Task { @MainActor () -> T in
+            await previous.value
+            return await work()
+        }
+        tail = Task { @MainActor in _ = await mine.value }
+        return await mine.value
     }
 
     func increment(key: String) async {
@@ -130,10 +147,12 @@ final class PlayCountStore {
                   let next = result["text"] as? String else { return }
             text = next
             persist()
+            revision += 1
             onCounted?(key)
             if let row = result["row"] as? [String: Any], let id = row["id"] as? String, key.hasPrefix("bili") {
                 dirty.insert(id)
                 if inFlight.contains(id) { touched.insert(id) } // 今回の同期の読み取りのあとに変わった行：送信後も、印を残す
+                onChange?()
             }
         }
     }
@@ -144,27 +163,32 @@ final class PlayCountStore {
             guard !text.isEmpty, let result = try? await call("LedgerReset", ["text": text]), let next = result["text"] as? String else { return }
             text = next
             persist()
+            revision += 1
         }
         await stop()
+        onChange?()
     }
 
     // MARK: 同期（sync-counts.cjs のアダプター。JSの host から呼ばれる）
 
     /// { deviceId, epoch, cursor, rows（送る行）, prefs } のJSON文字列。
     func syncRead() async -> String? {
-        guard !text.isEmpty, var state = try? await call("LedgerSyncState", ["text": text]) else { return nil }
-        let rows = (state["rows"] as? [[String: Any]] ?? []).filter { !pushedOnce || dirty.contains($0["id"] as? String ?? "") }
-            .map { ["epoch": $0["epoch"] ?? 0, "month": $0["month"] ?? "", "key": $0["key"] ?? "", "n": $0["n"] ?? 1] as [String: Any] }
-        inFlight = Set((state["rows"] as? [[String: Any]] ?? []).filter { !pushedOnce || dirty.contains($0["id"] as? String ?? "") }.compactMap { $0["id"] as? String })
-        touched = []
-        state["rows"] = rows
-        state["prefs"] = ["weighted": weighted, "at": weightedAt]
-        return Self.json(state)
+        await serialized { [self] () async -> String? in
+            guard !text.isEmpty, var state = try? await call("LedgerSyncState", ["text": text]) else { return nil }
+            let rows = (state["rows"] as? [[String: Any]] ?? []).filter { !pushedOnce || dirty.contains($0["id"] as? String ?? "") }
+                .map { ["epoch": $0["epoch"] ?? 0, "month": $0["month"] ?? "", "key": $0["key"] ?? "", "n": $0["n"] ?? 1] as [String: Any] }
+            inFlight = Set((state["rows"] as? [[String: Any]] ?? []).filter { !pushedOnce || dirty.contains($0["id"] as? String ?? "") }.compactMap { $0["id"] as? String })
+            touched = []
+            state["rows"] = rows
+            state["prefs"] = ["weighted": weighted, "at": weightedAt]
+            return Self.json(state)
+        }
     }
 
     /// 他の端末から受け取った行・世代・読み取り位置・設定を取り込む。
     func syncApply(_ json: String) async {
         guard let value = try? Self.object(json) else { return }
+        var didChange = false
         await serialized { [self] in
             guard !text.isEmpty else { return }
             var request: [String: Any] = ["text": text, "rows": value["rows"] ?? [], "cursor": value["cursor"] ?? 0]
@@ -172,12 +196,15 @@ final class PlayCountStore {
             if let merged = try? await call("LedgerMerge", request), let next = merged["text"] as? String, merged["changed"] as? Bool == true {
                 text = next
                 persist()
+                didChange = true
             }
         }
         if let prefs = value["prefs"] as? [String: Any], let weighted = prefs["weighted"] as? Bool, let at = prefs["at"] as? Double {
             defaults.set(weighted, forKey: Self.weightedKey)
             defaults.set(at, forKey: Self.weightedAtKey)
+            didChange = true
         }
+        if didChange { revision += 1 }
     }
 
     /// 送れた行の印だけを消す（読み取りのあとにさらに変わった行は、次の同期でもう一度送る）。
@@ -186,6 +213,20 @@ final class PlayCountStore {
         inFlight = []
         touched = []
         pushedOnce = true
+    }
+
+    func resetSync() {
+        enqueue { [self] in
+            if var obj = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] {
+                obj["syncCursor"] = 0
+                text = Self.json(obj)
+                persist()
+            }
+            dirty.removeAll()
+            inFlight.removeAll()
+            touched.removeAll()
+            pushedOnce = false
+        }
     }
 
     // MARK: JS呼び出し

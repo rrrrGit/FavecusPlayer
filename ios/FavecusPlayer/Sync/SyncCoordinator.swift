@@ -32,6 +32,8 @@ struct SyncStatus: Equatable {
     var conflicts = 0
     /// 停止の理由が保存されていて、利用者が「復元」か「この端末を正とする」を選べる状態。
     var canUnblock = false
+    /// 再生回数・お気に入り・再生履歴の同期だけ失敗しているときの知らせ（テーブル未作成など）。
+    var extrasNotice = ""
 }
 
 /// iPhone版の同期の運用。規則（baseとの差分・受信は先にライブラリ・既定リストの扱い・空の状態の停止・整理）は共通JS（FavecusCore.Sync*）。
@@ -49,10 +51,12 @@ final class SyncCoordinator: ObservableObject {
     private var opened = false
     private var blockedReason = ""
     private var unblockable = false
+    private var extrasNotice = ""
     private var chain: Task<Void, Never>?
     private var debounce: Task<Void, Never>?
     private var observer: AnyCancellable?
     private var foreground: NSObjectProtocol?
+    var onResetExtras: (() -> Void)?
 
     var configURL: URL { store.syncDirectory.appendingPathComponent("config.json") }
 
@@ -92,6 +96,7 @@ final class SyncCoordinator: ObservableObject {
         next.canUnblock = unblockable && !blockedReason.isEmpty
         next.email = config.email
         next.url = config.url
+        next.extrasNotice = extrasNotice
         if let pending = summary["pending"] as? Int { next.pending = pending }
         if let conflicts = summary["conflicts"] as? Int { next.conflicts = conflicts }
         if let last = summary["lastSyncAt"] as? Double { next.lastSyncAt = last }
@@ -220,6 +225,8 @@ final class SyncCoordinator: ObservableObject {
         opened = false
         blockedReason = ""
         unblockable = false
+        extrasNotice = ""
+        onResetExtras?()
         status = SyncStatus(state: .off, message: "", enabled: false, configured: status.configured, signedIn: status.signedIn, email: status.email, url: status.url)
         // 実行中の同期が、退避した後の状態ファイルを書き直さないよう、JSの状態を戻してから退避する
         Task { _ = try? await call("SyncReset", [:]); host.setAsideState() }
@@ -230,6 +237,18 @@ final class SyncCoordinator: ObservableObject {
     private func storeChanged(bySync: Bool) {
         Task { _ = try? await call("SyncChanged", [:]) }
         guard config.enabled, !bySync, blockedReason.isEmpty else { return }
+        debounce?.cancel()
+        debounce = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if !Task.isCancelled { self?.request() }
+        }
+    }
+
+    func scheduleExtras() {
+        guard config.enabled, blockedReason.isEmpty else { return }
+        #if canImport(UIKit)
+        guard UIApplication.shared.applicationState == .active else { return }
+        #endif
         debounce?.cancel()
         debounce = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_500_000_000)
@@ -271,6 +290,9 @@ final class SyncCoordinator: ObservableObject {
                 unblockable = true
                 publish(state: .blocked, summary: result)
                 return false
+            }
+            if let extras = result["extras"] as? [String: Any] {
+                extrasNotice = (extras["ok"] as? Bool == false) ? (extras["error"] as? String ?? "") : ""
             }
             if result["ok"] as? Bool == true {
                 publish(state: .idle, summary: result)

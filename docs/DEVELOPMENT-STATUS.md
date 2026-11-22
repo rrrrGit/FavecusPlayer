@@ -1,9 +1,17 @@
 # FavecusPlayer 開発状況
 
-更新日：2026-11-20（日本時間）
-対象：v0.7.4 / `release/v0.7.4`（`main` の v0.7.3 マージ 7ec7688 から作成）
-現在地：v0.7.4 のブランチを作成した直後（計画・Stepは未定）。v0.7.3はRelease公開（タグ v0.7.3）・mainへ統合済み。持ち越し：Windows実機での更新（特に0.6.6から）・動作の確認、iPhone実機の確認（アラーム・F1〜F5）、同期の見直し（D）、サムネイルの統一（E2。既定を場面・表紙のどちらにするか）、E1（動画のみ保存の失敗3本。失敗の文待ち）、実機の結果による修正。
+更新日：2026-11-22（日本時間）
+対象：v0.7.5 / `release/v0.7.5`（`main` の v0.7.4 マージ 518e58f から作成）
+現在地：v0.7.5 の「未再生曲・お気に入り・最近聴いた曲・よく聴く曲の端末間同期とUI自動更新」を実装・PCテスト完了。GitHub Actions（iOS CI）でのコンパイル・XCTest・端末間同期テスト確認待ち。v0.7.3はRelease公開（タグ v0.7.3）・mainへ統合済み。持ち越し：Windows実機での更新（特に0.6.6から）・動作の確認、iPhone実機の確認（アラーム・F1〜F5）、同期の見直し（D）、サムネイルの統一（E2。既定を場面・表紙のどちらにするか）、E1（動画のみ保存の失敗3本。失敗の文待ち）、実機の結果による修正。
 v0.7.0（配布済み・main）の工程・検証記録は、本ファイルの「v0.7.0の記録」以降と `docs/VALIDATION-067.md`（v0.6.7分）にあります。
+
+## v0.7.5 の開発記録（2026-11-22）
+- **目的**：未再生・よく聴く曲・お気に入り（ハート）・最近聴いた曲が端末間で同期されない問題の解消。
+- **変更内容**：
+  - **共通JS・Supabase スキーマ**：`src/core/favorites-core.cjs`（LWW＋同値 `fav: true` 優先、`at: 1` 旧形式移行、お気に入り上限20000と解除履歴上限20000の分離、未来時刻 +10分クランプ）と `src/core/play-history.cjs` 同期対応（リモート履歴クリア時は Bilibili 曲のみ削除しローカル曲は残存）を追加。`supabase/schema.sql` に `sync_favorites*`・`sync_history*`・`sync_history_state`（ロック 13 / 17・未来時刻クランプ・RLS）を追加。`sync-counts.cjs` は `counts`・`favorites`・`history` を独立 `try/catch` で実行。
+  - **PC版**：`FavoriteStore`・`HistoryStore`・`PlayCounts` を `SyncService` の `extras` および `ResetLink()`（cursor リセット）に接続し、変更時の `ScheduleExtras()` 自動予約、`applyingExtras` による再同期ループ抑止、ホーム自動リスト件数（`RefreshAutoLists`）・並び替えキャッシュ・`#sync-extras-notice` 表示を更新。
+  - **iPhone版**：`FavoritesStore`・`PlayHistoryStore`・`PlayCountStore`・`SyncCore`・`StoreSyncHost`・`SyncCoordinator`（前面時のみ `scheduleExtras()`・`extrasNotice` 表示）・`SyncViews` を接続し、`PlaybackEngine.extrasRevision` 経由で自動リスト・並べ替え結果・再生統計・ハート表示を自動更新。
+- **検証**：`node scripts/check.cjs`（233 JavaScript files: syntax OK）、`node --test --test-concurrency=4 test/*.test.cjs`（758件中 745成功・0失敗・13環境依存スキップ）、`checker-pro` レビュー実施。Swift コンパイル・XCTest は `release/v0.7.5` Push 後の GitHub Actions で検証、実機・実 Supabase 接続は未検証（利用者は `supabase/schema.sql` の再実行が必要）。
 
 ## v0.7.4の状況まとめ（2026-11-21。実装済み／実装予定／実装をあきらめたもの）
 ※「実装済み」は、ソース・自動テスト（PC 約750件）・iOS CI（シミュレーター・スクリーンショット）までの確認。実機・実Electron・実Bilibili・実際の音は未確認。詳細は、下の各Stepの記録を参照。

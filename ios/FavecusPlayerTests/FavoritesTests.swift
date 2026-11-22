@@ -67,4 +67,45 @@ final class FavoritesTests: XCTestCase {
         XCTAssertEqual(boosted["local:a.mp3"], 1.5)
         XCTAssertEqual(boosted["local:b.mp3"], 1)
     }
+
+    func testLegacyKeysMigrateAtTimestampOneSyncLwwAndExcludeLocal() async throws {
+        let localFavs = ["bili:BV1aaaaaaaaa:p1", "local:only.mp3"]
+        let legacyData = try JSONSerialization.data(withJSONObject: ["version": 1, "keys": localFavs])
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try legacyData.write(to: directory.appendingPathComponent("favorites.json"))
+        let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let store = FavoritesStore(defaults: defaults(), directory: directory, core: core)
+        XCTAssertEqual(store.keys, Set(localFavs))
+        // 初回の syncRead には local:only.mp3 が含まれず、at=1 の Bilibili 曲のみが返る
+        let readText = await store.syncRead(deviceId: "ios-test")
+        let readObj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(readText).utf8)) as? [String: Any])
+        let rows = try XCTUnwrap(readObj["rows"] as? [[String: Any]])
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?["key"] as? String, "bili:BV1aaaaaaaaa:p1")
+        XCTAssertEqual((rows.first?["at"] as? NSNumber)?.int64Value, 1)
+        // 同値 at=1 で fav=false が来ても true が優先される。新しい fav=true の別曲は追加され、ローカル曲は残る
+        let incoming: [String: Any] = [
+            "cursor": 5,
+            "rows": [
+                ["key": "bili:BV1aaaaaaaaa:p1", "fav": false, "at": 1],
+                ["key": "bili:BV1bbbbbbbbb:p1", "fav": true, "at": 1000]
+            ]
+        ]
+        await store.syncApply(String(decoding: try JSONSerialization.data(withJSONObject: incoming), as: UTF8.self))
+        XCTAssertTrue(store.contains("bili:BV1aaaaaaaaa:p1"), "同時刻競合はお気に入り優先")
+        XCTAssertTrue(store.contains("bili:BV1bbbbbbbbb:p1"))
+        XCTAssertTrue(store.contains("local:only.mp3"))
+        store.syncPushed()
+        // 再送では変化がなければ 0 行
+        let readAgain = await store.syncRead(deviceId: "ios-test")
+        let againObj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(readAgain).utf8)) as? [String: Any])
+        XCTAssertEqual((againObj["rows"] as? [[String: Any]])?.count, 0)
+        XCTAssertEqual(againObj["cursor"] as? Int, 5)
+        // resetSync で cursor=0 に戻る
+        store.resetSync()
+        let resetText = await store.syncRead(deviceId: "ios-test")
+        let resetObj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(resetText).utf8)) as? [String: Any])
+        XCTAssertEqual(resetObj["cursor"] as? Int, 0)
+        XCTAssertEqual((resetObj["rows"] as? [[String: Any]])?.count, 2)
+    }
 }

@@ -699,12 +699,31 @@ async function Start() {
   sync = new SyncService({
     directory: syncDirectory, adapter: StoreAdapter(store, { validateLibrary: input => ValidateLibrary(input), mediaKey: LibraryMediaKey }), vault: new SessionVault(syncDirectory, safeStorage),
     request: async (method, url, { headers, body }) => { const response = await net.fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(30000) }); return { status: response.status, json: await response.json().catch(() => null) }; },
-    // 再生回数・「再生回数が少ない曲を優先する」設定の同期（ライブラリの同期のあとに行う）
+    // 再生回数・設定・お気に入り・再生履歴の同期（ライブラリの同期のあとに行う）
     extras: () => ({
       Read: async () => playCounts.SyncRead({ weighted: store.data.settings.weightedShuffle !== false, at: store.data.settings.weightedShuffleAt || 0 }),
-      Apply: async ({ rows, epoch, cursor, prefs }) => { playCounts.SyncApply({ rows, epoch, cursor }); if (prefs) Emit('state', store.Apply({ type: 'settings', settings: { weightedShuffle: prefs.weighted, weightedShuffleAt: prefs.at } })); },
-      Pushed: async () => playCounts.SyncPushed()
+      Apply: async ({ rows, epoch, cursor, prefs }) => {
+        const changed = playCounts.SyncApply({ rows, epoch, cursor });
+        if (prefs) Emit('state', store.Apply({ type: 'settings', settings: { weightedShuffle: prefs.weighted, weightedShuffleAt: prefs.at } }));
+        if (changed > 0) { SyncPlayingQueue(); Emit('extras-updated', { counts: true }); }
+      },
+      Pushed: async () => playCounts.SyncPushed(),
+      favorites: {
+        Read: async () => favorites.SyncRead(playCounts.ledger.deviceId),
+        Apply: async ({ rows, cursor }) => {
+          if (favorites.SyncApply({ rows, cursor }) > 0) { SyncPlayingQueue(); Emit('favorites', FavoriteIds()); }
+        },
+        Pushed: async () => favorites.SyncPushed()
+      },
+      history: {
+        Read: async () => historyStore.SyncRead(playCounts.ledger.deviceId),
+        Apply: async ({ rows, clearedAt, cursor }) => {
+          if (historyStore.SyncApply({ rows, clearedAt, cursor }) > 0) { SyncPlayingQueue(); Emit('extras-updated', { history: true }); }
+        },
+        Pushed: async () => historyStore.SyncPushed()
+      }
     }),
+    onResetExtras: () => { playCounts?.ResetSync(); favorites?.ResetSync(); historyStore?.ResetSync(); },
     onStatus: status => Emit('sync', status), onApplied: () => { if (current?.playlistId) SyncPlayingQueue(); Emit('state', store.Snapshot()); }
   });
 
@@ -734,6 +753,11 @@ async function Start() {
   await offline.Organize(); archive = new LibraryArchive(store, offline);
   // 再生回数：台帳は play-ledger.json。以前の play-counts.json は、変更せずに1回だけ引き継ぐ（同期は、台帳の行だけを送る）
   playCounts = new PlayCounts(path.join(app.getPath('userData'), 'play-ledger.json'), Notify, { legacyFile: path.join(app.getPath('userData'), 'play-counts.json'), aliases: () => store?.data.videoAliases || [] });
+  favorites.onChange = info => { if (info?.syncable) sync?.ScheduleExtras(); };
+  playCounts.onChange = info => {
+    if (info?.rows?.length || info?.epoch !== undefined) sync?.ScheduleExtras();
+    Emit('extras-updated', { counts: true });
+  };
   additionReview = new AdditionReview(store, { resolveTitle: async entry => {
     const data = await biliAccount.Details(entry.videoId);
     RememberVideo(entry, data);
@@ -845,6 +869,10 @@ async function Start() {
   playTimeStore = new PlayTimeStore(path.join(app.getPath('userData'), 'play-time.json'));
   autoListSettings = new AutoListSettingsStore(path.join(app.getPath('userData'), 'auto-list-settings.json'));
   playCounts.onCounted = (key, at) => historyStore.Add(key, at); // 回数を数えたとき（実再生の3秒など）に、再生履歴へ足す
+  historyStore.onChange = info => {
+    if (info?.syncable || info?.cleared) sync?.ScheduleExtras();
+    if (info?.cleared) Emit('extras-updated', { history: true });
+  };
   // 自動リストの設定（件数・条件）と、再生履歴・再生統計
   Handle('autolist:settings', value => (value === undefined || value === null ? autoListSettings.Get() : autoListSettings.Set(value)));
   Handle('history:clear', () => { historyStore.Clear(); return true; });

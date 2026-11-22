@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 /// 自動リスト（v0.7.3 F3）：よく聴く曲・最近追加した曲・未再生。PC版と同じ選び方（共通JS：src/core/auto-lists.cjs）。
@@ -69,11 +70,22 @@ final class AutoListsModel: ObservableObject {
     }
 }
 
+private struct AutoReloadKey: Equatable {
+    let document: LibraryDocument?
+    let revision: Int
+}
+
 /// ホームの、自分のプレイリストの下に置く3つのカード。
 struct AutoListsSection: View {
     @ObservedObject var store: LibraryStore
     let services: Services
     @StateObject private var model = AutoListsModel()
+    @State private var extrasRevision = 0
+
+    private var extrasChanges: AnyPublisher<Int, Never> {
+        guard let player = services.player else { return Empty(completeImmediately: false).eraseToAnyPublisher() }
+        return player.$extrasRevision.eraseToAnyPublisher()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -97,7 +109,8 @@ struct AutoListsSection: View {
                 .buttonStyle(.plain)
             }
         }
-        .task(id: store.document) { await model.reload(services.player) } // 表示のたびにも走るため、onAppearでの二重の読み込みはしない
+        .task(id: AutoReloadKey(document: store.document, revision: extrasRevision)) { await model.reload(services.player) } // 表示のたびにも走るため、onAppearでの二重の読み込みはしない
+        .onReceive(extrasChanges) { extrasRevision = $0 }
     }
 }
 
@@ -107,6 +120,12 @@ struct AutoListDetail: View {
     @ObservedObject var store: LibraryStore
     let services: Services
     @StateObject private var model = AutoListsModel()
+    @State private var extrasRevision = 0
+
+    private var extrasChanges: AnyPublisher<Int, Never> {
+        guard let player = services.player else { return Empty(completeImmediately: false).eraseToAnyPublisher() }
+        return player.$extrasRevision.eraseToAnyPublisher()
+    }
 
     private var items: [AutoListItem] { model.result.items(kind) }
     private var titles: [String: String] {
@@ -158,7 +177,8 @@ struct AutoListDetail: View {
         .background(Theme.background)
         .navigationTitle(kind.title)
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: store.document) { await model.reload(services.player) }
+        .task(id: AutoReloadKey(document: store.document, revision: extrasRevision)) { await model.reload(services.player) }
+        .onReceive(extrasChanges) { extrasRevision = $0 }
     }
 
     private func shuffled() {

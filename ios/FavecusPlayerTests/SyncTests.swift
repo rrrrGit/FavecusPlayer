@@ -30,13 +30,17 @@ final class SyncTests: XCTestCase {
                            folder: URL(fileURLWithPath: try XCTUnwrap(env["FAVECUS_CROSS_DIR"], "FAVECUS_CROSS_DIR が渡されていません")))
     }
 
-    private func makeDevice(vault: SessionVault = MemoryVault(), directory: URL? = nil) async throws -> (LibraryStore, SyncCoordinator, StoreSyncHost) {
+    private func makeDevice(vault: SessionVault = MemoryVault(), directory: URL? = nil, withExtras: Bool = false) async throws -> (LibraryStore, SyncCoordinator, StoreSyncHost, PlayCountStore?, FavoritesStore?, PlayHistoryStore?) {
         let folder = directory ?? self.directory!
-        let store = LibraryStore(core: try SharedCore(bundle: Bundle(for: SharedCore.self)), directory: folder)
+        let shared = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let store = LibraryStore(core: shared, directory: folder)
         await store.load()
-        let host = StoreSyncHost(store: store, directory: store.syncDirectory, vault: vault)
+        let counts: PlayCountStore? = withExtras ? PlayCountStore(core: shared, directory: folder, defaults: UserDefaults(suiteName: "favecus-sync-extra-\(UUID().uuidString)")!) : nil
+        let favorites: FavoritesStore? = withExtras ? FavoritesStore(defaults: UserDefaults(suiteName: "favecus-sync-fav-\(UUID().uuidString)")!, directory: folder, core: shared) : nil
+        let history: PlayHistoryStore? = withExtras ? PlayHistoryStore(core: shared, directory: folder) : nil
+        let host = StoreSyncHost(store: store, directory: store.syncDirectory, vault: vault, counts: counts, favorites: favorites, history: history)
         let sync = SyncCoordinator(store: store, core: try SyncCore(bundle: Bundle(for: SharedCore.self), host: host), host: host, vault: vault)
-        return (store, sync, host)
+        return (store, sync, host, counts, favorites, history)
     }
 
     private func signIn(_ sync: SyncCoordinator, _ env: Environment) async throws {
@@ -71,7 +75,7 @@ final class SyncTests: XCTestCase {
     // MARK: 設定・サインイン・Keychain
 
     func testTheConfigurationRejectsAnUnsafeUrlAndSecretKeys() async throws {
-        let (_, sync, _) = try await makeDevice()
+        let (_, sync, _, _, _, _) = try await makeDevice()
         do { try await sync.configure(url: "http://evil.example.com", anonKey: "sb_publishable_abcdefghijklmnopqrst"); XCTFail("拒否されるはず") } catch { XCTAssertTrue(String(describing: error).contains("URL")) }
         do { try await sync.configure(url: "https://abcdefgh.supabase.co", anonKey: "sb_secret_abcdefghijklmnopqrstuvwxyz"); XCTFail("拒否されるはず") } catch { XCTAssertTrue(String(describing: error).contains("秘密")) }
     }
@@ -92,7 +96,7 @@ final class SyncTests: XCTestCase {
 
     func testAFreshDeviceAdoptsTheRemoteListsWithoutADuplicateDefault() async throws {
         let env = try environment()
-        let (store, sync, _) = try await makeDevice()
+        let (store, sync, _, _, _, _) = try await makeDevice()
         try await signIn(sync, env)
         XCTAssertEqual(store.document?.playlists.count, 1, "既定のリストだけの状態から始める")
         try await wait(env, "windows-1.done")
@@ -107,14 +111,20 @@ final class SyncTests: XCTestCase {
         XCTAssertFalse(persisted.contains("accessToken") || persisted.contains("refreshToken"), "トークンは同期データに残さない")
     }
 
-    /// Windows版と同時に編集し、オフラインから再接続して、両端末の見た目が一致する（Node側 cross-device-driver.cjs が最終的に比較する）。
+    /// Windows版と同時に編集し、オフラインから再接続して、両端末の見た目と お気に入り・再生回数・再生履歴 が一致する（Node側 cross-device-driver.cjs が最終的に比較する）。
     func testConcurrentEditsOfflineAndReconnectConvergeWithWindows() async throws {
         let env = try environment()
-        let (store, sync, _) = try await makeDevice()
+        let (store, sync, _, countsOpt, favsOpt, historyOpt) = try await makeDevice(withExtras: true)
+        let counts = try XCTUnwrap(countsOpt), favorites = try XCTUnwrap(favsOpt), history = try XCTUnwrap(historyOpt)
+        let kA1 = "bili:BV1xxxxxxxx1:p1", kB1 = "bili:BV1xxxxxxxx3:p1", kG1 = "bili:BV1xxxxxxxx6:p1"
         try await signIn(sync, env)
         try await wait(env, "windows-1.done")
         try await sync.enable()
         XCTAssertEqual(sync.status.state, .idle, sync.status.message)
+        XCTAssertEqual(sync.status.extrasNotice, "", sync.status.extrasNotice)
+        XCTAssertTrue(favorites.contains(kA1), "Windows-1のお気に入りが届く")
+        let initialCountA1 = await counts.count(for: kA1)
+        XCTAssertEqual(initialCountA1, 2)
         // オフライン（同期を止めて）で編集する
         sync.disable()
         func list(_ name: String) throws -> PlaylistItem { try XCTUnwrap(store.document?.playlists.first { $0.name == name }, name) }
@@ -124,6 +134,10 @@ final class SyncTests: XCTestCase {
         let b = try list("親B")
         store.perform(["type": "title", "playlistId": b.id, "entryId": try XCTUnwrap(b.entries.first).id, "title": "曲B1(iOS)"])
         await store.waitUntilIdle()
+        XCTAssertTrue(favorites.set(kB1, true))
+        await counts.increment(key: kB1)
+        await counts.increment(key: kB1)
+        await history.add(key: kB1)
         XCTAssertNil(store.notice)
         try Data().write(to: env.folder.appendingPathComponent("ios-A.done"))
         try await wait(env, "windows-2.done")
@@ -132,11 +146,19 @@ final class SyncTests: XCTestCase {
         XCTAssertEqual(sync.status.state, .idle, sync.status.message)
         let synced = await sync.syncNow()
         XCTAssertTrue(synced)
+        XCTAssertEqual(sync.status.extrasNotice, "", sync.status.extrasNotice)
         let final = try canon(store)
         try JSONSerialization.data(withJSONObject: final, options: [.prettyPrinted, .sortedKeys]).write(to: env.folder.appendingPathComponent("ios-final.json"))
+        let iosExtras: [String: Any] = [
+            "favorites": favorites.keys.sorted(),
+            "counts": [kA1: await counts.count(for: kA1), kB1: await counts.count(for: kB1), kG1: await counts.count(for: kG1)],
+            "history": await history.keys(limit: 20)
+        ]
+        try JSONSerialization.data(withJSONObject: iosExtras, options: [.prettyPrinted, .sortedKeys]).write(to: env.folder.appendingPathComponent("ios-extras.json"))
         try Data().write(to: env.folder.appendingPathComponent("ios-B.done"))
         let text = String(decoding: try JSONSerialization.data(withJSONObject: final), as: UTF8.self)
         XCTAssertTrue(text.contains("曲W1") && text.contains("親B(W改名)") && text.contains("曲B1(iOS)"), "双方の編集が残っている")
         XCTAssertFalse(text.contains("曲S2"), "Windowsの削除が反映されている")
+        XCTAssertTrue(favorites.contains(kG1), "Windows-2のお気に入りが届く")
     }
 }

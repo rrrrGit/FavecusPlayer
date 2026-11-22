@@ -119,22 +119,34 @@ final class AppEnvironment: ObservableObject {
             downloads = downloadService
             if let downloadService { importer?.downloadImporter = { zip, records, entries in await downloadService.importDownloaded(from: zip, records: records, entries: entries) } }
             observer = ServicesObserver(downloads: downloadService, artwork: artworkStore)
-            let engine = PlaybackEngine(core: core, store: store, backend: AVPlayerBackend(), provider: downloadService, makeSystem: { SystemAudio(controls: $0) })
+            let appDataDirectory = store.syncDirectory.deletingLastPathComponent()
+            let favoritesStore = FavoritesStore(directory: appDataDirectory, core: core)
+            let engine = PlaybackEngine(core: core, store: store, backend: AVPlayerBackend(), provider: downloadService, favorites: favoritesStore, makeSystem: { SystemAudio(controls: $0) })
             let artworkLookup = downloadService
             engine.artworkProvider = { entry in artworkStore.image(for: artworkLookup?.entryKeys[entry.id]) }
             // 再生回数の台帳（同期が無効でも数える）。数え方・重みの規則は共通JS
-            let playCounts = PlayCountStore(core: core, directory: store.syncDirectory.deletingLastPathComponent())
+            let playCounts = PlayCountStore(core: core, directory: appDataDirectory)
             engine.counts = playCounts
-            // 再生履歴：回数を数えたときに足す（同期しない）
-            let history = PlayHistoryStore(core: core, directory: store.syncDirectory.deletingLastPathComponent())
+            // 再生履歴：回数を数えたときに足す（Bilibili曲・削除時刻は同期する）
+            let history = PlayHistoryStore(core: core, directory: appDataDirectory)
             engine.history = history
             playCounts.onCounted = { key in Task { @MainActor in await history.add(key: key) } }
             engine.resumeStore = ResumeStore()
+            engine.bindExtras()
             player = engine
             // 同期は、再生などとは別のJavaScriptCoreで動かす。Keychainが使えない環境でも、起動は妨げない（同期の画面にエラーとして出る）。
             let vault = KeychainVault()
-            let host = StoreSyncHost(store: store, directory: store.syncDirectory, vault: vault, counts: playCounts)
-            sync = (try? SyncCore(bundle: .main, host: host)).map { SyncCoordinator(store: store, core: $0, host: host, vault: vault) }
+            let host = StoreSyncHost(store: store, directory: store.syncDirectory, vault: vault, counts: playCounts, favorites: favoritesStore, history: history)
+            let coordinator = (try? SyncCore(bundle: .main, host: host)).map { SyncCoordinator(store: store, core: $0, host: host, vault: vault) }
+            sync = coordinator
+            playCounts.onChange = { [weak coordinator] in coordinator?.scheduleExtras() }
+            favoritesStore.onChange = { [weak coordinator] in coordinator?.scheduleExtras() }
+            history.onChange = { [weak coordinator] in coordinator?.scheduleExtras() }
+            coordinator?.onResetExtras = {
+                playCounts.resetSync()
+                favoritesStore.resetSync()
+                history.resetSync()
+            }
             let catalog = AlarmSongCatalog(store: store, downloads: downloadService)
             alarmService.soundSource = { catalog.file(forKey: $0) }
             // アラームの「ランダム」：保存済みの曲から抽選（お気に入りは、少しだけ選ばれやすい）。音は、最初の30秒

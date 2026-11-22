@@ -19,7 +19,7 @@ function AutoListSettings() {
       Toast('自動リストの設定を保存しました。'); RenderAutoLists?.();
     }, '保存する');
     $('auto-reset').onclick = () => { for (const select of $('modal-body').querySelectorAll('select[data-limit]')) select.value = { frequent: 50, recent: 50, unplayed: 200, favorites: 200, history: 100 }[select.dataset.limit]; $('auto-min').value = 1; $('auto-days').value = 0; };
-    $('history-clear').onclick = () => Run(async () => { if (confirm('再生履歴（「最近聴いた曲」）を消します。再生回数は変わりません。')) { await api.clearHistory(); Toast('再生履歴を消しました。'); } });
+    $('history-clear').onclick = () => Run(async () => { if (confirm('再生履歴（「最近聴いた曲」）を消します。再生回数は変わりません。')) { await api.clearHistory(); Toast('再生履歴を消しました。'); RefreshAutoLists?.(); } });
   });
 }
 // 自動リストのカードを、設定の変更のあとに作り直す（ホームを開いているとき）。

@@ -112,4 +112,35 @@ final class PlayCountTests: XCTestCase {
         let count = await store.count(for: song)
         XCTAssertEqual(count, 1)
     }
+
+    func testPlayHistorySyncsAndRemoteClearKeepsLocalSongs() async throws {
+        let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let hist = PlayHistoryStore(core: core, directory: directory)
+        await hist.add(key: song)
+        await hist.add(key: local)
+        let readText = await hist.syncRead(deviceId: "ios-hist")
+        let readObj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(readText).utf8)) as? [String: Any])
+        let rows = try XCTUnwrap(readObj["rows"] as? [[String: Any]])
+        XCTAssertEqual(rows.map { $0["key"] as? String }, [song], "ローカル曲は送らない")
+        hist.syncPushed()
+        // リモートの履歴と新しいクリア時刻を取り込む：クリア前の Bilibili 曲は消えるが、ローカル曲は残る
+        let futureAt = Int64((Date().timeIntervalSince1970 * 1000).rounded()) + 10_000
+        let incoming: [String: Any] = [
+            "cursor": 12,
+            "clearedAt": futureAt,
+            "rows": [
+                ["key": other, "at": futureAt + 5000]
+            ]
+        ]
+        await hist.syncApply(String(decoding: try JSONSerialization.data(withJSONObject: incoming), as: UTF8.self))
+        let keys = await hist.keys(limit: 10)
+        XCTAssertEqual(keys, [other, local], "クリア以前だった song は消え、クリア後の other と端末内 local が残る")
+        await hist.clearAndWait()
+        let empty = await hist.keys(limit: 10)
+        XCTAssertEqual(empty, [], "自分のクリア操作はすべて消す")
+        hist.resetSync()
+        let resetText = await hist.syncRead(deviceId: "ios-hist")
+        let resetObj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(resetText).utf8)) as? [String: Any])
+        XCTAssertEqual(resetObj["cursor"] as? Int, 0)
+    }
 }
