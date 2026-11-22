@@ -36,7 +36,7 @@ function RenderSleep() {
   button.title = label; button.setAttribute('aria-label', label); button.setAttribute('aria-pressed', String(on)); button.classList.toggle('enabled', on);
   clearTimeout(sleepRefresh); sleepRefresh = sleepState?.mode === 'minutes' ? setTimeout(RenderSleep, 1000) : null;
 }
-// お気に入り：お気に入りの曲は、シャッフル再生で、少しだけ選ばれやすくなる。曲のメディア単位（同じ動画・パートは共通）。この端末内だけ。
+// お気に入り：お気に入りの曲は、シャッフル再生で、少しだけ選ばれやすくなる。曲のメディア単位（同じ動画・パートは共通。ローカル曲はこの端末内のみ、Bilibili曲は同期）。
 let favoriteIds = new Set();
 let listViews = {}; // プレイリストごとの、曲の並べ替え・絞り込みの選択（main に保存）
 const IsFavorite = entryId => favoriteIds.has(entryId);

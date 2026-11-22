@@ -96,7 +96,12 @@ final class AVPlayerBackend: PlayerBackend {
         let outgoing = AVPlayer(playerItem: old)
         outgoing.volume = fade * levelGain
         ghost = outgoing
-        outgoing.seek(to: time) { _ in outgoing.play() }
+        outgoing.seek(to: time) { [weak self, weak outgoing] _ in
+            Task { @MainActor in
+                guard let self, let outgoing, self.ghost === outgoing else { return }
+                outgoing.play()
+            }
+        }
         mix = 0
         applyVolume()
         fadeTask?.cancel()

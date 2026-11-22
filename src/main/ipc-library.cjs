@@ -3,7 +3,7 @@
 // main.cjs から分けたもの（動作は同じ）。状態（store・current など）は、ctx 経由で、その都度読む（S.store など）。
 module.exports = function RegisterLibrary(ctx) {
   const S = ctx;
-  const { fs, ScanFolder, ReadTags, AcceptPlayback, Configure, CoverImage, Emit, Handle, LoadThumbnail, LocalDuration, MEDIA_EXTENSIONS, RefreshVideo, ShareMode, SmallImage, SyncPlayingQueue, SyncShortcuts, ViewBounds, dialog, nativeImage, path } = ctx;
+  const { fs, ScanFolder, ReadTags, AcceptPlayback, Configure, CoverImage, Emit, FavoriteIds, Handle, LoadThumbnail, LocalDuration, MEDIA_EXTENSIONS, RefreshVideo, ShareMode, SmallImage, SyncPlayingQueue, SyncShortcuts, ViewBounds, dialog, nativeImage, path } = ctx;
   Handle('library:thumbnail', async (playlistId, entryId, scope = S.store.data.activePlaylistId, variant = 'small') => {
     const entry = structuredClone(S.store.Entry(playlistId, entryId)); variant = variant === 'cover' ? 'cover' : 'small';
     const saved = S.offline.Find(entry);
@@ -32,7 +32,9 @@ module.exports = function RegisterLibrary(ctx) {
       if (Object.hasOwn(action.settings || {}, 'thumbnailMode')) { void LoadThumbnail(); if (!state.settings.thumbnailMode) RefreshVideo(); }
       S.backgroundMode?.Refresh();
     }
-    Emit('state', state); return state;
+    Emit('state', state);
+    if (S.favorites && !['select', 'rename', 'title', 'settings'].includes(action.type)) Emit('favorites', FavoriteIds());
+    return state;
   });
   Handle('library:prepare-add', action => S.additionReview.Prepare(action));
   // フォルダから追加（v0.7.4）：フォルダの中の動画・音楽ファイル（サブフォルダも。最大2000件）を探し、埋め込みのタグ（曲名・アーティスト）を読んで、いつもの追加の確認へ進む。
@@ -62,7 +64,7 @@ module.exports = function RegisterLibrary(ctx) {
     // フォルダから追加した曲のアーティスト（タグ）を、曲の情報へ。追加された曲（ファイルがある）だけ。失敗しても、追加は成功のまま。
     const artists = pendingArtists.get(id); pendingArtists.delete(id);
     for (const item of artists || []) { try { if (fs.existsSync(path.join(S.store.media, item.fileName))) S.notesStore?.Set('local:' + item.fileName, { artist: item.artist }); } catch { /* 曲の情報は、なくても追加は成功 */ } }
-    SyncPlayingQueue(); Emit('state', result.state); return result;
+    SyncPlayingQueue(); Emit('state', result.state); if (S.favorites) Emit('favorites', FavoriteIds()); return result;
   });
   Handle('library:cancel-add', id => { pendingArtists.delete(id); S.additionReview.Cancel(id); return true; });
   const SyncMovedCurrent = target => {
@@ -76,13 +78,13 @@ module.exports = function RegisterLibrary(ctx) {
     const result = S.store.Transfer(action);
     if (result.moved && S.current?.playlistId === action.playlistId && S.current?.entryId === action.entryId) SyncMovedCurrent(result.destinations[0]);
     SyncPlayingQueue();
-    Emit('state', result.state); return result;
+    Emit('state', result.state); if (S.favorites) Emit('favorites', FavoriteIds()); return result;
   });
   Handle('library:move-tracks', action => {
     const result = S.store.TransferMany(action);
     const moved = result.mappings.find(m => m.playlistId === S.current?.playlistId && m.entryId === S.current?.entryId);
     if (moved) SyncMovedCurrent(moved.destinations[0]);
-    SyncPlayingQueue(); Emit('state', result.state); return result;
+    SyncPlayingQueue(); Emit('state', result.state); if (S.favorites) Emit('favorites', FavoriteIds()); return result;
   });
   let exporting = false;
   Handle('library:export', async (options = {}) => {
@@ -100,7 +102,7 @@ module.exports = function RegisterLibrary(ctx) {
     const result = await dialog.showOpenDialog(S.win, { title: 'プレイリストのJSON・ZIPを選択', properties: ['openFile'], filters: [{ name: 'Favecus Playerのプレイリスト', extensions: ['zip', 'json'] }] });
     return result.canceled ? null : S.archive.Prepare(result.filePaths[0]);
   });
-  Handle('library:import-commit', async (id, ids, options) => { const result = await S.archive.Commit(id, ids, options); SyncPlayingQueue(); Emit('state', result.state); return result; });
+  Handle('library:import-commit', async (id, ids, options) => { const result = await S.archive.Commit(id, ids, options); SyncPlayingQueue(); Emit('state', result.state); if (S.favorites) Emit('favorites', FavoriteIds()); return result; });
   Handle('library:import-cancel', id => S.archive.Cancel(id));
   Handle('library:duration', async (playlistId, entryId) => {
     const entry = S.store.Entry(playlistId, entryId); if (entry.duration) return entry.duration;

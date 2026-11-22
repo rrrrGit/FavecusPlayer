@@ -279,7 +279,7 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
         guard let error, let (id, index) = Self.parse(task.taskDescription) else { return }
         if (error as? URLError)?.code == .cancelled {
             lock.lock(); let own = cancelling.contains(id) || restarting.remove(task.taskDescription ?? "") != nil; lock.unlock()
-            if !own { fail(id, index, "中断されました。もう一度保存してください。", refused: false) } // システムによる取り消し（終了など）
+            if !own, job(id) != nil { fail(id, index, "中断されました。もう一度保存してください。", refused: false) } // システムによる取り消し（終了など）。既に削除済みのジョブは復活させない
             return
         }
         // 通信の途中切れ：OSが持つ再開用のデータがあれば、続きから取得し直す（同じURL。2回まで）。
@@ -298,6 +298,7 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
             job.streams[index].urlIndex += 1
             if (try? write(job)) != nil, (try? enqueue(job, index)) != nil { return }
         }
+        guard job(id) != nil else { return }
         let code = (error as? URLError)?.code.rawValue ?? (error as NSError).code
         fail(id, index, "通信に失敗しました（コード \(code)）。", refused: false)
     }

@@ -55,7 +55,8 @@ function FakeServer(options = {}) {
       if (path === '/rest/v1/sync_counts' && method === 'POST') {
         for (const row of body) {
           const id = [row.device_id, row.epoch, row.month, row.media_key].join('|'), old = s.counts.get(id);
-          s.counts.set(id, { seq: ++s.countsSeq, ...row, n: Math.max(old ? old.n : 0, row.n) });
+          if (old && row.n <= old.n) continue;
+          s.counts.set(id, { seq: ++s.countsSeq, ...row });
         }
         return { status: 201, json: null };
       }

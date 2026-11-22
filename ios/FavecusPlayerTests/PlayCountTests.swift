@@ -143,4 +143,31 @@ final class PlayCountTests: XCTestCase {
         let resetObj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(resetText).utf8)) as? [String: Any])
         XCTAssertEqual(resetObj["cursor"] as? Int, 0)
     }
+
+    func testABrokenPlayHistoryFileIsKeptAsideAndStartsEmpty() async throws {
+        let historyURL = directory.appendingPathComponent("play-history.json")
+        try Data([0xFF, 0xFE, 0x00, 0x80]).write(to: historyURL)
+        let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let hist = PlayHistoryStore(core: core, directory: directory)
+        let initial = await hist.keys(limit: 10)
+        XCTAssertEqual(initial, [])
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        XCTAssertTrue(names.contains { $0.hasPrefix("play-history.broken-") }, "壊れた履歴ファイルは別名へ退避する")
+        await hist.add(key: song)
+        let after = await hist.keys(limit: 10)
+        XCTAssertEqual(after, [song])
+    }
+
+    func testObserveSupportsPlaybackRateAndDoesNotDropEndedWhenConcurrent() async throws {
+        let store = try makeStore()
+        await store.begin(key: song)
+        await store.observe(position: 0, duration: 1.4, paused: false, playbackRate: 2)
+        try await Task.sleep(nanoseconds: 1_300_000_000)
+        async let periodic: Void = store.observe(position: 2.5, duration: 1.4, paused: false, ended: false, playbackRate: 2)
+        async let ended: Void = store.observe(position: 2.5, duration: 1.4, paused: false, ended: true, playbackRate: 2)
+        await periodic
+        await ended
+        let count = await store.count(for: song)
+        XCTAssertEqual(count, 1, "2倍速での再生時間と同時終了呼び出しの両方で1回カウントされる")
+    }
 }

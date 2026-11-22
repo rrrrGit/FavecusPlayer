@@ -108,4 +108,34 @@ final class FavoritesTests: XCTestCase {
         XCTAssertEqual(resetObj["cursor"] as? Int, 0)
         XCTAssertEqual((resetObj["rows"] as? [[String: Any]])?.count, 2)
     }
+
+    func testSyncApplyDoesNotExceedMaxKeysEvenWithConcurrentLocalEdits() async throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var initialStates: [String: [String: Any]] = [:]
+        for i in 1...FavoritesStore.maxKeys {
+            initialStates["ok:\(i)"] = ["fav": true, "at": 10]
+        }
+        let doc: [String: Any] = ["version": 1, "keys": [String](), "states": initialStates, "syncCursor": 0]
+        try JSONSerialization.data(withJSONObject: doc).write(to: directory.appendingPathComponent("favorites.json"))
+
+        let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let store = FavoritesStore(defaults: defaults(), directory: directory, core: core)
+        XCTAssertEqual(store.keys.count, FavoritesStore.maxKeys)
+
+        // 1件外して枠を1つ空けつつ、リモート同期とローカル競合が重なっても maxKeys を絶対に超えないことを確認する
+        XCTAssertTrue(store.set("ok:1", false))
+        let payload: [String: Any] = [
+            "cursor": 5,
+            "rows": [
+                ["key": "bili:BV1xxxxxxxx1:p1", "fav": true, "at": Int64((Date().timeIntervalSince1970 * 1000).rounded())],
+                ["key": "bili:BV1xxxxxxxx2:p1", "fav": true, "at": Int64((Date().timeIntervalSince1970 * 1000).rounded())]
+            ]
+        ]
+        let payloadText = String(decoding: try JSONSerialization.data(withJSONObject: payload), as: UTF8.self)
+        let applying = Task { await store.syncApply(payloadText) }
+        await Task.yield()
+        _ = store.set("bili:BV1xxxxxxxx3:p1", true)
+        await applying.value
+        XCTAssertLessThanOrEqual(store.keys.count, FavoritesStore.maxKeys)
+    }
 }

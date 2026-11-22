@@ -21,20 +21,41 @@ class FavoriteStore {
   Has(key) { return this.keys.has(key); }
   List() { return [...this.keys]; }
   Save() { return WriteJsonAtomic(this.file, this.doc); }
-  // value：true＝お気に入りにする／false＝外す。キーが正しくない・上限を超える場合は、例外（変更しない）。
   Set(key, value) {
+    return this.SetMany([key], value).fav;
+  }
+  // keys の全要素を検証し、まとめて 1 回だけ原子保存する。途中で失敗した場合は直前の状態へ戻す。
+  SetMany(keys, value) {
+    if (!Array.isArray(keys)) throw new Error('曲を選んでください。');
+    const fav = value === true;
+    if (!keys.length) return { fav, changed: 0 };
     const prevStates = { ...this.doc.states }, prevKeys = [...this.doc.keys];
     const protectedKeys = new Set([...this.dirty, ...this.inFlight, ...this.touched]);
-    const result = FavCore.Set(this.doc, key, value, this.now(), protectedKeys);
-    if (!result.changed) return result.fav;
+    const now = this.now(), changed = [];
+    try {
+      for (const key of keys) {
+        const result = FavCore.Set(this.doc, key, fav, now, protectedKeys);
+        if (result.changed) changed.push({ key, syncable: result.syncable });
+      }
+    } catch (error) {
+      this.doc.states = prevStates; this.doc.keys = prevKeys; this.keys = new Set(prevKeys);
+      throw error;
+    }
+    if (!changed.length) return { fav, changed: 0 };
     if (!this.Save()) {
       this.doc.states = prevStates; this.doc.keys = prevKeys; this.keys = new Set(prevKeys);
       throw new Error('お気に入りを保存できませんでした。');
     }
     this.keys = new Set(this.doc.keys);
-    if (result.syncable) { this.dirty.add(key); if (this.inFlight.has(key)) this.touched.add(key); }
-    this.onChange?.({ key, value: result.fav, syncable: result.syncable });
-    return result.fav;
+    let syncable = false;
+    for (const item of changed) {
+      if (!item.syncable) continue;
+      syncable = true;
+      this.dirty.add(item.key);
+      if (this.inFlight.has(item.key)) this.touched.add(item.key);
+    }
+    this.onChange?.({ key: changed[0].key, keys: changed.map(i => i.key), value: fav, syncable });
+    return { fav, changed: changed.length };
   }
   SyncRead(deviceId) {
     const rows = FavCore.SyncRows(this.doc, this.pushedOnce ? this.dirty : null);

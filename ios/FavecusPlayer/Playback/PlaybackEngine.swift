@@ -75,7 +75,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     var counts: PlayCountStore?
     /// 曲の並べ替え・絞り込みの選択（リストごと。この端末内だけ）。再生順にも使う。
     let listViews = ListViewStore()
-    /// 再生履歴（最近聴いた曲）と、自動リストの設定（件数・条件）。この端末内だけ。
+    /// 再生履歴（最近聴いた曲。Bilibili曲と削除時刻は同期、ローカル曲はこの端末内だけ）と、自動リストの設定（端末内だけ）。
     var history: PlayHistoryStore?
     /// 月ごとの再生時間（バックグラウンド再生を含む）。この端末内だけ。
     let playTime = PlayTimeStore()
@@ -102,6 +102,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     var generation = 0
     private var libraryObserver: AnyCancellable?
     private var extrasObservers = Set<AnyCancellable>()
+    private var foregroundObserver: NSObjectProtocol?
     let provider: MediaProvider?
     /// ロック画面に出す、曲のサムネイル（アプリが設定する）。
     var artworkProvider: ((EntryItem) -> UIImage?)?
@@ -131,10 +132,14 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         libraryObserver = store.$document.dropFirst().sink { [weak self] _ in
             Task { @MainActor in await self?.resync() }
         }
-        _ = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+        foregroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.applyPreferredVideo() }
         }
         bindExtras()
+    }
+
+    deinit {
+        if let foregroundObserver { NotificationCenter.default.removeObserver(foregroundObserver) }
     }
 
     /// 再生回数・お気に入り・再生履歴・自動リスト設定の変化を画面側へ知らせる（同期反映後も含む）。
@@ -386,9 +391,12 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     func load(id: String, playlistId: String) async {
         guard let target = entry(id) else { return }
-        system?.activate()
         generation += 1
         let mine = generation
+        playTime.stop()
+        await counts?.stop()
+        guard mine == generation else { return }
+        system?.activate()
         restoredPending = false
         // 次の曲の準備中に、前の曲のファイルで動画に切り替えないよう、前の曲の動画の情報を消しておく
         videoMode = false
@@ -494,10 +502,12 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     private func ended() {
         guard current != nil else { return }
+        let mine = generation
         failureStreak = 0
-        if let counts { // 短い曲は、終わりまで聞いたときに数える
-            let duration = self.duration
-            Task { await counts.observe(position: duration, duration: duration, paused: false, ended: true) }
+        let duration = self.duration, rate = self.speed
+        let endedTask: Task<Void, Never>? = counts.map { counts in
+            // 短い曲は、終わりまで聞いたときに数える（次の曲へ移る前に完了させる）
+            Task { await counts.observe(position: duration, duration: duration, paused: false, ended: true, playbackRate: rate) }
         }
         playTime.observe(position: duration, paused: true, rate: speed)
         playTime.flush()
@@ -506,7 +516,11 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             refresh()
             return
         }
-        Task { await advance(direction: 1, automatic: true) }
+        Task {
+            await endedTask?.value
+            guard mine == self.generation else { return }
+            await advance(direction: 1, automatic: true)
+        }
     }
 
     /// 読み込み・再生に失敗した曲は飛ばす。続けて失敗したら（再生できる曲がない）、無限に回らず止める。
@@ -585,7 +599,14 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     /// 表示だけの前回の曲を基準に、再生キューだけを作る（次の曲へ進むため）。
     private func prepareRestoredQueue() async {
         guard restoredPending, let current else { return }
-        guard let result = await startQueue(entryId: current.entryId, scope: scope ?? "*"), result.id == current.entryId else { return }
+        let mine = generation
+        let restoreScope = scope ?? "*"
+        var entryIds = await scopeArrangedIds(restoreScope)
+        guard mine == generation, restoredPending, self.current?.entryId == current.entryId else { return }
+        if let ids = entryIds, !ids.contains(current.entryId) { entryIds = [current.entryId] + ids }
+        guard let result = await startQueue(entryId: current.entryId, scope: restoreScope, entryIds: entryIds),
+              mine == generation, restoredPending, self.current?.entryId == current.entryId, result.id == current.entryId else { return }
+        scopeEntryIds = entryIds
         restoredPending = false
         self.current = NowPlaying(entryId: current.entryId, playlistId: result.playlistId ?? current.playlistId, title: current.title)
     }
@@ -599,8 +620,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             playTime.observe(position: position, paused: !isPlaying, rate: speed)
         }
         if let counts, current != nil, !isPreparing {
-            let position = self.position, duration = self.duration, paused = !isPlaying
-            Task { await counts.observe(position: position, duration: duration, paused: paused) }
+            let position = self.position, duration = self.duration, paused = !isPlaying, rate = self.speed
+            Task { await counts.observe(position: position, duration: duration, paused: paused, playbackRate: rate) }
         }
     }
 

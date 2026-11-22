@@ -1,7 +1,7 @@
 import Foundation
 
-// 再生履歴・自動リストの設定・再生統計（v0.7.4）。規則は共通JS（core/play-history.cjs・auto-list-settings.cjs・play-ledger.cjs の Stats。PC版と同じ）。
-// この端末内だけに保存し、同期しない。Application Support/FavecusPlayer に、原子的に書く。
+// 再生履歴・自動リストの設定・再生統計（v0.7.4〜v0.7.5）。規則は共通JS（core/play-history.cjs・auto-list-settings.cjs・play-ledger.cjs の Stats。PC版と同じ）。
+// 自動リストの設定と再生時間は端末内のみ、再生履歴の Bilibili 曲と削除時刻は同期する。Application Support/FavecusPlayer に、原子的に書く。
 
 /// 自動リストの設定（件数・条件）。選択肢は、PC版・共通JS（auto-list-settings.cjs）と同じ。知らない値は、いちばん近い選択肢にする。
 struct AutoListSettings: Codable, Equatable {
@@ -76,10 +76,15 @@ final class PlayHistoryStore: ObservableObject {
     }
 
     private func open() -> String {
-        if let stored = (try? Data(contentsOf: fileURL)).flatMap({ String(data: $0, encoding: .utf8) }),
-           let opened = try? Self.object(core.call("HistoryOpen", Self.json(["text": stored]))),
-           let normalized = opened["text"] as? String {
-            return normalized
+        if let data = try? Data(contentsOf: fileURL) {
+            if let stored = String(data: data, encoding: .utf8),
+               let opened = try? Self.object(core.call("HistoryOpen", Self.json(["text": stored]))),
+               let normalized = opened["text"] as? String {
+                return normalized
+            }
+            // 壊れて読めないファイルは、削除や上書きをせず別名へ退避してから作り直す
+            let aside = fileURL.deletingLastPathComponent().appendingPathComponent("play-history.broken-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(8)).json")
+            try? FileManager.default.moveItem(at: fileURL, to: aside)
         }
         let created = (try? Self.object(core.call("HistoryOpen", "{}"))) ?? [:]
         return (created["text"] as? String) ?? "{\"version\":1,\"items\":[],\"clearedAt\":0,\"syncCursor\":0}"
@@ -328,9 +333,11 @@ final class PlayTimeStore {
 
     func flush(now: Date = Date()) {
         guard dirty else { return }
-        dirty = false
-        lastFlush = now
-        try? AtomicJsonFile.write(Document(version: 1, months: months), to: fileURL)
+        do {
+            try AtomicJsonFile.write(Document(version: 1, months: months), to: fileURL)
+            dirty = false
+            lastFlush = now
+        } catch {}
     }
 
     func stats(months count: Int = 12, now: Date = Date()) -> (totalSeconds: Int, byMonth: [String: Int]) {

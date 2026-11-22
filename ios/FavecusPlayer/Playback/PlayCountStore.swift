@@ -18,6 +18,8 @@ final class PlayCountStore: ObservableObject {
     private var pushedOnce = false
     /// 台帳を書き換える処理は、1つずつ順に行う（await の間に別の処理が割り込んで、古い内容で上書きしないように）。
     private var tail: Task<Void, Never> = Task {}
+    private var playChain: Task<Void, Never>?
+    private var playToken: UUID?
     private var observing = false
     /// 台帳を読めず、元のファイルを別名で残して作り直したときの知らせ。
     private(set) var notice: String?
@@ -102,7 +104,9 @@ final class PlayCountStore: ObservableObject {
 
     /// 曲の再生を始めた（keyがnilの曲は数えない）。
     func begin(key: String?) async {
-        _ = try? await call("PlayBegin", ["key": key ?? "", "now": Self.nowMs()])
+        await serializedPlay { [self] in
+            _ = try? await call("PlayBegin", ["key": key ?? "", "now": Self.nowMs()])
+        }
     }
 
     /// 再生の統計（共通JSの LedgerStats ＝ PC版と同じ規則）。{ total, months, top[{key,count}], thisMonthTop }。
@@ -111,16 +115,38 @@ final class PlayCountStore: ObservableObject {
         return result
     }
 
-    func stop() async { _ = try? await call("PlayStop", [:]) }
+    func stop() async {
+        await serializedPlay { [self] in
+            _ = try? await call("PlayStop", [:])
+        }
+    }
 
-    /// 再生位置を知らせる。数え終えたとき（実再生3秒など）、この端末の行を1つ増やす。通信が重なったときは、その回を飛ばす（共通JSが、経過時間と位置の増分を照合する）。
-    func observe(position: Double, duration: Double, paused: Bool, ended: Bool = false) async {
-        guard !observing else { return }
+    /// 再生位置を知らせる。数え終えたとき（実再生3秒など）、この端末の行を1つ増やす。
+    /// 定期の確認で通信・判定が重なったときは飛ばすが、曲終了（ended == true）は完了を待って必ず判定する。
+    func observe(position: Double, duration: Double, paused: Bool, ended: Bool = false, playbackRate: Double = 1) async {
+        if !ended, observing { return }
+        await serializedPlay { [self] in
+            let media: [String: Any] = ["position": position, "duration": duration, "paused": paused, "ended": ended, "playbackRate": playbackRate]
+            guard let result = try? await call("PlayObserve", ["media": media, "now": Self.nowMs()]), let key = result["key"] as? String else { return }
+            await increment(key: key)
+        }
+    }
+
+    private func serializedPlay(_ work: @escaping @MainActor () async -> Void) async {
         observing = true
-        defer { observing = false }
-        let media: [String: Any] = ["position": position, "duration": duration, "paused": paused, "ended": ended, "playbackRate": 1]
-        guard let result = try? await call("PlayObserve", ["media": media, "now": Self.nowMs()]), let key = result["key"] as? String else { return }
-        await increment(key: key)
+        let token = UUID()
+        playToken = token
+        let previous = playChain
+        let mine = Task { @MainActor in
+            await previous?.value
+            await work()
+        }
+        playChain = mine
+        await mine.value
+        if playToken == token {
+            observing = false
+            playChain = nil
+        }
     }
 
     private func enqueue(_ work: @escaping @MainActor () async -> Void) {

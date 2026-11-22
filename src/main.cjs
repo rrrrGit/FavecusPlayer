@@ -352,7 +352,7 @@ function ResumeOffer() {
   const saved = resumeStore?.Get();
   if (!saved || current || !store) return null;
   let entry = null;
-  try { entry = store.Entries(saved.scope).find(e => e.id === saved.entryId) || null; } catch {}
+  try { entry = ArrangedEntries(saved.scope).find(e => e.id === saved.entryId) || null; } catch {}
   if (!entry) return null;
   return { title: entry.title || entry.videoId || 'ローカル動画', position: saved.position, duration: saved.duration };
 }
@@ -382,7 +382,7 @@ function MiniState() {
   const list = store?.data.playlists.find(p => p.id === store.data.activePlaylistId);
   return { title: playback?.title || current?.entry?.title || current?.entry?.videoId || list?.name || 'Favecus Player',
     artist: current ? (playback?.artist || (current.source === 'local' ? 'ローカルファイル' : 'Bilibili')) : '動画を選んで再生',
-    paused: playback?.paused !== false, canToggle: !!current || !!(list && store.Entries(list.id).length), canStop: !!current, canStep: !!current?.playlistId, volume: store?.data.settings.volume ?? 1 };
+    paused: playback?.paused !== false, canToggle: !!current || !!(list && ArrangedEntries(list.id).length), canStop: !!current, canStep: !!current?.playlistId, volume: store?.data.settings.volume ?? 1 };
 }
 async function Accounts(force = true) {
   if (accountRefresh) return accountRefresh;
@@ -516,7 +516,7 @@ function PlayableEntry(playlistId, entryId) {
   return entry;
 }
 function RememberVideo(entry, details) {
-  try { if (store.RememberVideo(entry, details)) { Emit('state', store.Snapshot()); if (offline) Emit('downloads', offline.Snapshot()); } }
+  try { if (store.RememberVideo(entry, details)) { Emit('state', store.Snapshot()); if (favorites) Emit('favorites', FavoriteIds()); if (offline) Emit('downloads', offline.Snapshot()); } }
   catch (error) { Notify(`動画の対応情報を保存できません: ${error.message}`); }
 }
 function WarmMetadata(entry) {
@@ -585,6 +585,7 @@ function SyncPlayingQueue() {
     if (!entries.some(e => e.id === current.entryId)) { if (scope === '*') { StopPlayer(); return; } queue.Start(list.id, store.Entries(list.id), current.entryId, store.data.settings.shuffle); }
     else queue.Sync(scope, entries, current.entryId, store.data.settings.shuffle);
     current.queuePlaylistId = queue.playlistId;
+    Emit('queue', QueueState());
   }
 }
 function SecureIPC(event) {
@@ -641,7 +642,7 @@ async function Command(command, value) {
   lastPlayerCommand = String(command).slice(0, 40);
   if (command === 'toggle' && !current) {
     const list = store.Playlist(store.data.activePlaylistId);
-    if (store.Entries(list.id).length) await Play(list.id);
+    if (ArrangedEntries(list.id).length) await Play(list.id);
     return;
   }
   if (!current) return;
@@ -724,7 +725,7 @@ async function Start() {
       }
     }),
     onResetExtras: () => { playCounts?.ResetSync(); favorites?.ResetSync(); historyStore?.ResetSync(); },
-    onStatus: status => Emit('sync', status), onApplied: () => { if (current?.playlistId) SyncPlayingQueue(); Emit('state', store.Snapshot()); }
+    onStatus: status => Emit('sync', status), onApplied: () => { if (current?.playlistId) SyncPlayingQueue(); Emit('state', store.Snapshot()); if (favorites) Emit('favorites', FavoriteIds()); }
   });
 
   protocol.handle('favecus', async request => {

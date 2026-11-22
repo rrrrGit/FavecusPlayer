@@ -603,3 +603,60 @@ final class PlaylistOfflineTargetTests: XCTestCase {
         XCTAssertEqual(result.shared, 0)
     }
 }
+
+/// v0.7.5 不具合修正の回帰確認：キャンセル＋削除後の .err 非復活・videoAliases 解決。
+@MainActor
+final class DownloadRegressionTests: XCTestCase {
+    private var directory: URL!
+
+    override func setUpWithError() throws {
+        directory = FileManager.default.temporaryDirectory.appendingPathComponent("favecus-dl-reg-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testCancelledCallbackAfterJobRemovalDoesNotRecreateErrorOrStaging() throws {
+        let media = directory.appendingPathComponent("downloads", isDirectory: true)
+        let jobs = directory.appendingPathComponent("download-jobs", isDirectory: true)
+        let transfers = BackgroundTransfers(configuration: .ephemeral, identifier: "test-\(UUID().uuidString)", jobsDirectory: jobs, stagingRoot: media)
+        let dummySession = URLSession(configuration: .ephemeral)
+        defer { dummySession.invalidateAndCancel() }
+
+        let task = dummySession.downloadTask(with: URL(string: "https://upos.bilivideo.com/a/x")!)
+        task.taskDescription = "removed-job#0"
+        transfers.remove("removed-job")
+        transfers.urlSession(dummySession, task: task, didCompleteWithError: URLError(.cancelled))
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: transfers.staging("removed-job").path), "削除済みジョブの作業フォルダや .err を再作成しない")
+    }
+
+    func testDownloadServiceResolvesAvUrlsUsingProvidedVideoAliases() async throws {
+        let media = directory.appendingPathComponent("downloads", isDirectory: true)
+        let catalog = DownloadCatalog(url: directory.appendingPathComponent("downloads.json"), mediaDirectory: media)
+        let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let cookies = BilibiliCookieVault(vault: MemoryVault())
+        let biliHost = BilibiliHost(cookies: cookies, session: StubProtocol.session())
+        let biliCore = try BiliCore(bundle: Bundle(for: SharedCore.self), host: biliHost)
+        let service = DownloadService(
+            catalog: catalog,
+            bilibili: BilibiliService(core: biliCore),
+            downloader: MediaDownloader(configuration: .ephemeral),
+            transfers: BackgroundTransfers(configuration: .ephemeral, identifier: "test-\(UUID().uuidString)", jobsDirectory: directory.appendingPathComponent("download-jobs"), stagingRoot: media),
+            core: core,
+            directory: media,
+            cacheDirectory: directory.appendingPathComponent("cache"),
+            aliasesProvider: { [["aid": "123", "bvid": "BV1aaaaaaaaa"]] }
+        )
+        let avEntry = EntryItem(id: "e-av", title: "av曲", type: "bilibili", fileName: nil, url: "https://www.bilibili.com/video/av123/")
+        let resolvedKey = await service.key(for: avEntry)
+        let resolvedList = await service.mediaKeys(forURLs: ["https://www.bilibili.com/video/av123/"])
+        await service.refreshKeys(entries: [avEntry])
+
+        XCTAssertEqual(resolvedKey, "bili:BV1aaaaaaaaa:p1")
+        XCTAssertEqual(resolvedList, ["bili:BV1aaaaaaaaa:p1"])
+        XCTAssertEqual(service.entryKeys["e-av"], "bili:BV1aaaaaaaaa:p1")
+    }
+}

@@ -17,7 +17,7 @@ function AutoListSettings() {
       const limits = {}; for (const select of $('modal-body').querySelectorAll('select[data-limit]')) limits[select.dataset.limit] = Number(select.value);
       await api.autoListSettings({ limits, frequentMin: Number($('auto-min').value), recentDays: Number($('auto-days').value) });
       Toast('自動リストの設定を保存しました。'); RenderAutoLists?.();
-    }, '保存する');
+    }, '保存する', Settings);
     $('auto-reset').onclick = () => { for (const select of $('modal-body').querySelectorAll('select[data-limit]')) select.value = { frequent: 50, recent: 50, unplayed: 200, favorites: 200, history: 100 }[select.dataset.limit]; $('auto-min').value = 1; $('auto-days').value = 0; };
     $('history-clear').onclick = () => Run(async () => { if (confirm('再生履歴（「最近聴いた曲」）を消します。再生回数は変わりません。')) { await api.clearHistory(); Toast('再生履歴を消しました。'); RefreshAutoLists?.(); } });
   });
@@ -38,18 +38,22 @@ function StatsSettings() {
   Run(async () => {
     const stats = await api.stats();
     const peak = Math.max(1, ...stats.months.map(m => m.plays));
-    const bars = stats.months.map(m => `<div class="stat-row"><span class="stat-label">${m.month}</span><span class="stat-bar"><i style="width:${Math.round((m.plays / peak) * 100)}%"></i></span><span class="stat-value">${m.plays}</span></div>`).join('');
+    const bars = stats.months.map(m => `<div class="stat-row"><span class="stat-label">${m.month}</span><span class="stat-bar"><i data-pct="${Math.round((m.plays / peak) * 100)}"></i></span><span class="stat-value">${m.plays}</span></div>`).join('');
     const peakSeconds = Math.max(1, ...stats.months.map(m => m.seconds || 0));
     const timeBars = stats.months.map(m => {
       const sec = m.seconds || 0;
-      return `<div class="stat-row"><span class="stat-label">${m.month}</span><span class="stat-bar"><i style="width:${Math.round((sec / peakSeconds) * 100)}%"></i></span><span class="stat-value">${FormatPlayDuration(sec)}</span></div>`;
+      return `<div class="stat-row"><span class="stat-label">${m.month}</span><span class="stat-bar"><i data-pct="${Math.round((sec / peakSeconds) * 100)}"></i></span><span class="stat-value">${FormatPlayDuration(sec)}</span></div>`;
     }).join('');
     const list = items => (items.length ? `<ol class="stat-top">${items.map(item => `<li><span class="stat-title"></span><span class="stat-value">${item.count}回</span></li>`).join('')}</ol>` : '<p class="form-note">まだ記録がありません。</p>');
     OpenModal('再生統計', `<p class="form-note">この再生回数の記録（同期した他の端末の回数を含みます）の、合計は <strong>${stats.total}</strong> 回です。<br>このPCでの合計再生時間：<strong>${FormatPlayDuration(stats.totalSeconds || 0)}</strong>（バックグラウンド再生を含みます）</p>
       <h3 class="stat-heading">月ごとの再生回数（最近12か月）</h3>${bars}
       <h3 class="stat-heading">月ごとの再生時間（最近12か月）</h3>${timeBars}
       <h3 class="stat-heading">今月よく聴いた曲</h3><div id="stat-month">${list(stats.thisMonthTop)}</div>
-      <h3 class="stat-heading">これまでによく聴いた曲（上位20）</h3><div id="stat-all">${list(stats.top)}</div>`, null);
+      <h3 class="stat-heading">これまでによく聴いた曲（上位20）</h3><div id="stat-all">${list(stats.top)}</div>`, null, '保存', Settings);
+    // CSP（style-src 'self'）に反する inline style 属性を避け、描画後に DOM プロパティで幅を設定する。
+    for (const bar of $('modal-body').querySelectorAll('i')) {
+      if (bar.dataset?.pct !== undefined) bar.style.width = `${Math.max(0, Math.min(100, Number(bar.dataset.pct) || 0))}%`;
+    }
     // 曲名は、文字として入れる（曲名に、HTML の記号があっても、そのまま出す）
     for (const [id, items] of [['stat-month', stats.thisMonthTop], ['stat-all', stats.top]]) $(id).querySelectorAll('.stat-title').forEach((span, index) => { span.textContent = `${index + 1}. ${items[index].title}`; });
   });
@@ -77,7 +81,7 @@ function AuditSettings() {
       row.append(text, Button('このリストから外す', 'button secondary', () => remove(item.playlistId, item.entryId))); return row;
     });
   };
-  OpenModal('ライブラリの点検', '', null); Run(paint);
+  OpenModal('ライブラリの点検', '', null, '保存', Settings); Run(paint);
 }
 
 // 音声の出力デバイス（保存済み・ローカルの曲の再生だけ。Bilibiliのオンライン再生は、既定のデバイス）。デバイスの名前で選ぶ。
@@ -89,7 +93,7 @@ function OutputSettings() {
     if (current && !names.includes(current)) names.unshift(current);
     OpenModal('出力デバイス', '<p class="form-note">保存済み・ローカルの曲の再生で使う、音声の出力先です（Bilibiliのオンライン再生は、既定のデバイスのままです）。選んだデバイスが、いまつながっていないときは、既定のデバイスで鳴ります。</p><label class="field">出力先<select id="output-select"></select></label><p class="form-note" id="output-note"></p>', async () => {
       await api.outputSet($('output-select').value); Toast('出力デバイスを保存しました。');
-    }, '保存する');
+    }, '保存する', Settings);
     const select = $('output-select'); select.append(new Option('既定のデバイス', ''));
     for (const name of names) select.append(new Option(name, name));
     select.value = current || '';

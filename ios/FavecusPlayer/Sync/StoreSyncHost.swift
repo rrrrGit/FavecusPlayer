@@ -11,6 +11,9 @@ final class StoreSyncHost: SyncHost, @unchecked Sendable {
     private let favorites: FavoritesStore?
     private let history: PlayHistoryStore?
     private let fallbackDeviceId = "ios-\(String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(12)))"
+    private let sessionLock = NSLock()
+    private var sessionRevision = 0
+    private var activeSaveRevision: Int?
 
     init(store: LibraryStore, directory: URL, vault: SessionVault, session: URLSession = .shared, counts: PlayCountStore? = nil, favorites: FavoritesStore? = nil, history: PlayHistoryStore? = nil) {
         self.counts = counts
@@ -32,13 +35,7 @@ final class StoreSyncHost: SyncHost, @unchecked Sendable {
     func write(_ json: String) async throws {
         struct Payload: Decodable { let base: String; let text: String }
         let payload = try JSONDecoder().decode(Payload.self, from: Data(json.utf8))
-        await MainActor.run { store.syncWriting = true }
-        do { try await store.replaceLibrary(expecting: payload.base, with: payload.text) }
-        catch {
-            await MainActor.run { store.syncWriting = false }
-            throw error
-        }
-        await MainActor.run { store.syncWriting = false }
+        try await store.replaceLibrary(expecting: payload.base, with: payload.text, bySync: true)
     }
 
     func backup() async throws -> String { try await MainActor.run { try store.backupLibrary() } }
@@ -84,7 +81,49 @@ final class StoreSyncHost: SyncHost, @unchecked Sendable {
         return String(decoding: output, as: UTF8.self)
     }
 
-    func saveSession(_ json: String) { try? vault.set(json) }
+    func invalidateSession() {
+        sessionLock.lock()
+        sessionRevision += 1
+        activeSaveRevision = nil
+        sessionLock.unlock()
+    }
+
+    func clearSession() {
+        sessionLock.lock()
+        sessionRevision += 1
+        activeSaveRevision = nil
+        vault.clear()
+        sessionLock.unlock()
+    }
+
+    func setSession(_ json: String) throws {
+        sessionLock.lock()
+        defer { sessionLock.unlock() }
+        sessionRevision += 1
+        activeSaveRevision = nil
+        try vault.set(json)
+    }
+
+    func beginSessionSaveScope() -> Int {
+        sessionLock.lock()
+        let token = sessionRevision
+        activeSaveRevision = token
+        sessionLock.unlock()
+        return token
+    }
+
+    func endSessionSaveScope(_ token: Int) {
+        sessionLock.lock()
+        if activeSaveRevision == token { activeSaveRevision = nil }
+        sessionLock.unlock()
+    }
+
+    func saveSession(_ json: String) {
+        sessionLock.lock()
+        defer { sessionLock.unlock() }
+        guard activeSaveRevision == sessionRevision else { return }
+        try? vault.set(json)
+    }
 
     // MARK: 再生回数・設定・お気に入り・再生履歴（共通JSの sync-counts.cjs が、これらを呼ぶ）
 

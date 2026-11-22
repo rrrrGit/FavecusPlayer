@@ -98,7 +98,10 @@ create or replace function public.sync_counts_before() returns trigger
 language plpgsql security definer set search_path = '' as $$
 begin
   perform pg_advisory_xact_lock(hashtextextended(new.user_id::text, 11));
-  if tg_op = 'UPDATE' then new.n := greatest(old.n, new.n); end if; -- 回数は減らない（古い値で上書きされない）
+  if tg_op = 'UPDATE' then
+    if new.n <= old.n then return null; end if; -- 回数が増えない更新はスキップし、不要な連番増加を防ぐ
+    new.n := greatest(old.n, new.n); -- 回数は減らない（古い値で上書きされない）
+  end if;
   insert into public.sync_counts_meta (user_id, last_seq) values (new.user_id, 1)
     on conflict (user_id) do update set last_seq = public.sync_counts_meta.last_seq + 1
     returning last_seq into new.seq;

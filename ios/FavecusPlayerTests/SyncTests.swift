@@ -161,4 +161,20 @@ final class SyncTests: XCTestCase {
         XCTAssertFalse(text.contains("曲S2"), "Windowsの削除が反映されている")
         XCTAssertTrue(favorites.contains(kG1), "Windows-2のお気に入りが届く")
     }
+
+    func testTheSessionSaveIsIgnoredAfterInvalidation() async throws {
+        let vault = MemoryVault()
+        let (_, _, host, _, _, _) = try await makeDevice(vault: vault)
+        let token = host.beginSessionSaveScope()
+        host.saveSession("{\"access\":\"initial\"}")
+        XCTAssertEqual(vault.get(), "{\"access\":\"initial\"}")
+
+        host.clearSession()
+        host.saveSession("{\"access\":\"stale\"}")
+        host.endSessionSaveScope(token)
+        XCTAssertNil(vault.get(), "サインアウト後に遅れて返ったセッション保存は無視される")
+
+        try host.setSession("{\"access\":\"fresh\"}")
+        XCTAssertEqual(vault.get(), "{\"access\":\"fresh\"}")
+    }
 }

@@ -21,6 +21,7 @@ final class DownloadService: ObservableObject, MediaProvider {
     private let downloader: MediaDownloader
     private let transfers: BackgroundTransfers
     private let core: SharedCore
+    private let aliasesProvider: (() -> [[String: String]])?
     let directory: URL      // 保存したメディア（バックアップ対象外・初回ロック解除までの保護）
     let cacheDirectory: URL // オンライン再生用の一時ファイル（容量を超えたら古いものから消す）
     private var chain: Task<Void, Never>?
@@ -45,7 +46,7 @@ final class DownloadService: ObservableObject, MediaProvider {
     private var served: [URL] = []                // 直近に再生へ渡した一時ファイル（容量の整理で消さない）
     private static let cacheLimit: Int64 = 500 * 1024 * 1024
 
-    init(catalog: DownloadCatalog, bilibili: BilibiliService, downloader: MediaDownloader, transfers: BackgroundTransfers, core: SharedCore, directory: URL, cacheDirectory: URL) {
+    init(catalog: DownloadCatalog, bilibili: BilibiliService, downloader: MediaDownloader, transfers: BackgroundTransfers, core: SharedCore, directory: URL, cacheDirectory: URL, aliasesProvider: (() -> [[String: String]])? = nil) {
         self.catalog = catalog
         self.bilibili = bilibili
         self.downloader = downloader
@@ -53,6 +54,7 @@ final class DownloadService: ObservableObject, MediaProvider {
         self.core = core
         self.directory = directory
         self.cacheDirectory = cacheDirectory
+        self.aliasesProvider = aliasesProvider
         transfers.onChange = { [weak self] id in Task { @MainActor in await self?.evaluate(id) } }
         transfers.onProgress = { [weak self] id, value in Task { @MainActor in self?.setProgress(jobId: id, value) } }
     }
@@ -243,11 +245,13 @@ final class DownloadService: ObservableObject, MediaProvider {
 
     // MARK: 参照
 
+    private func currentAliases() -> [[String: String]] { aliasesProvider?() ?? [] }
+
     /// 曲の同期用メディアキー（共通JS）。取得できない曲はnil。
     func key(for entry: EntryItem) async -> String? {
         guard entry.type == "bilibili", let url = entry.url else { return nil }
         do {
-            let request = String(decoding: try JSONSerialization.data(withJSONObject: ["entries": [["url": url]], "aliases": [Any]()]), as: UTF8.self)
+            let request = String(decoding: try JSONSerialization.data(withJSONObject: ["entries": [["url": url]], "aliases": currentAliases()]), as: UTF8.self)
             let response = try JSONSerialization.jsonObject(with: Data(try await core.callAsync("MediaKeys", request).utf8)) as? [String: Any]
             return (response?["keys"] as? [Any])?.first as? String
         } catch { return nil }
@@ -332,7 +336,7 @@ final class DownloadService: ObservableObject, MediaProvider {
     func mediaKeys(forURLs urls: [String]) async -> [String?] {
         guard !urls.isEmpty else { return [] }
         do {
-            let request = String(decoding: try JSONSerialization.data(withJSONObject: ["entries": urls.map { ["url": $0] }, "aliases": [Any]()]), as: UTF8.self)
+            let request = String(decoding: try JSONSerialization.data(withJSONObject: ["entries": urls.map { ["url": $0] }, "aliases": currentAliases()]), as: UTF8.self)
             guard let response = try JSONSerialization.jsonObject(with: Data(try await core.callAsync("MediaKeys", request).utf8)) as? [String: Any], let keys = response["keys"] as? [Any], keys.count == urls.count else { return urls.map { _ in nil } }
             return keys.map { $0 as? String }
         } catch { return urls.map { _ in nil } }
@@ -389,7 +393,7 @@ final class DownloadService: ObservableObject, MediaProvider {
         let targets = entries.filter { $0.type == "bilibili" && $0.url != nil }
         guard !targets.isEmpty else { if entryKeys != locals { entryKeys = locals }; return }
         do {
-            let request = String(decoding: try JSONSerialization.data(withJSONObject: ["entries": targets.map { ["url": $0.url ?? ""] }, "aliases": [Any]()]), as: UTF8.self)
+            let request = String(decoding: try JSONSerialization.data(withJSONObject: ["entries": targets.map { ["url": $0.url ?? ""] }, "aliases": currentAliases()]), as: UTF8.self)
             guard let response = try JSONSerialization.jsonObject(with: Data(try await core.callAsync("MediaKeys", request).utf8)) as? [String: Any], let keys = response["keys"] as? [Any], keys.count == targets.count else { return }
             var result = locals
             for (entry, key) in zip(targets, keys) { if let key = key as? String { result[entry.id] = key } }

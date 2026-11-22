@@ -261,10 +261,18 @@ final class FavoritesStore: ObservableObject {
                let decoded = try? JSONDecoder().decode(Document.self, from: Data(nextText.utf8)),
                let nextStates = decoded.states {
                 let preserved = touchedWhileMerging.reduce(into: [String: StateEntry]()) { map, k in map[k] = states[k] }
-                let localOverrides = states
                 states = nextStates
-                for key in preserved.keys {
-                    if let current = localOverrides[key] { states[key] = current }
+                var favCount = states.values.filter(\.fav).count
+                for key in preserved.keys.sorted() {
+                    guard let current = preserved[key] else { continue }
+                    let wasFav = states[key]?.fav ?? false
+                    if current.fav && !wasFav {
+                        guard favCount < Self.maxKeys else { continue }
+                        favCount += 1
+                    } else if !current.fav && wasFav {
+                        favCount = max(0, favCount - 1)
+                    }
+                    states[key] = current
                 }
                 syncCursor = max(syncCursor, decoded.syncCursor ?? cursor)
                 mergedCount = result["mergedCount"] as? Int ?? 0

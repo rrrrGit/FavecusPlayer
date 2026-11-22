@@ -263,5 +263,6 @@ function Render() {
   $('repeat').classList.toggle('enabled', state.settings.repeat !== 'off');
   $('breadcrumb').textContent = 'マイライブラリ / プレイリスト';
   SyncVolume(state.settings.volume);
+  if (typeof SyncSelectionScope === 'function') SyncSelectionScope();
   RenderEntries(); RenderHome(); RenderPlayer(); RenderNext(); UpdateStatus(); UpdateAccounts(); BackgroundInteractive(foreground);
 }
