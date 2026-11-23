@@ -53,6 +53,18 @@ function LibrarySyncKey(values = []) {
     return videoId.startsWith('BV') ? `bili:${videoId}:p${part}` : `bili-av:${videoId.slice(2)}:p${part}`;
   };
 }
+// 保存済みの同期キー（bili-av:<aid>:p<n> など）を、判明済みエイリアス（bili:<bvid>:p<n>）へ正規化する。
+function CanonicalMediaKey(values = []) {
+  const map = new Map();
+  for (const record of VideoAliases(values)) map.set(`av${record.aid}`, record.bvid);
+  return key => {
+    if (typeof key !== 'string') return key;
+    const match = /^bili-av:([1-9]\d{0,17}):(p[1-9]\d{0,5})$/.exec(key);
+    if (!match) return key;
+    const bvid = map.get(`av${match[1]}`);
+    return bvid ? `bili:${bvid}:${match[2]}` : key;
+  };
+}
 // 同じ動画を指す形（確認済みのav/BV対応があれば両方）。Step6の同期で、片方の端末だけが対応を確認した場合の照合に使う。
 function LibrarySyncKeyForms(values = []) {
   const map = new Map(), key = LibrarySyncKey(values);
@@ -101,4 +113,4 @@ function PlanMediaIds(playlists, createId, keyOf = MediaKey) {
   return assignments;
 }
 
-module.exports = { IDENTITY_SCHEMA_VERSION, MEDIA_ID, IdentityError, ValidateIdentityVersion, PlanMediaIds, VideoAliases, LibraryMediaKey, SYNC_KEY, LibrarySyncKey, LibrarySyncKeyForms, AuditIds };
+module.exports = { IDENTITY_SCHEMA_VERSION, MEDIA_ID, IdentityError, ValidateIdentityVersion, PlanMediaIds, VideoAliases, LibraryMediaKey, SYNC_KEY, LibrarySyncKey, CanonicalMediaKey, LibrarySyncKeyForms, AuditIds };

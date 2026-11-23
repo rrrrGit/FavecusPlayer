@@ -66,7 +66,7 @@ async function ReviewAddition(plan, epoch) {
   };
   if (!plan.conflicts.length) {
     cancelModal = () => api.cancelAdd(plan.id);
-    await finish([]); return;
+    return await finish([]);
   }
   OpenModal('重複の可能性がある曲', `
     <p id="duplicate-summary" class="form-note"></p>

@@ -1,8 +1,8 @@
 # FavecusPlayer 開発状況
 
-更新日：2026-11-22（日本時間）
+更新日：2026-11-23（日本時間）
 対象：v0.7.5 / `release/v0.7.5`（`main` の v0.7.4 マージ 518e58f から作成）
-現在地：v0.7.5 の「未再生曲・お気に入り・最近聴いた曲・よく聴く曲の端末間同期とUI自動更新」および既存不具合・競合・不整合の是正を実装・PCテスト完了。GitHub Actions（iOS CI）での確認待ち。v0.7.3はRelease公開（タグ v0.7.3）・mainへ統合済み。持ち越し：Windows実機での更新（特に0.6.6から）・動作の確認、iPhone実機の確認（アラーム・F1〜F5）、同期の見直し（D）、サムネイルの統一（E2。既定を場面・表紙のどちらにするか）、E1（動画のみ保存の失敗3本。失敗の文待ち）、実機の結果による修正。
+現在地：v0.7.5 の「未再生曲・お気に入り・最近聴いた曲・よく聴く曲の端末間同期とUI自動更新」、既存問題点の是正第2弾（15+5項目）、および PC 版再生バー UI 整理（3点リーダー＋音量バー延長）を実装し、Node テスト・構文チェック・`checker-pro` レビューまで完了。`release/v0.7.5` Push 後の GitHub Actions（Windows/iOSビルド・XCTest）での確認待ち。v0.7.3はRelease公開（タグ v0.7.3）・mainへ統合済み。持ち越し：Windows実機での更新（特に0.6.6から）・動作の確認、iPhone実機の確認（アラーム・F1〜F5）、同期の見直し（D）、サムネイルの統一（E2。既定を場面・表紙のどちらにするか）、E1（動画のみ保存の失敗3本。失敗の文待ち）、実機の結果による修正。
 v0.7.0（配布済み・main）の工程・検証記録は、本ファイルの「v0.7.0の記録」以降と `docs/VALIDATION-067.md`（v0.6.7分）にあります。
 
 ## v0.7.5 の開発記録（2026-11-22）
@@ -27,6 +27,13 @@ v0.7.0（配布済み・main）の工程・検証記録は、本ファイルの�
   - `LibraryStore.swift` / `StoreSyncHost.swift` / `SyncCoordinator.swift`：`syncWriting` フラグ廃止（`replaceLibrary(..., bySync:)`）、`sessionLock` 内の世代検証＋`vault` 原子操作（`invalidateSession`/`clearSession`/`setSession`/`saveSession`）で TOCTOU 解消、`cycle`・`catch` の有効状態再確認、`signOut` 時の `.syncing` 残留抑止、`resetLink` の `pendingReset` 直列化、`foreground` の `deinit` 解除を実装。
   - `BackgroundTransfers.swift`（削除済みジョブの `.err` 再作成防止）、`AtomicJsonFile.swift`（`.completeFileProtectionUntilFirstUserAuthentication` 統一）、`Insights.swift`（`play-history.broken-*` 退避と `PlayTimeStore.flush` の書込失敗時 `dirty` 維持）、`FavoritesStore.swift`（`preserved` 復元時の `maxKeys` 上限保護）、`PlayerBackend.swift`（クロスフェード `seek` 後の `ghost === outgoing` 確認）を是正。
 - **検証**：`test/bugfix-075.test.cjs`・`ios/FavecusPlayerTests/` 5ファイルへ回帰テストを追加。`node scripts/check.cjs`（234 files: syntax OK）、`node --test --test-concurrency=2 test/*.test.cjs`（764件中 751成功・0失敗・13環境依存スキップ）、最終パッチ後の影響テスト群 96/96 成功、`checker-pro` レビューを実施（Swift ビルド・XCTest は `release/v0.7.5` Push 後の GitHub Actions で検証予定）。
+
+### v0.7.5 第2弾修正・PC再生バー整理（2026-11-23）
+- **PC版再生バー整理**：`src/ui/index.html`・`src/ui/style.css`・`src/ui/app/01-core.js`・`src/ui/app.js` でおやすみタイマー（`#sleep`）・再生速度（`#speed`）・停止（`#stop`）を 3点リーダー（`#transport-more`）内のメニュー（`#transport-menu`）へまとめ、音量バー（`#transport-volume`）を延長（通常 右列 236px / スライダー 150px、1280px以下 196px / 118px）。メニュー展開時は `SendBounds()` で BrowserView を非表示にし、外側クリック・`Escape`・`blur`・`OpenModal`・`#stop` で閉じる。
+- **共通・Supabase・Sync是正**：`CanonicalMediaKey` による `bili-av` → `bili:BV` 合算（`play-ledger.cjs`・`play-counts.cjs`・`favorites-core.cjs`・`play-history.cjs`・`song-notes-store.cjs`・`library-app.cjs`）、`SyncRows` 自端末行限定、`PushCounts` 重複排除、`FakeServer` `21000` 重複検査および `sync_history_state` 未来時刻 `+599000` クランプ（`supabase/schema.sql`・`test/fake-supabase.cjs`）、`SyncService` `SuppressChanged` と `ResetLink`/`Cycle` 競合解消。
+- **PC版 Main・IPC・UI・ローカルストア・スクリプト是正**：各ローカルストア（`auto-list-settings-store.cjs`・`list-views.cjs`・`loudness.cjs`・`output-device.cjs`・`playback-speed.cjs`・`resume-point.cjs`・`trash-store.cjs`・`song-notes-store.cjs`・`play-history-store.cjs`）の `WriteJsonAtomic` 失敗時ロールバック、`AcceptPlayback` の自動リスト範囲維持、`MakeView` のナビゲーション制限、`SyncPlayingQueue(notify)` 重複抑止、`FinishModalClose` による `modalEpoch` 二重加算防止、各種モーダルの世代保護、`:focus-visible` タイポ修正、`06-list-view.js` 並べ替え/絞り込み中の `.entry-number` 無効化、`05-bulk.js` 選択保持・再描画、`check.cjs` / `audit-release.py` / `package-release.py` 改善。
+- **iPhone版是正**：`FavoritesStore`・`PlayCountStore`・`PlayHistoryStore` のエイリアス移行・`syncPushed() async` 化・並行ローカル編集保護、`SyncCoordinator` の `pendingReset` / `onResetExtras` 直列化、`PlaybackEngine`/`PlayerBackend` のセッション検証とクロスフェード保護、`AlarmService` の `isLibraryReady` / 再入ループ / 欠損 `.caf` 保護、`BackgroundTransfers`/`DownloadService`/`MediaDownloader`/`Components`/`FullPlayerView`/`BulkViews`/`TrashStore`/`SongNotes`/`BilibiliAccount`/`ImportViews`/`ExportViews`/`AutoLists` を修正。
+- **検証**：`test/bugfix-075-2.test.cjs`・`test/notice-layout.test.cjs`・`ios/FavecusPlayerTests/` 4ファイル（`PlayCountTests`・`FavoritesTests`・`AlarmTests`・`AlarmSoundTests`）を更新・追加し、`checker-pro` 指摘の是正後に `node scripts/build-shared-bundle.cjs`・`node scripts/check.cjs`・NUL バイト検査・`node --test --test-concurrency=2 test/*.test.cjs` を再実行。未検証：Python 未導入のため `audit-release.py` の実実行、macOS/Xcode（Swift コンパイル・XCTest は CI 待ち）、実 Electron/実 GUI・実 Supabase・実 Bilibili・iPhone 実機。
 
 ## v0.7.4の状況まとめ（2026-11-21。実装済み／実装予定／実装をあきらめたもの）
 ※「実装済み」は、ソース・自動テスト（PC 約750件）・iOS CI（シミュレーター・スクリーンショット）までの確認。実機・実Electron・実Bilibili・実際の音は未確認。詳細は、下の各Stepの記録を参照。

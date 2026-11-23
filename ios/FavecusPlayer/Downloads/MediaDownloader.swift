@@ -133,7 +133,11 @@ final class MediaDownloader: @unchecked Sendable {
             let moved = FileManager.default.temporaryDirectory.appendingPathComponent("favecus-dl-\(UUID().uuidString)")
             do {
                 try FileManager.default.moveItem(at: location, to: moved)
-                guard let response = downloadTask.response as? HTTPURLResponse else { finish(.failure(DownloadError.message("配信先の応答を確認できません。"))); return }
+                guard let response = downloadTask.response as? HTTPURLResponse else {
+                    try? FileManager.default.removeItem(at: moved)
+                    finish(.failure(DownloadError.message("配信先の応答を確認できません。")))
+                    return
+                }
                 finish(.success((moved, response)))
             } catch {
                 finish(.failure(error))

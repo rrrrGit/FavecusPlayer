@@ -58,6 +58,7 @@ final class PlayHistoryStore: ObservableObject {
     @Published private(set) var revision = 0
     private let core: SharedCore
     private let fileURL: URL
+    private let aliasesProvider: (() -> [[String: String]])?
     private var text = ""
     private var dirty: Set<String> = []
     private var dirtyCleared = false
@@ -69,8 +70,9 @@ final class PlayHistoryStore: ObservableObject {
     private var tail: Task<Void, Never> = Task {}
     var onChange: (() -> Void)?
 
-    init(core: SharedCore, directory: URL) {
+    init(core: SharedCore, directory: URL, aliasesProvider: (() -> [[String: String]])? = nil) {
         self.core = core
+        self.aliasesProvider = aliasesProvider
         fileURL = directory.appendingPathComponent("play-history.json")
         text = open()
     }
@@ -185,24 +187,56 @@ final class PlayHistoryStore: ObservableObject {
         guard let value = try? Self.object(json) else { return }
         await serialized { [self] in
             let request: [String: Any] = ["text": text, "rows": value["rows"] ?? [], "clearedAt": value["clearedAt"] ?? 0, "cursor": value["cursor"] ?? 0, "now": Self.nowMs()]
-            guard let reply = try? await core.callAsync("HistoryMerge", Self.json(request)),
-                  let merged = try? Self.object(reply), let next = merged["text"] as? String else { return }
-            if merged["changed"] as? Bool == true {
-                text = next
-                persist()
-                if merged["itemsChanged"] as? Bool == true { revision += 1 }
+            var didItemsChange = false
+            if let reply = try? await core.callAsync("HistoryMerge", Self.json(request)),
+               let merged = try? Self.object(reply), let next = merged["text"] as? String {
+                if merged["changed"] as? Bool == true {
+                    text = next
+                    persist()
+                    if merged["itemsChanged"] as? Bool == true { didItemsChange = true }
+                }
+            }
+            if await migrateAliasesSerialized(aliasesProvider?() ?? []) { didItemsChange = true }
+            if didItemsChange { revision += 1 }
+        }
+    }
+
+    func migrateAliases(_ explicit: [[String: String]]? = nil) async {
+        await serialized { [self] in
+            if await migrateAliasesSerialized(explicit ?? aliasesProvider?() ?? []) {
+                revision += 1
             }
         }
     }
 
-    func syncPushed() {
-        for key in inFlight where !touched.contains(key) { dirty.remove(key) }
-        if inFlightCleared && !touchedCleared { dirtyCleared = false }
-        inFlight = []
-        touched = []
-        inFlightCleared = false
-        touchedCleared = false
-        pushedOnce = true
+    private func migrateAliasesSerialized(_ aliases: [[String: String]]) async -> Bool {
+        guard !aliases.isEmpty, text.contains("bili-av:") else { return false }
+        guard let reply = try? await core.callAsync("HistoryMigrateAliases", Self.json(["text": text, "aliases": aliases])),
+              let obj = try? Self.object(reply), obj["changed"] as? Bool == true,
+              let next = obj["text"] as? String else { return false }
+        text = next
+        persist()
+        let migratedKeys = obj["migratedKeys"] as? [String] ?? []
+        var syncable = false
+        for key in migratedKeys {
+            syncable = true
+            dirty.insert(key)
+            if inFlight.contains(key) { touched.insert(key) }
+        }
+        if syncable { onChange?() }
+        return true
+    }
+
+    func syncPushed() async {
+        await serialized { [self] in
+            for key in inFlight where !touched.contains(key) { dirty.remove(key) }
+            if inFlightCleared && !touchedCleared { dirtyCleared = false }
+            inFlight = []
+            touched = []
+            inFlightCleared = false
+            touchedCleared = false
+            pushedOnce = true
+        }
     }
 
     func resetSync() {

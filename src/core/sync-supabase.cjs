@@ -132,10 +132,18 @@ class SupabaseSyncRepository {
     try { return await this.Call(method, path, options); }
     catch (error) { if (error instanceof SyncError && error.code === 'bad' && /404/.test(error.message)) throw new SyncError('missing', '再生回数・お気に入り・再生履歴の同期は、まだ設定されていません（Supabaseで最新の schema.sql を実行してください）。'); throw error; }
   }
-  // 自分の端末の行を、1つずつ上書きで送る（サーバーは、回数が減る更新を拒む）。rows：[{ epoch, month, key, n }]
+  // 自分の端末の行を、一意化・ソートして上書きで送る（サーバーは、回数が減る更新を拒む）。rows：[{ epoch, month, key, n }]
   async PushCounts(deviceId, rows) {
-    for (let i = 0; i < rows.length; i += this.chunk) {
-      await this.Extra('POST', 'sync_counts?on_conflict=user_id,device_id,epoch,month,media_key', { body: rows.slice(i, i + this.chunk).map(row => ({ device_id: deviceId, epoch: row.epoch, month: row.month, media_key: row.key, n: row.n })), prefer: 'resolution=merge-duplicates,return=minimal' });
+    const best = new Map();
+    for (const row of rows || []) {
+      if (!row || !Number.isSafeInteger(row.epoch) || row.epoch < 0 || typeof row.month !== 'string' || typeof row.key !== 'string' || !Number.isFinite(row.n) || row.n < 1) continue;
+      const n = Math.floor(row.n), id = `${row.epoch}\0${row.month}\0${row.key}`, prev = best.get(id);
+      if (!prev || n > prev.n) best.set(id, { epoch: row.epoch, month: row.month, key: row.key, n });
+    }
+    const body = [...best.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+      .map(([, row]) => ({ device_id: deviceId, epoch: row.epoch, month: row.month, media_key: row.key, n: row.n }));
+    for (let i = 0; i < body.length; i += this.chunk) {
+      await this.Extra('POST', 'sync_counts?on_conflict=user_id,device_id,epoch,month,media_key', { body: body.slice(i, i + this.chunk), prefer: 'resolution=merge-duplicates,return=minimal' });
     }
   }
   // cursorより後に変わった行（自分の端末の行は除く）。戻り値：{ rows: [{ device, epoch, month, key, n }], cursor }

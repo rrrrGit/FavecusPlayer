@@ -344,9 +344,10 @@ private struct BiliSongRow: View {
     var body: some View {
         _ = artwork.revision // 画像が増えたら描き直す
         let saved = record("audio")?.state == .completed || record("video")?.state == .completed
+        let activeKind = record("audio")?.state.inProgress == true ? "audio" : (record("video")?.state.inProgress == true ? "video" : nil)
         return RowLayout(number: number, title: entry.title, meta: metaText(for: entry) + (context.map { " · " + $0 } ?? ""), status: status, image: artwork.image(for: key),
                          current: player.current?.entryId == entry.id, playing: player.isPlaying, dimmed: false, saved: saved,
-                         progress: record("audio")?.state.inProgress == true ? key.flatMap { downloads.progress["\($0)|audio"] } : nil,
+                         progress: activeKind.flatMap { kind in key.flatMap { downloads.progress["\($0)|\(kind)"] } },
                          actions: actions,
                          tap: { Task { await player.play(entryId: entry.id, scope: scope) } })
     }

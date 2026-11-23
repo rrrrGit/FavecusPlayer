@@ -19,6 +19,8 @@ function SyncSelectionScope() {
   if (allListsView || (selectionPlaylistId && state?.activePlaylistId !== selectionPlaylistId)) {
     selectionMode = false; selectionPlaylistId = null; selectedEntries.clear();
     SyncSelectionModeUI();
+  } else {
+    UpdateBulkBar();
   }
 }
 function SetSelectionMode(on) {
@@ -72,7 +74,7 @@ function BulkTransfer(mode) {
   OpenModal(mode === 'move' ? '選んだ曲を、別のリストへ移動' : '選んだ曲を、別のリストへ追加',
     `<p class="form-note">${refs.length}曲を、${mode === 'move' ? '移動' : '追加（元のリストにも残す）'}します。移動・追加先は複数選べます。</p>`, async () => {
       const destinationIds = choose();
-      if (mode === 'copy') { const result = await AddSelected({ type: 'add-existing', entries: refs }, destinationIds); selectedEntries.clear(); UpdateBulkBar(); return result; }
+      if (mode === 'copy') { const result = await AddSelected({ type: 'add-existing', entries: refs }, destinationIds); if (result !== false) { selectedEntries.clear(); UpdateBulkBar(); RenderEntries(); } return result; }
       const result = await api.moveTracks({ entries: refs, destinationIds });
       state = result.state; selectedEntries.clear(); Render(); UpdateBulkBar();
       Toast(`${refs.length}曲を移動しました。`);
@@ -103,6 +105,6 @@ async function BulkRemove() {
   const byList = new Map();
   for (const ref of refs) byList.set(ref.playlistId, [...(byList.get(ref.playlistId) || []), ref.entryId]);
   for (const [playlistId, entryIds] of byList) await Action({ type: 'remove-many', playlistId, entryIds });
-  selectedEntries.clear(); UpdateBulkBar();
+  selectedEntries.clear(); UpdateBulkBar(); RenderEntries();
   Toast(`${refs.length}曲をリストから外しました。`);
 }

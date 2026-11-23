@@ -21,14 +21,18 @@ class ListViewStore {
   Set(playlistId, view) {
     if (typeof playlistId !== 'string' || !playlistId || playlistId.length > 80) throw new Error('プレイリストが正しくありません。');
     const normalized = EntryView.Normalize(view);
+    const hadPrev = Object.hasOwn(this.views, playlistId), prev = this.views[playlistId];
     if (EntryView.IsActive(normalized)) {
       if (!this.views[playlistId] && Object.keys(this.views).length >= MAX_LISTS) throw new Error('保存できる並べ替えの数の上限です。');
       this.views[playlistId] = normalized;
     } else delete this.views[playlistId];
-    this.Save();
+    if (!this.Save()) {
+      if (hadPrev) this.views[playlistId] = prev; else delete this.views[playlistId];
+      throw new Error('曲の表示設定を保存できませんでした。');
+    }
     return this.Get(playlistId);
   }
-  Save() { WriteJsonAtomic(this.file, { version: 1, views: this.views }); }
+  Save() { return WriteJsonAtomic(this.file, { version: 1, views: this.views }); }
 }
 
 module.exports = { ListViewStore, MAX_LISTS };

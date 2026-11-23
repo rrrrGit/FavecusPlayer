@@ -8,7 +8,9 @@ function AutoListSettings() {
   const lists = [['frequent', 'よく聴く曲'], ['recent', '最近追加した曲'], ['unplayed', '未再生'], ['favorites', 'お気に入り'], ['history', '最近聴いた曲']];
   const options = (choices, current, label) => choices.map(value => `<option value="${value}"${value === current ? ' selected' : ''}>${label(value)}</option>`).join('');
   Run(async () => {
+    const epoch = modalEpoch;
     const settings = await api.autoListSettings();
+    if (epoch !== modalEpoch) return;
     OpenModal('自動リスト', `<p class="form-note">ホームの「自動リスト」の、曲の数と条件です（このPCだけ。同期しません）。</p>
       ${lists.map(([kind, name]) => `<label class="field">${name}の曲数（上限）<select data-limit="${kind}">${options(AUTO_LIMIT_CHOICES, settings.limits[kind], v => `${v}曲`)}</select></label>`).join('')}
       <label class="field">「よく聴く曲」に入る最低の回数<select id="auto-min">${options(AUTO_MIN_CHOICES, settings.frequentMin, v => `${v}回以上`)}</select></label>
@@ -16,10 +18,11 @@ function AutoListSettings() {
       <div class="form-actions"><button id="auto-reset" class="button secondary" type="button">既定に戻す</button><button id="history-clear" class="button secondary danger" type="button">再生履歴を消す</button></div>`, async () => {
       const limits = {}; for (const select of $('modal-body').querySelectorAll('select[data-limit]')) limits[select.dataset.limit] = Number(select.value);
       await api.autoListSettings({ limits, frequentMin: Number($('auto-min').value), recentDays: Number($('auto-days').value) });
-      Toast('自動リストの設定を保存しました。'); RenderAutoLists?.();
+      if (openEpoch === modalEpoch) { Toast('自動リストの設定を保存しました。'); RenderAutoLists?.(); }
     }, '保存する', Settings);
+    const openEpoch = modalEpoch;
     $('auto-reset').onclick = () => { for (const select of $('modal-body').querySelectorAll('select[data-limit]')) select.value = { frequent: 50, recent: 50, unplayed: 200, favorites: 200, history: 100 }[select.dataset.limit]; $('auto-min').value = 1; $('auto-days').value = 0; };
-    $('history-clear').onclick = () => Run(async () => { if (confirm('再生履歴（「最近聴いた曲」）を消します。再生回数は変わりません。')) { await api.clearHistory(); Toast('再生履歴を消しました。'); RefreshAutoLists?.(); } });
+    $('history-clear').onclick = () => Run(async () => { if (confirm('再生履歴（「最近聴いた曲」）を消します。再生回数は変わりません。')) { await api.clearHistory(); if (openEpoch === modalEpoch) { Toast('再生履歴を消しました。'); RefreshAutoLists?.(); } } });
   });
 }
 // 自動リストのカードを、設定の変更のあとに作り直す（ホームを開いているとき）。
@@ -36,7 +39,9 @@ function FormatPlayDuration(totalSeconds) {
 
 function StatsSettings() {
   Run(async () => {
+    const epoch = modalEpoch;
     const stats = await api.stats();
+    if (epoch !== modalEpoch) return;
     const peak = Math.max(1, ...stats.months.map(m => m.plays));
     const bars = stats.months.map(m => `<div class="stat-row"><span class="stat-label">${m.month}</span><span class="stat-bar"><i data-pct="${Math.round((m.plays / peak) * 100)}"></i></span><span class="stat-value">${m.plays}</span></div>`).join('');
     const peakSeconds = Math.max(1, ...stats.months.map(m => m.seconds || 0));
@@ -61,8 +66,12 @@ function StatsSettings() {
 
 // ライブラリの点検（重複・リンク切れ）。報告だけで、何も自動では消さない。外すのは、選んで「リストから外す」（最近削除へ保管される）。
 function AuditSettings() {
+  OpenModal('ライブラリの点検', '', null, '保存', Settings);
+  const epoch = modalEpoch;
   const paint = async () => {
-    const report = await api.audit(), body = $('modal-body'); body.replaceChildren();
+    const report = await api.audit();
+    if (epoch !== modalEpoch || !$('modal').open) return;
+    const body = $('modal-body'); body.replaceChildren();
     body.append(Element('p', 'form-note', `${report.checked}曲を点検しました。重複 ${report.duplicates.length}件・リンク切れ ${report.missing.length}件。自動では、何も消しません。`));
     const section = (title, note, items, rowFor) => {
       body.append(Element('h3', 'stat-heading', `${title}（${items.length}）`));
@@ -81,15 +90,17 @@ function AuditSettings() {
       row.append(text, Button('このリストから外す', 'button secondary', () => remove(item.playlistId, item.entryId))); return row;
     });
   };
-  OpenModal('ライブラリの点検', '', null, '保存', Settings); Run(paint);
+  Run(paint);
 }
 
 // 音声の出力デバイス（保存済み・ローカルの曲の再生だけ。Bilibiliのオンライン再生は、既定のデバイス）。デバイスの名前で選ぶ。
 function OutputSettings() {
   Run(async () => {
+    const epoch = modalEpoch;
     const current = await api.outputGet();
     let names = [];
     try { names = [...new Set((await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audiooutput' && d.label).map(d => d.label))]; } catch { names = []; }
+    if (epoch !== modalEpoch) return;
     if (current && !names.includes(current)) names.unshift(current);
     OpenModal('出力デバイス', '<p class="form-note">保存済み・ローカルの曲の再生で使う、音声の出力先です（Bilibiliのオンライン再生は、既定のデバイスのままです）。選んだデバイスが、いまつながっていないときは、既定のデバイスで鳴ります。</p><label class="field">出力先<select id="output-select"></select></label><p class="form-note" id="output-note"></p>', async () => {
       await api.outputSet($('output-select').value); Toast('出力デバイスを保存しました。');

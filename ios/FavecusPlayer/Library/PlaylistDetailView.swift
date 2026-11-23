@@ -455,7 +455,7 @@ struct PlaylistDetail: View {
             return
         }
         guard let first = shown.first(where: { player.canPlay($0) }) ?? shown.first else { return }
-        player.shuffle = false
+        player.setShuffle(false)
         OpenPlayer.request()
         Task { await player.play(entryId: first.id, scope: parentId) }
     }

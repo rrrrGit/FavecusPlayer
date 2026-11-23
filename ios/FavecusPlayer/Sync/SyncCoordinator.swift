@@ -203,7 +203,10 @@ final class SyncCoordinator: ObservableObject {
     }
 
     func enable() async throws {
-        await pendingReset?.value
+        let previous = chain
+        let reset = pendingReset
+        await previous?.value
+        await reset?.value
         guard let current = session() else { throw TransferError.message("先にサインインしてください。") }
         guard await open() else { throw TransferError.message(status.message.isEmpty ? "同期を開始できません。" : status.message) }
         let result = try await call("SyncEnable", ["origin": ["url": config.url, "userId": current.userId]])
@@ -224,7 +227,10 @@ final class SyncCoordinator: ObservableObject {
     /// 別のプロジェクト・アカウントへ切り替える：同期データは別名で残し、手元のライブラリから新しく始める。
     /// 停止の解除（利用者の選択）。mode：restore＝同期した内容でこの端末を復元／keep＝この端末の内容を正として同期する（削除も送る）。
     func unblock(mode: String) async throws {
-        await pendingReset?.value
+        let previous = chain
+        let reset = pendingReset
+        await previous?.value
+        await reset?.value
         guard await open() else { throw TransferError.message("同期を開始できません。") }
         let result = try await call("SyncUnblock", ["mode": mode])
         if let error = result["error"] as? String { throw TransferError.message(error) }
@@ -238,11 +244,11 @@ final class SyncCoordinator: ObservableObject {
         disable()
         host.invalidateSession()
         let host = self.host
+        let onReset = onResetExtras
         opened = false
         blockedReason = ""
         unblockable = false
         extrasNotice = ""
-        onResetExtras?()
         status = SyncStatus(state: .off, message: "", enabled: false, configured: status.configured, signedIn: status.signedIn, email: status.email, url: status.url)
         // 実行中の同期（chain）が、退避した後の状態ファイルを書き戻さないよう、完了を待ってから JS の状態を戻して退避する
         let previous = chain
@@ -252,6 +258,7 @@ final class SyncCoordinator: ObservableObject {
             await previousReset?.value
             _ = try? await self?.call("SyncReset", [:])
             host.setAsideState()
+            onReset?()
         }
     }
 

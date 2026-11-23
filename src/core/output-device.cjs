@@ -21,8 +21,12 @@ class OutputDeviceStore {
   }
   Get() { return this.label; }
   Set(label) {
+    const prev = this.label;
     this.label = Clean(label);
-    WriteJsonAtomic(this.file, { version: 1, label: this.label });
+    if (!WriteJsonAtomic(this.file, { version: 1, label: this.label })) {
+      this.label = prev;
+      throw new Error('出力デバイスの設定を保存できませんでした。');
+    }
     return this.label;
   }
 }

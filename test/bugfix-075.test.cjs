@@ -116,7 +116,7 @@ test('PC main/UI wiring covers filtered resume/toggle guards, queue/favorites em
   assert.match(main, /function ResumeOffer\(\)[\s\S]*?ArrangedEntries\(saved\.scope\)/);
   assert.match(main, /function MiniState\(\)[\s\S]*?ArrangedEntries\(list\.id\)\.length/);
   assert.match(main, /if \(command === 'toggle' && !current\)[\s\S]*?ArrangedEntries\(list\.id\)\.length/);
-  assert.match(main, /function SyncPlayingQueue\(\)[\s\S]*?Emit\('queue', QueueState\(\)\)/);
+  assert.match(main, /function SyncPlayingQueue\(notify = true\)[\s\S]*?Emit\('queue', QueueState\(\)\)/);
   assert.match(main, /onApplied:[\s\S]*?Emit\('favorites', FavoriteIds\(\)\)/);
   assert.match(main, /function RememberVideo[\s\S]*?Emit\('favorites', FavoriteIds\(\)\)/);
   assert.match(main, /Handle\('library:favorite-many',[\s\S]*?S\.favorites\.SetMany\(/);

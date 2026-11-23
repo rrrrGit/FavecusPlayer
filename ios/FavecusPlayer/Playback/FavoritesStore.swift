@@ -28,6 +28,7 @@ final class FavoritesStore: ObservableObject {
     @Published private(set) var revision = 0
     private let core: SharedCore?
     private let defaults: UserDefaults
+    private let aliasesProvider: (() -> [[String: String]])?
     private let legacyKey = "favoriteKeys"
     private let fileURL: URL
     private var states: [String: StateEntry] = [:]
@@ -46,13 +47,16 @@ final class FavoritesStore: ObservableObject {
     /// 直近の保存の失敗（なければ nil）。保存できなくても、メモリ上の状態では動く。
     private(set) var saveError: String?
 
-    init(defaults: UserDefaults = .standard, directory: URL? = nil, core: SharedCore? = nil) {
+    init(defaults: UserDefaults = .standard, directory: URL? = nil, core: SharedCore? = nil, aliasesProvider: (() -> [[String: String]])? = nil) {
         self.core = core
         self.defaults = defaults
+        self.aliasesProvider = aliasesProvider
         let folder = directory ?? Self.defaultDirectory()
         fileURL = folder.appendingPathComponent("favorites.json")
         load()
     }
+
+    private func currentAliases() -> [[String: String]] { aliasesProvider?() ?? [] }
 
     static func defaultDirectory() -> URL {
         AtomicJsonFile.defaultDirectory()
@@ -252,6 +256,7 @@ final class FavoritesStore: ObservableObject {
 
         if let core {
             let docText = serializedDocument()
+            let beforeMerge = states
             merging = true
             touchedWhileMerging = []
             defer { merging = false; touchedWhileMerging = [] }
@@ -262,18 +267,7 @@ final class FavoritesStore: ObservableObject {
                let nextStates = decoded.states {
                 let preserved = touchedWhileMerging.reduce(into: [String: StateEntry]()) { map, k in map[k] = states[k] }
                 states = nextStates
-                var favCount = states.values.filter(\.fav).count
-                for key in preserved.keys.sorted() {
-                    guard let current = preserved[key] else { continue }
-                    let wasFav = states[key]?.fav ?? false
-                    if current.fav && !wasFav {
-                        guard favCount < Self.maxKeys else { continue }
-                        favCount += 1
-                    } else if !current.fav && wasFav {
-                        favCount = max(0, favCount - 1)
-                    }
-                    states[key] = current
-                }
+                applyPreservedTouches(preserved, before: beforeMerge)
                 syncCursor = max(syncCursor, decoded.syncCursor ?? cursor)
                 mergedCount = result["mergedCount"] as? Int ?? 0
                 changed = (result["changed"] as? Bool ?? false) || mergedCount > 0
@@ -301,20 +295,111 @@ final class FavoritesStore: ObservableObject {
             if mergedCount > 0 { changed = true }
         }
 
-        if changed || migrated {
+        let aliases = currentAliases()
+        let aliasChanged = await migrateAliasesSerialized(aliases)
+
+        if changed || migrated || aliasChanged {
             pruneTombstones()
             deriveKeys()
             if save() { migrated = false }
-            if mergedCount > 0 { revision += 1 }
+            if mergedCount > 0 || aliasChanged { revision += 1 }
         }
     }
 
-    func syncPushed() {
-        for key in inFlight where !touched.contains(key) { dirty.remove(key) }
-        inFlight = []
-        touched = []
-        pushedOnce = true
-        if migrated && save() { migrated = false }
+    func migrateAliases(_ explicit: [[String: String]]? = nil) async {
+        await serialized { [self] in
+            let aliases = explicit ?? currentAliases()
+            if await migrateAliasesSerialized(aliases) {
+                pruneTombstones()
+                deriveKeys()
+                if save() { migrated = false }
+                revision += 1
+            }
+        }
+    }
+
+    private func applyPreservedTouches(_ preserved: [String: StateEntry], before: [String: StateEntry]) {
+        var favCount = states.values.filter(\.fav).count
+        for key in preserved.keys.sorted() {
+            guard let current = preserved[key], !current.fav else { continue }
+            if states[key]?.fav == true { favCount = max(0, favCount - 1) }
+            states[key] = current
+        }
+        for key in preserved.keys.sorted() {
+            guard let current = preserved[key], current.fav else { continue }
+            if states[key]?.fav == true {
+                states[key] = current
+                continue
+            }
+            if favCount >= Self.maxKeys,
+               let evict = states.keys.sorted().first(where: { preserved[$0] == nil && states[$0]?.fav == true && !(before[$0]?.fav ?? false) }) {
+                states[evict] = before[evict]
+                favCount = max(0, favCount - 1)
+            }
+            guard favCount < Self.maxKeys else { continue }
+            favCount += 1
+            states[key] = current
+        }
+    }
+
+    private func migrateAliasesSerialized(_ aliases: [[String: String]]) async -> Bool {
+        guard let core, !aliases.isEmpty, states.keys.contains(where: { $0.hasPrefix("bili-av:") }) else { return false }
+        let protected = Array(dirty.union(inFlight).union(touched))
+        let beforeMigrate = states
+        merging = true
+        touchedWhileMerging = []
+        defer { merging = false; touchedWhileMerging = [] }
+        guard let result = try? Self.object(try await core.callAsync("FavoritesMigrateAliases", Self.json(["text": serializedDocument(), "aliases": aliases, "protectedKeys": protected]))),
+              result["changed"] as? Bool == true,
+              let nextText = result["text"] as? String,
+              let decoded = try? JSONDecoder().decode(Document.self, from: Data(nextText.utf8)),
+              let nextStates = decoded.states else { return false }
+        let aliasMap = Dictionary(aliases.compactMap { row -> (String, String)? in
+            guard let aid = row["aid"], !aid.isEmpty, let bvid = row["bvid"], !bvid.isEmpty else { return nil }
+            return (aid, bvid)
+        }, uniquingKeysWith: { _, last in last })
+        var preserved: [String: StateEntry] = [:]
+        for key in touchedWhileMerging {
+            guard let current = states[key] else { continue }
+            var mapped = key
+            if key.hasPrefix("bili-av:") {
+                let parts = key.split(separator: ":", omittingEmptySubsequences: false)
+                if parts.count == 3, parts[2].hasPrefix("p"), let bvid = aliasMap[String(parts[1])] {
+                    mapped = "bili:\(bvid):\(parts[2])"
+                    dirty.remove(key)
+                    if Self.isSyncKey(mapped) {
+                        dirty.insert(mapped)
+                        if inFlight.contains(mapped) { touched.insert(mapped) }
+                    }
+                }
+            }
+            if let existing = preserved[mapped] {
+                if current.at > existing.at || (current.at == existing.at && current.fav && !existing.fav) {
+                    preserved[mapped] = current
+                }
+            } else {
+                preserved[mapped] = current
+            }
+        }
+        states = nextStates
+        applyPreservedTouches(preserved, before: beforeMigrate)
+        let migratedKeys = (result["migratedKeys"] as? [String] ?? []).filter { Self.isSyncKey($0) }
+        for key in migratedKeys {
+            dirty.insert(key)
+            if inFlight.contains(key) { touched.insert(key) }
+        }
+        if !migratedKeys.isEmpty { onChange?() }
+        return true
+    }
+
+    func syncPushed() async {
+        await serialized { [self] in
+            for key in inFlight where !touched.contains(key) { dirty.remove(key) }
+            inFlight = []
+            touched = []
+            pushedOnce = true
+            if migrated && save() { migrated = false }
+        }
     }
 
     func resetSync() {

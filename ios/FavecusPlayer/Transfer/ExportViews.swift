@@ -49,5 +49,7 @@ struct ExportSheet: View {
                 }
             }
         }
+        .onDisappear { if coordinator.phase != .working { coordinator.cleanup() } }
+        .interactiveDismissDisabled(coordinator.phase == .working)
     }
 }

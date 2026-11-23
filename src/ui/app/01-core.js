@@ -9,12 +9,33 @@ const api = window.favecusApp;
 let sleepState = { mode: 'off' };
 // 再生速度（0.5〜2.0倍。ボタンを押すたびに、次の段階へ。段階と保存は main 側＝core/playback-speed.cjs）
 const SPEED_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
-let playbackSpeed = 1;
+let playbackSpeed = 1, transportMenuOpen = false;
+function SetTransportMenu(open) {
+  const menu = $('transport-menu'), button = $('transport-more');
+  const next = !!(open && menu && button);
+  if (transportMenuOpen === next && (!menu || menu.classList.contains('hidden') === !next)) return;
+  transportMenuOpen = next;
+  menu?.classList.toggle('hidden', !next);
+  button?.setAttribute('aria-expanded', String(next));
+  if (typeof SendBounds === 'function') SendBounds();
+}
+function CloseTransportMenu() { SetTransportMenu(false); }
+function UpdateTransportMoreIndicator() {
+  const button = $('transport-more'); if (!button) return;
+  const sleepOn = sleepState?.mode === 'minutes' || sleepState?.mode === 'song', speedOn = playbackSpeed !== 1;
+  const parts = ['その他の再生操作'];
+  if (sleepOn) parts.push(SleepDescription(sleepState));
+  if (speedOn) parts.push(`再生速度 ${playbackSpeed}x`);
+  const label = parts.join('・');
+  button.classList.toggle('enabled', sleepOn || speedOn);
+  button.title = label; button.setAttribute('aria-label', label);
+}
 function NextSpeed(value) { const at = SPEED_OPTIONS.indexOf(value); return SPEED_OPTIONS[(at + 1) % SPEED_OPTIONS.length]; }
 function RenderSpeed() {
   const button = $('speed'); if (!button) return;
   const text = `${playbackSpeed}x`, label = `再生速度 ${text}（押すと${NextSpeed(playbackSpeed)}x）`;
-  button.textContent = text; button.title = label; button.setAttribute('aria-label', label); button.classList.toggle('enabled', playbackSpeed !== 1);
+  button.textContent = `再生速度：${text}`; button.title = label; button.setAttribute('aria-label', label); button.classList.toggle('enabled', playbackSpeed !== 1);
+  UpdateTransportMoreIndicator();
 }
 const SLEEP_MINUTES = [15, 30, 45, 60, 90];
 function NextSleepCommand(value) {
@@ -32,8 +53,9 @@ function RenderSleep() {
   const on = sleepState?.mode === 'minutes' || sleepState?.mode === 'song', next = NextSleepCommand(sleepState);
   const nextText = next.cancel ? 'オフ' : next.song ? 'この曲の終わりまで' : `${next.minutes}分`;
   const label = `${SleepDescription(sleepState)}（押すと${nextText}）`;
-  button.textContent = sleepState?.mode === 'minutes' ? `☾${Math.max(0, Math.ceil((sleepState.deadline - Date.now()) / 60000))}` : sleepState?.mode === 'song' ? '☾曲' : '☾';
+  button.textContent = sleepState?.mode === 'minutes' ? `☾ おやすみ：残り約${Math.max(0, Math.ceil((sleepState.deadline - Date.now()) / 60000))}分` : sleepState?.mode === 'song' ? '☾ おやすみ：この曲の終わりまで' : '☾ おやすみタイマー：オフ';
   button.title = label; button.setAttribute('aria-label', label); button.setAttribute('aria-pressed', String(on)); button.classList.toggle('enabled', on);
+  UpdateTransportMoreIndicator();
   clearTimeout(sleepRefresh); sleepRefresh = sleepState?.mode === 'minutes' ? setTimeout(RenderSleep, 1000) : null;
 }
 // お気に入り：お気に入りの曲は、シャッフル再生で、少しだけ選ばれやすくなる。曲のメディア単位（同じ動画・パートは共通。ローカル曲はこの端末内のみ、Bilibili曲は同期）。
@@ -105,7 +127,9 @@ function MakeAutoLists() {
   return section;
 }
 async function OpenAutoList(meta) {
+  const epoch = modalEpoch;
   const rows = await api.autoList(meta.kind);
+  if (epoch !== modalEpoch) return;
   OpenModal(meta.title, `<p class="form-note"></p><div class="auto-actions"></div><ol class="auto-rows"></ol>`, null);
   const body = $('modal-body'); body.querySelector('.form-note').textContent = `${meta.note}。曲を押すと、この一覧の順で再生します。`;
   const actions = body.querySelector('.auto-actions'), list = body.querySelector('.auto-rows');
@@ -179,17 +203,24 @@ function Button(label, className, handler, ariaLabel) {
   b.addEventListener('click', () => Run(handler)); return b;
 }
 async function Action(action) { const result = await api.action(action); state = result; Render(); return result; }
+let modalClosed = true;
+function FinishModalClose() {
+  if (modalClosed || $('modal').open) return;
+  modalClosed = true;
+  CancelModalTask(); modalEpoch++; BackgroundInteractive(true); SendBounds(); RunAfterModal();
+}
 function OpenModal(title, content, submit, submitLabel = '保存', back = null) {
+  CloseTransportMenu();
   queueDrag?.Cancel(); CloseExistingPopup();
   CancelModalTask(); $('modal-actions').replaceChildren(); $('modal-cancel').textContent = '閉じる';
-  modalEpoch++; $('modal-submit').disabled = false; $('modal-notice').classList.add('hidden');
+  modalEpoch++; modalClosed = false; $('modal-submit').disabled = false; $('modal-notice').classList.add('hidden');
   $('modal-title').textContent = title; $('modal-body').innerHTML = content;
   $('modal-submit').textContent = submitLabel; $('modal-submit').classList.toggle('hidden', !submit);
   $('modal-back').classList.toggle('hidden', !back); $('modal-back').disabled = false; $('modal-back').onclick = back ? () => PerformModal(back, false) : null;
   submitModal = submit; if (!$('modal').open) $('modal').showModal(); $('modal').scrollTop = 0; BackgroundInteractive(false); SendBounds();
 }
 function CancelModalTask() { const cancel = cancelModal; cancelModal = null; if (cancel) void cancel().catch(() => {}); }
-function CloseModal() { CancelModalTask(); modalEpoch++; $('modal').close(); BackgroundInteractive(true); SendBounds(); RunAfterModal(); }
+function CloseModal() { $('modal').close(); FinishModalClose(); }
 // 画面が開いているあいだに来た操作は、断らずに覚えておき、閉じたあとに続ける（最後の1件だけ）。
 let afterModal = null;
 function AfterModal(run) { afterModal = run; }

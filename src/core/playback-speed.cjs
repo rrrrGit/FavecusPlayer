@@ -25,8 +25,12 @@ class SpeedStore {
   }
   Get() { return this.value; }
   Set(value) {
+    const prev = this.value;
     this.value = Nearest(value);
-    WriteJsonAtomic(this.file, { version: 1, speed: this.value });
+    if (!WriteJsonAtomic(this.file, { version: 1, speed: this.value })) {
+      this.value = prev;
+      throw new Error('再生速度を保存できませんでした。');
+    }
     return this.value;
   }
 }

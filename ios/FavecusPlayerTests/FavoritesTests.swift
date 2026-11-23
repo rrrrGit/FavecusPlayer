@@ -95,7 +95,7 @@ final class FavoritesTests: XCTestCase {
         XCTAssertTrue(store.contains("bili:BV1aaaaaaaaa:p1"), "同時刻競合はお気に入り優先")
         XCTAssertTrue(store.contains("bili:BV1bbbbbbbbb:p1"))
         XCTAssertTrue(store.contains("local:only.mp3"))
-        store.syncPushed()
+        await store.syncPushed()
         // 再送では変化がなければ 0 行
         let readAgain = await store.syncRead(deviceId: "ios-test")
         let againObj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(readAgain).utf8)) as? [String: Any])
@@ -137,5 +137,31 @@ final class FavoritesTests: XCTestCase {
         _ = store.set("bili:BV1xxxxxxxx3:p1", true)
         await applying.value
         XCTAssertLessThanOrEqual(store.keys.count, FavoritesStore.maxKeys)
+        XCTAssertTrue(store.contains("bili:BV1xxxxxxxx3:p1"), "同時編集したローカルのお気に入りが上限時に残る")
+    }
+
+    func testMigrateAliasesCanonicalizesAvFavorites() async throws {
+        let aliases = [["aid": "123", "bvid": "BV1aaaaaaaaa"]]
+        let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let store = FavoritesStore(defaults: defaults(), directory: directory, core: core, aliasesProvider: { aliases })
+        XCTAssertTrue(store.set("bili-av:123:p1", true))
+        await store.migrateAliases()
+        XCTAssertTrue(store.contains("bili:BV1aaaaaaaaa:p1"))
+        XCTAssertFalse(store.contains("bili-av:123:p1"))
+    }
+
+    func testMigrateAliasesKeepsConcurrentLocalEdits() async throws {
+        let aliases = [["aid": "123", "bvid": "BV1aaaaaaaaa"]]
+        let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let store = FavoritesStore(defaults: defaults(), directory: directory, core: core, aliasesProvider: { aliases })
+        XCTAssertTrue(store.set("bili-av:123:p1", true))
+
+        let migrating = Task { await store.migrateAliases() }
+        await Task.yield()
+        XCTAssertTrue(store.set("local:concurrent.mp3", true))
+        await migrating.value
+
+        XCTAssertTrue(store.contains("bili:BV1aaaaaaaaa:p1"))
+        XCTAssertTrue(store.contains("local:concurrent.mp3"), "エイリアス移行中の並行ローカル編集も消えない")
     }
 }

@@ -181,8 +181,10 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
         lock.unlock()
         guard idle >= idleFor else { return 0 }
         let tasks = await session.allTasks.filter { Self.parse($0.taskDescription)?.id == id }
+        guard var latest = job(id) else { return 0 }
         var handled = 0
         for index in pending {
+            guard latest.streams.indices.contains(index) else { continue }
             let description = "\(id)#\(index)"
             lock.lock()
             let bytes = written[id]?[index] ?? 0
@@ -190,15 +192,15 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
             written[id]?[index] = 0
             lock.unlock()
             for task in tasks where task.taskDescription == description { task.cancel() }
-            let stream = job.streams[index]
+            let stream = latest.streams[index]
             if stream.urlIndex + 1 < stream.urls.count {
-                job.streams[index].urlIndex += 1
-                if (try? write(job)) != nil, (try? enqueue(job, index)) != nil { handled += 1; continue }
+                latest.streams[index].urlIndex += 1
+                if (try? write(latest)) != nil, (try? enqueue(latest, index)) != nil { handled += 1; continue }
             }
             let wifi = wifiOnly() ? "・Wi-Fi接続時のみ保存がオン" : ""
             // 原因の切り分け用：どの配信先の候補で止まったか（ホスト名のみ。パス・検索条件・認証に関わる部分は出さない）と、何本目の取得か
             let hosts = stream.urls.compactMap { URL(string: $0)?.host }.joined(separator: " → ")
-            let detail = "受信 \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))・候補 \(stream.urlIndex + 1)/\(max(stream.urls.count, 1))・\(Int(idle / 60))分 受信なし・\(index + 1)/\(job.streams.count)本目\(hosts.isEmpty ? "" : "・配信先 " + hosts)\(wifi)"
+            let detail = "受信 \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))・候補 \(stream.urlIndex + 1)/\(max(stream.urls.count, 1))・\(Int(idle / 60))分 受信なし・\(index + 1)/\(latest.streams.count)本目\(hosts.isEmpty ? "" : "・配信先 " + hosts)\(wifi)"
             fail(id, index, "取得が進みません（\(detail)）。時間を置いて、もう一度保存してください。", refused: false)
             handled += 1
         }

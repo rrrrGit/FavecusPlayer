@@ -79,14 +79,15 @@ final class TrashStore: ObservableObject {
     }
 
     func remove(id: String) {
-        let before = items.count
+        let prev = items
         items = items.filter { $0.id != id }
-        if items.count != before { save() }
+        if items.count != prev.count && !save() { items = prev }
     }
 
     func clear() {
+        let prev = items
         items = []
-        save()
+        if !save() { items = prev }
     }
 
     /// 復元のために、項目の中身（オブジェクト）を取り出す。

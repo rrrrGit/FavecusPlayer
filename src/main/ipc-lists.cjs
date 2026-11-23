@@ -3,7 +3,7 @@
 // main.cjs から分けたもの（動作は同じ）。状態（store・current など）は、ctx 経由で、その都度読む（S.store など）。
 module.exports = function RegisterLists(ctx) {
   const S = ctx;
-  const { AutoEntries, AutoPlay, BuildAutoLists, Emit, FavoriteIds, Handle } = ctx;
+  const { AutoEntries, AutoPlay, BuildAutoLists, Emit, FavoriteIds, Handle, SyncPlayingQueue } = ctx;
   Handle('library:auto-list', kind => {
     if (!kind) { const lists = BuildAutoLists(); return { frequent: lists.frequent.length, recent: lists.recent.length, unplayed: lists.unplayed.length, favorites: lists.favorites.length, history: lists.history.length }; }
     return AutoEntries(kind).map(e => ({ id: e.id, playlistId: e.playlistId, title: e.title || e.videoId || 'ローカルファイル', type: e.type, count: S.playCounts?.Count(e) || 0 }));
@@ -16,11 +16,13 @@ module.exports = function RegisterLists(ctx) {
     if (!Array.isArray(refs) || refs.length > 10000) throw new Error('曲を選んでください。');
     const keys = refs.map(ref => S.playCounts?.KeyOf(S.store.Entry(String(ref?.playlistId), String(ref?.entryId))));
     S.favorites.SetMany(keys, value === true);
+    SyncPlayingQueue();
     const ids = FavoriteIds(); Emit('favorites', ids); return ids;
   });
   Handle('library:favorite', (playlistId, entryId, value) => {
     const entry = S.store.Entry(String(playlistId), String(entryId)), key = S.playCounts?.KeyOf(entry);
     S.favorites.Set(key, value === true);
+    SyncPlayingQueue();
     const ids = FavoriteIds(); Emit('favorites', ids); return ids;
   });
   Handle('trash:list', () => { const list = S.trashStore.List(); if (S.trashStore.TakePruned()) S.offline?.ScheduleCleanup(); return list; });
@@ -28,7 +30,7 @@ module.exports = function RegisterLists(ctx) {
     const item = S.trashStore.Get(String(id));
     if (!item) throw new Error('この項目は、すでに保管の期限が切れたか、なくなっています。');
     const state = S.store.Apply({ type: 'restore', item });
-    S.trashStore.Remove(item.id); Emit('state', state);
+    S.trashStore.Remove(item.id); SyncPlayingQueue(false); Emit('state', state);
     if (S.favorites) Emit('favorites', FavoriteIds());
     return S.trashStore.List();
   });

@@ -8,11 +8,15 @@ function Visit(directory) {
     const file = path.join(directory, item.name);
     if (item.isDirectory()) Visit(file);
     else if (/\.(cjs|js)$/.test(item.name)) {
+      if (fs.readFileSync(file).includes(0)) { process.stderr.write(`NUL byte found: ${file}\n`); process.exit(1); }
       const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
-      if (result.status !== 0) { process.stderr.write(result.stderr); process.exit(1); }
+      if (result.error || result.status !== 0) { process.stderr.write(result.stderr || String(result.error) + '\n'); process.exit(1); }
       count++;
-    } else if (item.name.endsWith('.json')) JSON.parse(fs.readFileSync(file, 'utf8'));
+    } else if (item.name.endsWith('.json')) {
+      if (fs.readFileSync(file).includes(0)) { process.stderr.write(`NUL byte found: ${file}\n`); process.exit(1); }
+      JSON.parse(fs.readFileSync(file, 'utf8'));
+    }
   }
 }
-for (const folder of ['src', 'scripts', 'test']) Visit(path.join(root, folder));
+for (const folder of ['src', 'scripts', 'test', 'shared']) Visit(path.join(root, folder));
 process.stdout.write(`${count} JavaScript files: syntax OK\n`);

@@ -5,10 +5,15 @@ function UpdateDownloads(value = {}) {
   downloadInfo = { ...downloadInfo, ...value }; const job = downloadInfo.job, busy = ['running', 'cancelling'].includes(job?.status);
   if (value.available) {
     savedKinds = new Map(); for (const item of value.available) { const kinds = savedKinds.get(item.url) || new Set(); kinds.add(item.kind); savedKinds.set(item.url, kinds); }
+    if (typeof listViewStats !== 'undefined') listViewStats.clear();
     for (const badge of $('entries').querySelectorAll('.entry-type')) if (badge.dataset.mediaUrl) PaintSavedBadge(badge, { type: 'bilibili', url: badge.dataset.mediaUrl });
     for (const [badge, entry] of homeSearchBadges) PaintSavedBadge(badge, entry);
     if ($('entry-download-state')) PaintSavedBadge($('entry-download-state'), { type: 'bilibili', url: $('entry-download-state').dataset.mediaUrl });
     if ($('download-entry-saved') && downloadSingle) PaintSavedBadge($('download-entry-saved'), { type: 'bilibili', url: downloadSingle.entryURL });
+    if (typeof ListView === 'function' && !allListsView) {
+      const view = ListView(ViewScope());
+      if (view && (view.saved !== 'any' || view.sort === 'saved-first')) RenderEntries();
+    }
     if (state) UpdateTransport();
   }
   $('downloads-status').textContent = busy ? `保存中 ${job.finished} / ${job.total}件` : '動画・音声の保存';

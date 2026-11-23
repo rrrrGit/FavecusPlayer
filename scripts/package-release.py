@@ -47,27 +47,27 @@ def main():
     parser.add_argument('--platform', choices=('windows-x64',), default='windows-x64')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
-    version = json.loads((ROOT / 'package.json').read_text())['version']
+    version = json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))['version']
     source_commit = source_tree = None
     if (ROOT / '.git').exists():
         assert not subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=all'], cwd=ROOT).strip(), 'Commit the release source before packaging'
         source_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
         source_tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], cwd=ROOT, text=True).strip()
-    pe = json.loads((args.verification / 'pe-verification.json').read_text())
+    pe = json.loads((args.verification / 'pe-verification.json').read_text(encoding='utf-8'))
     expected = {'FavecusPlayer.exe', 'FavecusPlayerTaskbar.exe', 'Patch.exe', 'Setup.exe'}
     assert {item['file'] for item in pe} == expected
     for item in pe:
         assert item['version'] == version
         assert item['sha256'] == sha(args.windows / item['file'])
-    startup = json.loads((args.verification / 'windows-entry-test.txt').read_text())
+    startup = json.loads((args.verification / 'windows-entry-test.txt').read_text(encoding='utf-8'))
     assert {item['file'] for item in startup} == expected
     assert all(item['exit'] == 0 for item in startup)
-    test_text = (args.verification / 'node-tests.txt').read_text()
+    test_text = (args.verification / 'node-tests.txt').read_text(encoding='utf-8')
     tests = {key: int(re.search(rf'^ℹ {key} (\d+)$', test_text, re.M)[1]) for key in ('tests', 'pass', 'fail', 'cancelled', 'skipped')}
     assert tests['tests'] > 0 and tests['fail'] == tests['cancelled'] == 0
-    syntax = (args.verification / 'syntax.txt').read_text().strip()
+    syntax = (args.verification / 'syntax.txt').read_text(encoding='utf-8').strip()
     assert re.fullmatch(r'\d+ JavaScript files: syntax OK', syntax)
-    audit = json.loads((args.verification / 'ui-resource-audit.json').read_text())
+    audit = json.loads((args.verification / 'ui-resource-audit.json').read_text(encoding='utf-8'))
     assert audit['version'] == version and audit['status'] == 'pass'
 
     outputs = {}
@@ -75,11 +75,11 @@ def main():
         outputs[kind.lower()] = args.output / f'Favecus-Player-{version}-{kind}.exe'
         copy_verified(args.windows / f'{kind}.exe', outputs[kind.lower()])
 
-    html = (ROOT / 'docs/GUIDE.html').read_text()
+    html = (ROOT / 'docs/GUIDE.html').read_text(encoding='utf-8')
     sections = []
     for name, anchor in (('TASKBAR', 'taskbar-guide'), ('DISCORD', 'discord-guide')):
         html = html.replace(f'href="{name}.html"', f'href="#{anchor}"')
-        page = (ROOT / f'docs/{name}.html').read_text()
+        page = (ROOT / f'docs/{name}.html').read_text(encoding='utf-8')
         body = re.search(r'<body>(.*)</body>', page, re.S)[1]
         body = re.sub(r'src="([^":]+\.png)"', lambda m: 'src="data:image/png;base64,' + base64.b64encode((ROOT / 'docs' / m[1]).read_bytes()).decode() + '"', body)
         sections.append(f'<hr><section id="{anchor}">{body}</section>')
@@ -96,7 +96,7 @@ def main():
         'platform': args.platform, 'profile': args.profile, 'sourceCommit': source_commit, 'sourceTree': source_tree,
         'nodeTests': tests, 'javascriptSyntax': syntax, 'uiResources': audit,
         'sourceFiles': len(files), 'windowsPE': pe, 'windowsEntryMock': startup,
-        'nativeMock': (args.verification / 'native-tests.txt').read_text().strip(),
+        'nativeMock': (args.verification / 'native-tests.txt').read_text(encoding='utf-8').strip(),
         'windowsRealGUI': 'not tested', 'browserVisualReview': 'See docs/DEVELOPMENT-STATUS.md; packaging does not perform GUI testing',
         'bilibiliDiscordLive': 'not tested',
         'guideStandaloneLinks': 'pass',
@@ -118,7 +118,7 @@ def main():
     if args.profile == 'full':
         outputs['icon'] = args.output / 'favecus_player_music.png'
         copy_verified(ROOT / 'docs/favecus_player_music.png', outputs['icon'])
-    changelog = (ROOT / 'docs/CHANGELOG.md').read_text()
+    changelog = (ROOT / 'docs/CHANGELOG.md').read_text(encoding='utf-8')
     heading = f'# {version}\n'
     assert changelog.startswith(heading), 'Changelog version mismatch'
     changes = changelog.split('\n# ', 1)[0]
@@ -142,7 +142,7 @@ Windows EXEの構造・内包ハッシュ・模擬Win32の起動入口・ネイ�
     outputs['validation'].write_text(json.dumps(validation, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     relative_paths = {kind: ('guide' if kind == 'icon' else kind) + '/' + file.name for kind, file in outputs.items()}
     checksums = args.output / f'Favecus-Player-{version}-SHA256SUMS.txt'
-    checksums.write_text(''.join(f'{sha(file)}  {relative_paths[kind]}\n' for kind, file in outputs.items()))
+    checksums.write_text(''.join(f'{sha(file)}  {relative_paths[kind]}\n' for kind, file in outputs.items()), encoding='utf-8')
     label = f'FavecusPlayer_v{version}' + ('_Patch' if args.profile == 'patch' else '')
     bundle = args.output / f'{label}.zip'
     prefix = f'{label}/'
@@ -163,7 +163,7 @@ Windows EXEの構造・内包ハッシュ・模擬Win32の起動入口・ネイ�
     outputs['checksums'] = checksums
     records = [{'kind': kind, 'name': file.name, 'path': str(file.resolve()), 'bytes': file.stat().st_size, 'sha256': sha(file)} for kind, file in outputs.items()]
     result = {'version': version, 'status': 'complete', 'platform': args.platform, 'profile': args.profile, 'sourceCommit': source_commit, 'sourceTree': source_tree, 'nodeTests': tests, 'sourceFiles': len(files), 'outputs': records}
-    (args.verification / 'completion.json').write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')
+    (args.verification / 'completion.json').write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

@@ -113,4 +113,24 @@ function SyncRows(state, filterKeys = null) {
     .map(([key, at]) => ({ key, at }));
 }
 
-module.exports = { MAX_ITEMS, SAME_SONG_MS, MAX_FUTURE_SKEW_MS, SYNC_KEY, IsSyncKey, Clean, Add, RecentKeys, CleanState, AddState, ClearState, MergeState, SyncRows };
+function MigrateAliases(state, canonical) {
+  const s = CleanState(state);
+  if (typeof canonical !== 'function') return { state: s, changed: false, migratedKeys: [] };
+  let changed = false;
+  const migrated = new Set();
+  const mapped = s.items.map(item => {
+    const nextKey = canonical(item.key);
+    if (!nextKey || nextKey === item.key || !KEY.test(nextKey)) return item;
+    changed = true;
+    if (IsSyncKey(nextKey)) migrated.add(nextKey);
+    return { key: nextKey, at: item.at };
+  });
+  if (!changed) return { state: s, changed: false, migratedKeys: [] };
+  return {
+    state: { version: 1, items: Clean({ items: mapped }), clearedAt: s.clearedAt, syncCursor: s.syncCursor },
+    changed: true,
+    migratedKeys: [...migrated].sort()
+  };
+}
+
+module.exports = { MAX_ITEMS, SAME_SONG_MS, MAX_FUTURE_SKEW_MS, SYNC_KEY, IsSyncKey, Clean, Add, RecentKeys, CleanState, AddState, ClearState, MergeState, MigrateAliases, SyncRows };

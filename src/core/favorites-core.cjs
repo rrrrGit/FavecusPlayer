@@ -104,6 +104,26 @@ function Merge(doc, rows = [], cursor = 0, nowMs = 0, protectedKeys = null) {
   return { changed, moved };
 }
 
+// 判明した av→BV 対応を使って古いキーを正規キーへ統合する（より新しい状態を残す）。
+function MigrateAliases(doc, canonical, protectedKeys = null) {
+  if (typeof canonical !== 'function') return { changed: 0, migratedKeys: [] };
+  let changed = 0;
+  const migrated = new Set();
+  for (const oldKey of Object.keys(doc.states)) {
+    const nextKey = canonical(oldKey);
+    if (!nextKey || nextKey === oldKey || !ValidKey(nextKey)) continue;
+    const oldState = doc.states[oldKey], target = doc.states[nextKey];
+    if (!target || Newer(oldState, target)) {
+      doc.states[nextKey] = { fav: oldState.fav, at: oldState.at };
+      migrated.add(nextKey);
+    }
+    delete doc.states[oldKey];
+    changed++;
+  }
+  if (changed) { DeriveKeys(doc); PruneTombstones(doc, protectedKeys); }
+  return { changed, migratedKeys: [...migrated].sort() };
+}
+
 function SyncRows(doc, filterKeys = null) {
   const filterSet = filterKeys instanceof Set ? filterKeys : Array.isArray(filterKeys) ? new Set(filterKeys) : null;
   return Object.entries(doc.states)
@@ -112,4 +132,4 @@ function SyncRows(doc, filterKeys = null) {
     .map(([key, state]) => ({ key, fav: state.fav, at: state.at }));
 }
 
-module.exports = { VALID_KEY, SYNC_KEY, MAX_KEYS, MAX_TOMBSTONES, MAX_FUTURE_SKEW_MS, ValidKey, IsSyncKey, Clean, Newer, Set: SetFavorite, Merge, SyncRows, PruneTombstones };
+module.exports = { VALID_KEY, SYNC_KEY, MAX_KEYS, MAX_TOMBSTONES, MAX_FUTURE_SKEW_MS, ValidKey, IsSyncKey, Clean, Newer, Set: SetFavorite, Merge, MigrateAliases, SyncRows, PruneTombstones };

@@ -11,8 +11,12 @@ class AutoListSettingsStore {
   }
   Get() { return Settings.Normalize(this.value); }
   Set(settings) {
+    const prev = this.value;
     this.value = Settings.Normalize(settings);
-    WriteJsonAtomic(this.file, { version: 1, settings: this.value });
+    if (!WriteJsonAtomic(this.file, { version: 1, settings: this.value })) {
+      this.value = prev;
+      throw new Error('自動リストの設定を保存できませんでした。');
+    }
     return this.Get();
   }
 }

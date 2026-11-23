@@ -9,6 +9,7 @@ final class PlayCountStore: ObservableObject {
     private let core: SharedCore
     private let file: URL
     private let defaults: UserDefaults
+    private let aliasesProvider: (() -> [[String: String]])?
     private var text: String
     private(set) var deviceId = ""
     /// 起動後に変わった自分の行（同期へ送る）。起動後の最初の同期では、すべての行を送る。
@@ -31,10 +32,11 @@ final class PlayCountStore: ObservableObject {
     static let weightedKey = "weightedShuffle"
     static let weightedAtKey = "weightedShuffleAt"
 
-    init(core: SharedCore, directory: URL, defaults: UserDefaults = .standard) {
+    init(core: SharedCore, directory: URL, defaults: UserDefaults = .standard, aliasesProvider: (() -> [[String: String]])? = nil) {
         self.core = core
         self.file = directory.appendingPathComponent("play-ledger.json")
         self.defaults = defaults
+        self.aliasesProvider = aliasesProvider
         text = ""
         text = open()
         if let state = try? Self.object(core.call("LedgerSyncState", Self.json(["text": text]))),
@@ -81,22 +83,24 @@ final class PlayCountStore: ObservableObject {
         } catch {}
     }
 
+    private func currentAliases() -> [[String: String]] { aliasesProvider?() ?? [] }
+
     /// 曲のキー → 抽選の重み（1/(1+回数)。お気に入りは倍率つき。共通JS）。
     func weights(for keys: [String], favorites: Set<String> = []) async -> [String: Double] {
         guard !text.isEmpty, !keys.isEmpty,
-              let result = try? await call("LedgerCounts", ["text": text, "keys": keys, "favorites": Array(favorites)]), let weights = result["weights"] as? [String: Double] else { return [:] }
+              let result = try? await call("LedgerCounts", ["text": text, "keys": keys, "favorites": Array(favorites), "aliases": currentAliases()]), let weights = result["weights"] as? [String: Double] else { return [:] }
         return weights
     }
 
     /// 曲のキー → 再生回数（共通JS）。自動リストの選び方に使う。
     func counts(for keys: [String]) async -> [String: Int] {
         guard !text.isEmpty, !keys.isEmpty,
-              let result = try? await call("LedgerCounts", ["text": text, "keys": keys]), let counts = result["counts"] as? [String: Int] else { return [:] }
+              let result = try? await call("LedgerCounts", ["text": text, "keys": keys, "aliases": currentAliases()]), let counts = result["counts"] as? [String: Int] else { return [:] }
         return counts
     }
 
     func count(for key: String) async -> Int {
-        guard !text.isEmpty, let result = try? await call("LedgerCounts", ["text": text, "keys": [key]]), let counts = result["counts"] as? [String: Int] else { return 0 }
+        guard !text.isEmpty, let result = try? await call("LedgerCounts", ["text": text, "keys": [key], "aliases": currentAliases()]), let counts = result["counts"] as? [String: Int] else { return 0 }
         return counts[key] ?? 0
     }
 
@@ -111,7 +115,7 @@ final class PlayCountStore: ObservableObject {
 
     /// 再生の統計（共通JSの LedgerStats ＝ PC版と同じ規則）。{ total, months, top[{key,count}], thisMonthTop }。
     func stats() async -> [String: Any]? {
-        guard !text.isEmpty, let result = try? await call("LedgerStats", ["text": text, "topLimit": 20, "months": 12, "nowMs": Self.nowMs()]), result["error"] == nil else { return nil }
+        guard !text.isEmpty, let result = try? await call("LedgerStats", ["text": text, "topLimit": 20, "months": 12, "nowMs": Self.nowMs(), "aliases": currentAliases()]), result["error"] == nil else { return nil }
         return result
     }
 
@@ -234,11 +238,13 @@ final class PlayCountStore: ObservableObject {
     }
 
     /// 送れた行の印だけを消す（読み取りのあとにさらに変わった行は、次の同期でもう一度送る）。
-    func syncPushed() {
-        for id in inFlight where !touched.contains(id) { dirty.remove(id) }
-        inFlight = []
-        touched = []
-        pushedOnce = true
+    func syncPushed() async {
+        await serialized { [self] in
+            for id in inFlight where !touched.contains(id) { dirty.remove(id) }
+            inFlight = []
+            touched = []
+            pushedOnce = true
+        }
     }
 
     func resetSync() {

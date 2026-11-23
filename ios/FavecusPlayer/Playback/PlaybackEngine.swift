@@ -11,6 +11,8 @@ protocol MediaProvider: AnyObject {
     func savedVideoFile(for entry: EntryItem) async -> URL?
     /// 曲の同期用メディアキー（Bilibiliの曲。再生回数の台帳のキー）。求められない曲はnil。
     func syncKeys(for entries: [EntryItem]) async -> [String?]
+    /// 計算済みの同期用メディアキー（同期的に取得できる場合のみ）。
+    func cachedSyncKey(for entry: EntryItem) -> String?
     /// この端末に保存済みか（Bilibiliの曲の音声・動画）。並べ替え・絞り込みの「保存」に使う。
     func isSaved(_ entry: EntryItem) -> Bool
 }
@@ -18,6 +20,7 @@ protocol MediaProvider: AnyObject {
 extension MediaProvider {
     func savedVideoFile(for entry: EntryItem) async -> URL? { nil }
     func syncKeys(for entries: [EntryItem]) async -> [String?] { entries.map { _ in nil } }
+    func cachedSyncKey(for entry: EntryItem) -> String? { nil }
     func isSaved(_ entry: EntryItem) -> Bool { false }
 }
 
@@ -100,6 +103,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     var failureStreak = 0
     /// 曲の切り替え・停止のたびに増やす。待っている間に状態が変わった古い処理の結果を捨てるため。
     var generation = 0
+    private var playSession = 0
+    private var loadedSession = 0
     private var libraryObserver: AnyCancellable?
     private var extrasObservers = Set<AnyCancellable>()
     private var foregroundObserver: NSObjectProtocol?
@@ -123,8 +128,14 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         self.favorites = favorites ?? FavoritesStore(core: core)
         backend.speed = Float(speed)
         system = makeSystem?(self)
-        backend.onEnded = { [weak self] in self?.ended() }
-        backend.onFailed = { [weak self] reason in self?.failed(reason) }
+        backend.onEnded = { [weak self] in
+            guard let self, self.loadedSession == self.playSession, self.loadedSession != 0 else { return }
+            self.ended()
+        }
+        backend.onFailed = { [weak self] reason in
+            guard let self, self.loadedSession == self.playSession, self.loadedSession != 0 else { return }
+            self.failed(reason)
+        }
         backend.onTick = { [weak self] in self?.tick() }
         sleepTimer.onFade = { [weak self] factor in self?.backend.volume = Float(factor) }
         sleepTimer.onExpire = { [weak self] in self?.pause() }
@@ -158,6 +169,14 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         autoSettings.$settings.dropFirst().sink { [weak self] _ in
             self?.extrasRevision += 1
         }.store(in: &extrasObservers)
+    }
+
+    func migrateAliases(_ aliases: [[String: String]]) async {
+        guard !aliases.isEmpty else { return }
+        await favorites.migrateAliases(aliases)
+        await history?.migrateAliases(aliases)
+        if notes.migrateAliases(aliases) { notesRevision += 1 }
+        extrasRevision += 1
     }
 
     /// 動画を選んでいて、この曲に動画があり、まだ動画で映していなければ、動画へ切り替える（前面にあるときだけ）。
@@ -313,6 +332,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     }
 
     func seek(to seconds: Double) {
+        crossfadeStartedFor = nil
         backend.seek(to: seconds)
         position = seconds
         refresh()
@@ -320,6 +340,9 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     func stop() {
         generation += 1
+        playSession += 1
+        loadedSession = 0
+        crossfadeStartedFor = nil
         if let counts { Task { await counts.stop() } }
         playTime.stop()
         isPreparing = false
@@ -392,6 +415,8 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     func load(id: String, playlistId: String) async {
         guard let target = entry(id) else { return }
         generation += 1
+        playSession += 1
+        crossfadeStartedFor = nil
         let mine = generation
         playTime.stop()
         await counts?.stop()
@@ -427,6 +452,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         }
         backend.crossfade = crossfadePending ? Double(Crossfade.seconds(stored: UserDefaults.standard.integer(forKey: Crossfade.defaultsKey))) : 0 // 重ねて始めるのは、つなぎ目の自動の曲送りのときだけ
         crossfadePending = false
+        loadedSession = playSession
         backend.load(url: file)
         applyLeveling(file: file, generation: mine)
         if let seek = resumeSeek, seek.id == id { backend.seek(to: seek.position) } // 前回の続きから（位置は、再生を始める前に合わせる）
@@ -443,7 +469,14 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         Task { await updateVideoAvailability(for: target, file: file, generation: mine) }
         Task { // 再生回数：この曲の再生を数え始める（実再生3秒で1回。同期が無効でも数える）
             guard let counts else { return }
-            let key = await countKeys(for: [target]).first ?? nil
+            let key: String?
+            if target.type == "local" {
+                if let name = target.fileName, name.range(of: "^[A-Za-z0-9._-]{1,200}$", options: .regularExpression) != nil { key = "local:" + name } else { key = nil }
+            } else if let cached = provider?.cachedSyncKey(for: target) {
+                key = cached
+            } else {
+                key = await countKeys(for: [target]).first ?? nil
+            }
             guard mine == generation else { return }
             await counts.begin(key: key)
         }
@@ -503,6 +536,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     private func ended() {
         guard current != nil else { return }
         let mine = generation
+        let session = loadedSession
         failureStreak = 0
         let duration = self.duration, rate = self.speed
         let endedTask: Task<Void, Never>? = counts.map { counts in
@@ -518,7 +552,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         }
         Task {
             await endedTask?.value
-            guard mine == self.generation else { return }
+            guard mine == self.generation, session == self.loadedSession, session == self.playSession else { return }
             await advance(direction: 1, automatic: true)
         }
     }
@@ -535,6 +569,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             prefersVideo = false // 動画を再生できなかったので、続けて動画へ切り替えない
             backend.load(url: audio)
             loadedFile = audio
+            applyLeveling(file: audio, generation: generation)
             backend.seek(to: resume)
             backend.play()
             message = "動画を再生できませんでした。音声に戻しました。"

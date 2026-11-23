@@ -13,6 +13,8 @@ struct LibraryRootView: View {
     let downloads: DownloadService?
     let artwork: ArtworkStore
     let observer: ServicesObserver
+    var onLibraryLoaded: () async -> Void = {}
+    var onDocumentChanged: () async -> Void = {}
 
     @State private var tab = 0
     @State private var path = NavigationPath()
@@ -70,6 +72,7 @@ struct LibraryRootView: View {
             await downloads?.start() // 保存の記録を読み込み、前回から続いている取得を引き継ぐ
             await downloads?.refreshKeys(entries: store.document?.playlists.flatMap(\.entries) ?? [])
             downloads?.ensureLocalFrames(entries: store.document?.playlists.flatMap(\.entries) ?? [], mediaDirectory: store.mediaDirectory)
+            await onLibraryLoaded()
             // 画面確認用（シミュレーターのスクリーンショット）：起動引数で、タブ・階層・再生画面を指定する。通常の起動では何もしない。
             let defaults = UserDefaults.standard
             if let raw = defaults.string(forKey: "FavecusDemoPath"), path.isEmpty {
@@ -90,6 +93,7 @@ struct LibraryRootView: View {
             Task {
                 await downloads?.refreshKeys(entries: document?.playlists.flatMap(\.entries) ?? [])
                 downloads?.ensureLocalFrames(entries: document?.playlists.flatMap(\.entries) ?? [], mediaDirectory: store.mediaDirectory)
+                await onDocumentChanged()
             }
         }
         .sheet(isPresented: $showDiagnostics) { PlaceholderView() }

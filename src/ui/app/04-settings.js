@@ -207,7 +207,7 @@ function ShuffleSettings() {
   const save = () => SaveSettingsSection({ weightedShuffle: $('weighted-shuffle').checked });
   OpenModal('シャッフルの再生回数', '<label class="check-row"><input id="weighted-shuffle" type="checkbox">再生回数が少ない曲を優先する</label><p class="form-note">通常再生も含め、実際に3秒以上再生した回数を曲単位で保存します。同じ動画URL・パートや同じ保存ファイルは、別のリストでも共通の回数です。回数が多い曲ほど後に出やすくなりますが、順序は毎回変わります。</p><button type="button" id="reset-play-counts" class="button secondary">再生回数をリセット</button><p class="form-note">リセットは次にシャッフルを開始すると反映されます。現在の再生予定は変更しません。</p>', save, '保存して戻る', save);
   $('weighted-shuffle').checked = state.settings.weightedShuffle !== false;
-  $('reset-play-counts').onclick = () => OpenModal('再生回数をリセット', '<p class="form-note">全楽曲の再生回数を0に戻します。プレイリストや保存ファイルは残ります。</p>', async () => { await api.resetPlayCounts(); ShuffleSettings(); Toast('再生回数をリセットしました。'); }, 'リセットする');
+  $('reset-play-counts').onclick = () => OpenModal('再生回数をリセット', '<p class="form-note">全楽曲の再生回数を0に戻します。プレイリストや保存ファイルは残ります。</p>', async () => { const epoch = modalEpoch; await api.resetPlayCounts(); Toast('再生回数をリセットしました。'); if (epoch === modalEpoch && $('modal').open) { ShuffleSettings(); return false; } }, 'リセットする');
 }
 function PlaybackSettings() {
   const s = state.settings;

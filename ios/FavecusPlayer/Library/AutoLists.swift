@@ -15,13 +15,23 @@ enum AutoListKind: String, CaseIterable, Hashable, Identifiable {
         case .history: return "最近聴いた曲"
         }
     }
-    var note: String {
+    var note: String { note(using: AutoListSettings()) }
+
+    func note(using settings: AutoListSettings) -> String {
+        let limit = settings.limits[rawValue] ?? AutoListSettings.defaultLimits[rawValue] ?? 50
         switch self {
-        case .frequent: return "再生回数の多い順（上位50曲）"
-        case .recent: return "登録の新しい順（50曲）"
-        case .unplayed: return "まだ聴いていない曲（登録の新しい順）"
-        case .favorites: return "お気に入りにした曲（登録の新しい順）"
-        case .history: return "最近再生した曲（新しい順）"
+        case .frequent:
+            let cond = settings.frequentMin > 1 ? "・\(settings.frequentMin)回以上" : ""
+            return "再生回数の多い順（上位\(limit)曲\(cond)）"
+        case .recent:
+            let period = settings.recentDays > 0 ? "・\(settings.recentDays)日以内" : ""
+            return "登録の新しい順（\(limit)曲\(period)）"
+        case .unplayed:
+            return "まだ聴いていない曲（上限\(limit)曲・登録の新しい順）"
+        case .favorites:
+            return "お気に入りにした曲（上限\(limit)曲・登録の新しい順）"
+        case .history:
+            return "最近再生した曲（上限\(limit)曲・新しい順）"
         }
     }
     var icon: String {
@@ -96,7 +106,7 @@ struct AutoListsSection: View {
                         Image(systemName: kind.icon).frame(width: 24).foregroundStyle(Theme.accent)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(kind.title).font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.text)
-                            Text(kind.note).font(.system(size: 12)).foregroundStyle(Theme.muted)
+                            Text(kind.note(using: services.player?.autoSettings.settings ?? AutoListSettings())).font(.system(size: 12)).foregroundStyle(Theme.muted)
                         }
                         Spacer()
                         Text("\(model.result.items(kind).count)曲").font(.system(size: 12)).foregroundStyle(Theme.faint)
@@ -143,10 +153,10 @@ struct AutoListDetail: View {
 
     var body: some View {
         List {
-            Text(kind.note).font(.system(size: 12)).foregroundStyle(Theme.muted)
+            Text(kind.note(using: services.player?.autoSettings.settings ?? AutoListSettings())).font(.system(size: 12)).foregroundStyle(Theme.muted)
                 .listRowBackground(Theme.background).listRowSeparator(.hidden)
             HStack(spacing: 10) {
-                Button { play(nil) } label: { Label("再生", systemImage: "play.fill").frame(maxWidth: .infinity) }
+                Button { playOrdered() } label: { Label("再生", systemImage: "play.fill").frame(maxWidth: .infinity) }
                     .buttonStyle(PrimaryButtonStyle())
                 Button { shuffled() } label: { Label("シャッフル", systemImage: "shuffle").frame(maxWidth: .infinity) }
                     .buttonStyle(SecondaryButtonStyle())
@@ -179,6 +189,15 @@ struct AutoListDetail: View {
         .navigationBarTitleDisplayMode(.inline)
         .task(id: AutoReloadKey(document: store.document, revision: extrasRevision)) { await model.reload(services.player) }
         .onReceive(extrasChanges) { extrasRevision = $0 }
+    }
+
+    private func playOrdered() {
+        guard let player = services.player, !items.isEmpty else { return }
+        let ids = items.map(\.id)
+        let first = items.first { item in player.entry(item.id).map { player.canPlay($0) } == true }?.id ?? items[0].id
+        player.setShuffle(false)
+        OpenPlayer.request(after: 0.45)
+        Task { await player.play(entryId: first, scope: kind.scope, entryIds: ids) }
     }
 
     private func shuffled() {

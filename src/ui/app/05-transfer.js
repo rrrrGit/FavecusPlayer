@@ -106,11 +106,13 @@ function ImportSelection(plan) {
   const commit = async ids => {
     if (importing) return false;
     if (!ids.length) throw new Error('取り込むプレイリストにチェックしてください。');
+    const epoch = modalEpoch;
     importing = true; $('archive-import-all').disabled = true;
     try {
       const result = await api.commitImport(plan.id, ids, { parentId: destination.get() });
       cancelModal = null; state = result.state; allListsView = false; tree.ExpandTo(state, state.activePlaylistId, expandedLists); Render();
       Toast(`${result.imported}リストを親子関係を保って取り込みました。${result.ancestors ? `祖先 ${result.ancestors}リストは階層を保つために追加しました。` : ''}${result.downloaded ? `保存済み動画・音声 ${result.downloaded}件を復元しました。` : ''}${result.missing ? `ファイル不足：${result.missing}件。` : ''}${result.omitted ? `ローカル曲 ${result.omitted}件は登録情報のみ取り込みました。` : ''}`);
+      if (epoch !== modalEpoch || !$('modal').open) return false;
     } finally { importing = false; if ($('archive-import-all')) $('archive-import-all').disabled = false; }
   };
   OpenModal('取り込むプレイリストを選択', '<p id="archive-content-summary" class="form-note"></p><p class="form-note">親を選ぶと子孫もまとめて取り込みます。子だけを選んでも元の祖先を構造として残します。未選択の祖先の曲や、無関係な兄弟は取り込みません。同名リストは別名で追加します。</p><div class="field"><span>取り込み先の親プレイリスト</span><div id="archive-parent"></div></div><label class="field">取り込むリストを検索<input id="archive-search" type="search" placeholder="プレイリスト名を検索"></label><div class="settings-actions"><button id="archive-select-all" type="button" class="button secondary">すべて選択</button><button id="archive-select-none" type="button" class="button secondary">選択を解除</button><button id="archive-import-all" type="button" class="button primary">すべて取り込む</button></div><p id="archive-selection-summary" class="form-note" role="status"></p><div id="archive-lists" class="archive-lists"></div>', () => commit(picker.get()), '選択したリストを取り込む');

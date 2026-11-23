@@ -89,7 +89,8 @@ struct FullPlayerView: View {
             hint = nil // 切り替えたら、「動画を保存していません」の表示は消す
             if !on { withAnimation(.easeInOut(duration: 0.25)) { maximized = false } } // 動画でなくなったら（曲が変わった・失敗した）、最大化を閉じる
         }
-        .onChange(of: player.current?.entryId) { _ in hint = nil } // 曲が変わったら、前の曲の表示は消す
+        .onChange(of: player.current?.entryId) { _ in hint = nil; scrubbing = nil } // 曲が変わったら、前の曲の表示・操作状態を消す
+        .task(id: (player.current?.entryId ?? "") + "/" + (player.current?.playlistId ?? "")) { location = await player.location() }
         .alert("お知らせ", isPresented: Binding(get: { player.message != nil }, set: { if !$0 { player.message = nil } })) {
             Button("コピー") { Clipboard.copy(player.message ?? ""); player.message = nil }
             Button("閉じる", role: .cancel) { player.message = nil }
@@ -114,7 +115,6 @@ struct FullPlayerView: View {
             if let hint { Text(hint).font(.system(size: 12)).foregroundStyle(Theme.warning) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .task(id: (player.current?.entryId ?? "") + "/" + (player.current?.playlistId ?? "")) { location = await player.location() }
     }
 
     private var locationLine: some View {

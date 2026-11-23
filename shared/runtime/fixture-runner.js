@@ -253,10 +253,12 @@ const HistoryAddState = json => JSON.stringify(libraryApp.HistoryAddState(JSON.p
 const HistoryClear = json => JSON.stringify(libraryApp.HistoryClear(JSON.parse(json)));
 const HistoryMerge = json => JSON.stringify(libraryApp.HistoryMerge(JSON.parse(json)));
 const HistorySyncState = json => JSON.stringify(libraryApp.HistorySyncState(JSON.parse(json)));
+const HistoryMigrateAliases = json => JSON.stringify(libraryApp.HistoryMigrateAliases(JSON.parse(json)));
 const FavoritesOpen = json => JSON.stringify(libraryApp.FavoritesOpen(JSON.parse(json || '{}')));
 const FavoritesSet = json => JSON.stringify(libraryApp.FavoritesSet(JSON.parse(json)));
 const FavoritesMerge = json => JSON.stringify(libraryApp.FavoritesMerge(JSON.parse(json)));
 const FavoritesSyncState = json => JSON.stringify(libraryApp.FavoritesSyncState(JSON.parse(json)));
+const FavoritesMigrateAliases = json => JSON.stringify(libraryApp.FavoritesMigrateAliases(JSON.parse(json)));
 const AutoListSettingsNormalize = json => JSON.stringify(libraryApp.AutoListSettingsNormalize(JSON.parse(json)));
 const LedgerStats = json => JSON.stringify(libraryApp.LedgerStats(JSON.parse(json)));
 const LedgerCounts = json => JSON.stringify(libraryApp.LedgerCounts(JSON.parse(json)));
@@ -270,4 +272,4 @@ const PlayStop = json => JSON.stringify(libraryApp.PlayStop(JSON.parse(json)));
 const TransferPrepare = json => JSON.stringify(libraryApp.TransferPrepare(JSON.parse(json)));
 const TransferImport = json => JSON.stringify(libraryApp.TransferImport(JSON.parse(json)));
 const TransferExport = json => JSON.stringify(libraryApp.TransferExport(JSON.parse(json)));
-module.exports = { RunCases, Observe, Bench, MediaKeys, LibraryOpen, LibraryApply, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueInsert, ArrangeEntries, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerStats, NotesNormalize, NotesChapters, Audit, HistoryAdd, HistoryKeys, HistoryOpen, HistoryAddState, HistoryClear, HistoryMerge, HistorySyncState, FavoritesOpen, FavoritesSet, FavoritesMerge, FavoritesSyncState, AutoListSettingsNormalize, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop, SyncOpen, SyncEnable, SyncCycle, SyncUnblock, SyncChanged, SyncReset, SyncState, SyncValidate, SyncSendCode, SyncVerifyCode, BiliResolveAsync, BiliInfoAsync, BiliShotsAsync, BiliProfile, TransferPrepare, TransferImport, TransferExport };
+module.exports = { RunCases, Observe, Bench, MediaKeys, LibraryOpen, LibraryApply, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueInsert, ArrangeEntries, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerStats, NotesNormalize, NotesChapters, Audit, HistoryAdd, HistoryKeys, HistoryOpen, HistoryAddState, HistoryClear, HistoryMerge, HistorySyncState, HistoryMigrateAliases, FavoritesOpen, FavoritesSet, FavoritesMerge, FavoritesSyncState, FavoritesMigrateAliases, AutoListSettingsNormalize, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop, SyncOpen, SyncEnable, SyncCycle, SyncUnblock, SyncChanged, SyncReset, SyncState, SyncValidate, SyncSendCode, SyncVerifyCode, BiliResolveAsync, BiliInfoAsync, BiliShotsAsync, BiliProfile, TransferPrepare, TransferImport, TransferExport };

@@ -25,7 +25,7 @@ final class AlarmStore {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
         do {
             let document = try JSONDecoder().decode(Document.self, from: Data(contentsOf: fileURL))
-            guard document.version <= Self.currentVersion else {
+            guard document.version == Self.currentVersion else {
                 state = .blocked("アラームの保存データが、この版より新しい形式です")
                 return
             }

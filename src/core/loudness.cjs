@@ -44,7 +44,7 @@ class LoudnessStore {
     const data = ReadJson(file);
     if (data?.version === 1 && data.records && typeof data.records === 'object') this.records = data.records;
   }
-  Save() { WriteJsonAtomic(this.file, { version: 1, records: this.records }); }
+  Save() { return WriteJsonAtomic(this.file, { version: 1, records: this.records }); }
   // ファイルの識別（パス・大きさ・更新時刻）。変わったら、測り直す。
   Identity(file) { try { const stat = fs.statSync(file); return `${path.resolve(file)}|${stat.size}|${Math.floor(stat.mtimeMs)}`; } catch { return null; } }
   Cached(file) {

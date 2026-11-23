@@ -4,7 +4,7 @@ function HasView() { return HasPlayback(current); }
 function SendBounds() {
   if (!api?.bounds) return;
   const b = $('player-slot').getBoundingClientRect();
-  api.bounds({ x: b.x, y: b.y, width: b.width, height: b.height, modalOpen: !!$('modal').open, visible: !allListsView && HasView() && !state?.settings.thumbnailMode && !$('modal').open });
+  api.bounds({ x: b.x, y: b.y, width: b.width, height: b.height, modalOpen: !!$('modal').open, visible: !allListsView && HasView() && !state?.settings.thumbnailMode && !$('modal').open && !transportMenuOpen });
 }
 async function SelectDisplayMode(mode) {
   if (!['song', 'video'].includes(mode) || !state) return;
@@ -105,15 +105,18 @@ if (typeof IntersectionObserver !== 'undefined') durationObserver = new Intersec
   for (const { target, isIntersecting } of changes) if (target.durationEntry) { const e = target.durationEntry; if (isIntersecting && !durationFailures.has(e.id)) durationQueue.set(e.id, e); else durationQueue.delete(e.id); }
   PumpDurations();
 }, { root: $('entries'), rootMargin: '60px' });
-document.addEventListener('pointerdown', event => { if (existingPopup && !existingPopup.contains(event.target) && event.target !== $('add-existing')) CloseExistingPopup(); });
-document.addEventListener('keydown', event => { if (event.key === 'Escape') { queueDrag?.Cancel(); CloseExistingPopup(); } });
-window.addEventListener?.('blur', () => { queueDrag?.Cancel(); queueFollower?.Release(); BackgroundInteractive(false); });
+document.addEventListener('pointerdown', event => {
+  if (existingPopup && !existingPopup.contains(event.target) && event.target !== $('add-existing')) CloseExistingPopup();
+  if (transportMenuOpen && !$('transport-menu')?.contains(event.target) && !$('transport-more')?.contains(event.target)) CloseTransportMenu();
+});
+document.addEventListener('keydown', event => { if (event.key === 'Escape') { queueDrag?.Cancel(); CloseExistingPopup(); CloseTransportMenu(); } });
+window.addEventListener?.('blur', () => { CloseTransportMenu(); queueDrag?.Cancel(); queueFollower?.Release(); BackgroundInteractive(false); });
 window.addEventListener?.('focus', () => { if (!$('modal').open) BackgroundInteractive(true); });
 $('modal-form').addEventListener('submit', event => {
   event.preventDefault(); if (submitModal && !$('modal-submit').disabled) PerformModal(submitModal, true);
 });
 $('modal-close').onclick = CloseModal; $('modal-cancel').onclick = CloseModal;
-$('modal').addEventListener('close', () => { if (!$('modal').open) { CancelModalTask(); modalEpoch++; } BackgroundInteractive(true); SendBounds(); });
+$('modal').addEventListener('close', FinishModalClose);
 $('modal').addEventListener('cancel', CancelModalTask);
 $('add-url').onclick = () => AddURL();
 $('add-existing').onclick = ExistingMenu;
@@ -166,11 +169,13 @@ $('favorite').onclick = () => Run(() => current?.playlistId ? SetFavorite(curren
 $('view-open').onclick = () => ViewSettings();
 $('chapters').onclick = () => ChapterList();
 $('select-mode').onclick = () => SetSelectionMode(!selectionMode);
+if ($('transport-more')) $('transport-more').onclick = () => SetTransportMenu(!transportMenuOpen);
 $('speed').onclick = () => Run(async () => { playbackSpeed = await api.speed(NextSpeed(playbackSpeed)); RenderSpeed(); });
 $('sleep').onclick = () => Run(async () => { sleepState = await api.sleepTimer(NextSleepCommand(sleepState)); RenderSleep(); });
 $('repeat').onclick = () => Run(() => Action({ type: 'settings', settings: { repeat: { off: 'all', all: 'one', one: 'off' }[state.settings.repeat] } }));
 for (const id of ['next', 'previous']) $(id).onclick = () => PlaybackAction(() => api.command(id));
-for (const id of ['stop', 'reload', 'back-ten', 'forward-ten']) $(id).onclick = () => Run(() => api.command(id));
+for (const id of ['reload', 'back-ten', 'forward-ten']) $(id).onclick = () => Run(() => api.command(id));
+$('stop').onclick = () => { CloseTransportMenu(); return Run(() => api.command('stop')); };
 $('page-mode').onclick = () => Run(() => api.command(current?.offline ? 'online' : 'page-mode'));
 $('toggle').onclick = () => Transport().canStart ? PlaybackAction(() => api.play(ViewScope())) : Run(() => api.command('toggle'));
 $('progress').oninput = () => { seeking = true; $('position').textContent = Time(Number($('progress').value)); };
@@ -224,7 +229,6 @@ if (api) {
     }
     else if (event.type === 'add-url') { if (!$('modal').open) AddURL(event.value); else { AfterModal(() => AddURL(event.value)); Toast('開いている画面を閉じると、続けて追加画面を開きます。'); } }
   });
-  $('modal').addEventListener?.('close', RunAfterModal); // Escキーなどで閉じたときも、覚えておいた操作を続ける
   new ResizeObserver(SendBounds).observe($('player-slot'));
   new ResizeObserver(UpdateQueueTail).observe($('entries'));
   Run(async () => { const initial = await api.state(); state = initial.state; current = initial.current; playback = initial.playback; thumbnail = initial.thumbnail; statuses = initial.statuses; queueInfo = initial.queue; foreground = initial.foreground === true; accounts = initial.accounts || {}; loaded = !!playback; sleepState = initial.sleep || { mode: 'off' }; RenderSleep(); playbackSpeed = Number(initial.speed) || 1; RenderSpeed(); listViews = initial.listViews || {}; void RefreshChapters(); resumeOffer = initial.resume || null; favoriteIds = new Set(initial.favorites || []); UpdateDownloads(initial.downloads); $('version').textContent = initial.version; document.body.classList.toggle('mac', initial.platform === 'darwin'); Render(); queueFollower?.Request(); accounts = await api.accounts(); UpdateAccounts(); });

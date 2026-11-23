@@ -53,6 +53,12 @@ function FakeServer(options = {}) {
       if (!s.countsTable) return { status: 404, json: { code: 'PGRST205' } };
       if (path === '/rest/v1/sync_counts_meta') return { status: 200, json: [{ last_seq: s.countsSeq }] };
       if (path === '/rest/v1/sync_counts' && method === 'POST') {
+        const seen = new Set();
+        for (const row of body) {
+          const id = [row.device_id, row.epoch, row.month, row.media_key].join('|');
+          if (seen.has(id)) return { status: 400, json: { code: '21000', message: 'ON CONFLICT DO UPDATE command cannot affect row a second time' } };
+          seen.add(id);
+        }
         for (const row of body) {
           const id = [row.device_id, row.epoch, row.month, row.media_key].join('|'), old = s.counts.get(id);
           if (old && row.n <= old.n) continue;
@@ -102,7 +108,7 @@ function FakeServer(options = {}) {
         return { status: 200, json: [...s.history.values()].filter(r => r.seq > after).sort((a, b) => a.seq - b.seq).slice(0, limit) };
       }
       if (method === 'GET') return { status: 200, json: s.historyState ? [{ ...s.historyState }] : [] };
-      const clearedAt = Math.min(body[0].cleared_at, s.now + 600000);
+      const clearedAt = Math.min(body[0].cleared_at, s.now + 599000);
       if (!s.historyState || clearedAt > s.historyState.cleared_at) {
         s.historyState = { cleared_at: clearedAt };
         for (const [k, row] of s.history) if (row.played_at <= clearedAt) s.history.delete(k);

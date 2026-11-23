@@ -55,7 +55,7 @@ class SyncService {
     this.config = Storage.ReadConfig(this.dir); this.blocked = ''; this.error = ''; this.state = 'off';
     this.session = new SyncSession({ adapter: this.adapter, repository: () => this.Repository(), persist: session => Storage.WriteState(this.dir, session.device, session.Extra()), now: this.now, onApplied: () => this.onApplied(), deviceId: () => `win-${randomUUID().slice(0, 8)}` });
     this.chain = Promise.resolve(); this.debounce = null; this.interval = null; this.disposed = false;
-    this.pendingCode = null; this.loaded = false; this.applyingExtras = false;
+    this.pendingCode = null; this.loaded = false; this.suppressChanged = false; this.resetGen = 0; this.cycling = false; this.pendingReset = false;
   }
   get device() { return this.session.device; }
   get lastSyncAt() { return this.session.lastSyncAt; }
@@ -101,6 +101,7 @@ class SyncService {
   }
   Tick() { if (this.disposed) return; this.Request().catch(() => {}); this.interval = this.timers.set(() => this.Tick(), INTERVAL_MS); this.interval.unref?.(); }
   async Enable() {
+    await this.chain;
     this.Load(); // Start前でも、既存の同期データを確認してから始める
     if (this.blocked) throw new Error(this.blocked);
     if (!this.Session()) throw new Error('先にサインインしてください。');
@@ -111,6 +112,7 @@ class SyncService {
   }
   // 停止の解除（利用者の選択）。mode：'restore'＝同期した内容でこの端末を復元／'keep'＝この端末の内容を正として同期（削除も送る）。
   async Unblock(mode) {
+    await this.chain;
     this.Load();
     if (!this.device || !this.session.blocked) throw new Error('解除できる停止状態がありません。');
     await this.session.Unblock(mode);
@@ -127,34 +129,52 @@ class SyncService {
   Mismatch() { const session = this.vault.Get(); const origin = this.session.origin; return !!this.device && !!origin.url && (origin.url !== this.config.url || (session && origin.userId !== session.userId)); }
   // 別のプロジェクト・アカウントへ切り替える：同期データは別名で残し、手元のライブラリから新しく始める。
   ResetLink() {
-    this.Disable(); Storage.SetAside(this.dir); this.session.Reset(); this.blocked = ''; this.extrasNotice = '';
+    this.resetGen++;
+    this.Disable();
+    if (this.cycling) { this.pendingReset = true; return; }
+    this._FinishReset();
+  }
+  _FinishReset() {
+    this.pendingReset = false;
+    Storage.SetAside(this.dir); this.session.Reset(); this.blocked = ''; this.extrasNotice = '';
     try { this.onResetExtras?.(); } catch {}
     this.Emit('off');
   }
+  SuppressChanged(fn) {
+    this.suppressChanged = true;
+    try { return fn(); }
+    finally { this.suppressChanged = false; }
+  }
   // ---- ストアの変更・同期
-  Changed() { this.session.Changed(); if (this.session.applying || this.applyingExtras || !this.config.enabled || this.blocked || !this.device) return; this.Schedule(1500); }
+  Changed() { if (this.suppressChanged) return; this.session.Changed(); if (this.session.applying || !this.config.enabled || this.blocked || !this.device) return; this.Schedule(1500); }
   ScheduleExtras() { if (!this.config.enabled || this.blocked || !this.device || this.disposed) return; this.Schedule(1500); }
   Schedule(ms) { if (this.disposed) return; if (this.debounce) this.timers.clear(this.debounce); this.debounce = this.timers.set(() => { this.debounce = null; this.Request().catch(() => {}); }, ms); this.debounce.unref?.(); }
   Request() { return this.SyncNow(); }
   // 直列化：同時に1つだけ実行する。
   SyncNow() { const run = this.chain.then(() => this.Cycle(), () => this.Cycle()); this.chain = run.catch(() => {}); return run; }
   async Cycle() {
+    const gen = this.resetGen;
     if (!this.config.enabled || this.blocked || !this.device || this.disposed) return { ok: false, error: this.blocked || '同期は無効です。' };
     if (this.Mismatch()) { this.Emit('error', '接続先またはアカウントが、この同期データの作成時と異なります。「接続を初期化」で切り替えてください（手元のプレイリストは変わりません）。'); return { ok: false, error: this.error }; }
+    this.cycling = true;
     this.Emit('syncing');
-    const result = await this.session.Cycle(); // データの安全に関わる規則は共通の sync-session.cjs
-    if (result.blocked) { this.blocked = result.blocked; this.Emit('blocked'); return { ok: false, error: result.blocked }; }
-    if (result.ok && this.extras) {
-      this.applyingExtras = true;
-      try {
+    try {
+      const result = await this.session.Cycle(); // データの安全に関わる規則は共通の sync-session.cjs
+      const aborted = () => gen !== this.resetGen || this.pendingReset || this.disposed || !this.config.enabled;
+      if (aborted()) return { ok: false, error: '同期は中断されました。' };
+      if (result.blocked) { this.blocked = result.blocked; this.Emit('blocked'); return { ok: false, error: result.blocked }; }
+      if (result.ok && this.extras) {
         const extra = await SyncExtras(this.extras(), this.Repository());
+        if (aborted()) return { ok: false, error: '同期は中断されました。' };
         this.extrasNotice = extra.ok ? '' : extra.error; // テーブル未作成（SQL未実行）などは、お知らせとして表示するだけ
-      } finally {
-        this.applyingExtras = false;
       }
+      this.Emit(result.ok ? 'idle' : 'error', result.ok ? '' : result.error);
+      return result;
+    } finally {
+      this.cycling = false;
+      if (this.pendingReset) this._FinishReset();
+      else if (!this.config.enabled && !this.disposed) this.Emit('off');
     }
-    this.Emit(result.ok ? 'idle' : 'error', result.ok ? '' : result.error);
-    return result;
   }
 }
 module.exports = { StoreAdapter, SyncService };

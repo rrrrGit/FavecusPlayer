@@ -226,7 +226,7 @@ create or replace function public.sync_history_state_before() returns trigger
 language plpgsql security definer set search_path = '' as $$
 begin
   perform pg_advisory_xact_lock(hashtextextended(new.user_id::text, 17));
-  new.cleared_at := least(new.cleared_at, floor(extract(epoch from now()) * 1000)::bigint + 600000);
+  new.cleared_at := least(new.cleared_at, floor(extract(epoch from now()) * 1000)::bigint + 599000);
   if tg_op = 'UPDATE' and new.cleared_at <= old.cleared_at then return null; end if;
   return new;
 end $$;

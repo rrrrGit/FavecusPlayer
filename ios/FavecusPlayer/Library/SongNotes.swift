@@ -34,16 +34,71 @@ final class SongNotesStore {
 
     func get(_ key: String) -> SongNotesRecord? { records[key] }
 
-    /// 空にしたときは、記録を消す。キーが正しくない・上限を超えるときは、false。
+    /// 空にしたときは、記録を消す。キーが正しくない・上限を超える・保存失敗のときは、元の状態を保って false。
     @discardableResult
     func set(_ key: String, _ record: SongNotesRecord) -> Bool {
         guard FavoritesStore.isValid(key) else { return false }
+        let prev = records[key]
         if record.isEmpty { records[key] = nil } else {
             guard records[key] != nil || records.count < Self.maxSongs else { return false }
             records[key] = record
         }
-        try? AtomicJsonFile.write(Document(version: 1, records: records), to: fileURL)
-        return true
+        do {
+            try AtomicJsonFile.write(Document(version: 1, records: records), to: fileURL)
+            return true
+        } catch {
+            records[key] = prev
+            return false
+        }
+    }
+
+    @discardableResult
+    func migrateAliases(_ aliases: [[String: String]]) -> Bool {
+        var map: [String: String] = [:]
+        for entry in aliases {
+            if let aid = entry["aid"], let bvid = entry["bvid"], !aid.isEmpty, !bvid.isEmpty { map[aid] = bvid }
+        }
+        guard !map.isEmpty else { return false }
+        let prevRecords = records
+        var changed = false
+        for oldKey in Array(records.keys) {
+            guard oldKey.hasPrefix("bili-av:") else { continue }
+            let parts = oldKey.split(separator: ":", omittingEmptySubsequences: false)
+            guard parts.count == 3, let bvid = map[String(parts[1])], parts[2].hasPrefix("p") else { continue }
+            let newKey = "bili:\(bvid):\(parts[2])"
+            guard FavoritesStore.isValid(newKey), let oldRec = records[oldKey] else { continue }
+            if let cur = records[newKey] {
+                var mergedTags: [String] = []
+                var seenTags = Set<String>()
+                for tag in oldRec.tags + cur.tags {
+                    let lower = tag.lowercased()
+                    if seenTags.insert(lower).inserted { mergedTags.append(tag) }
+                    if mergedTags.count >= 20 { break }
+                }
+                var byAt: [Int: SongChapter] = [:]
+                for chapter in oldRec.chapters + cur.chapters { byAt[chapter.at] = chapter }
+                let chapters = Array(byAt.values.sorted { $0.at < $1.at }.prefix(200))
+                let merged = SongNotesRecord(
+                    artist: cur.artist.isEmpty ? oldRec.artist : cur.artist,
+                    tags: mergedTags,
+                    memo: cur.memo.isEmpty ? oldRec.memo : cur.memo,
+                    chapters: chapters
+                )
+                records[newKey] = merged.isEmpty ? nil : merged
+            } else {
+                records[newKey] = oldRec
+            }
+            records[oldKey] = nil
+            changed = true
+        }
+        guard changed else { return false }
+        do {
+            try AtomicJsonFile.write(Document(version: 1, records: records), to: fileURL)
+            return true
+        } catch {
+            records = prevRecords
+            return false
+        }
     }
 }
 

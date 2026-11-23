@@ -255,7 +255,7 @@ test('SyncService suppresses resync loop when receiving remote prefs and resets 
       timers: { set: (_fn, ms) => { if (ms < 60000) scheduled++; return { unref() {} }; }, clear() {} },
       extras: () => ({
         Read: async () => counts.SyncRead({ weighted: store.data.settings.weightedShuffle !== false, at: store.data.settings.weightedShuffleAt || 0 }),
-        Apply: async ({ rows, epoch, cursor, prefs }) => { counts.SyncApply({ rows, epoch, cursor }); if (prefs) store.Apply({ type: 'settings', settings: { weightedShuffle: prefs.weighted, weightedShuffleAt: prefs.at } }); },
+        Apply: async ({ rows, epoch, cursor, prefs }) => { counts.SyncApply({ rows, epoch, cursor }); if (prefs) service.SuppressChanged(() => store.Apply({ type: 'settings', settings: { weightedShuffle: prefs.weighted, weightedShuffleAt: prefs.at } })); },
         Pushed: async () => counts.SyncPushed(),
         favorites: { Read: async () => favs.SyncRead(counts.ledger.deviceId), Apply: async v => favs.SyncApply(v), Pushed: async () => favs.SyncPushed() },
         history: { Read: async () => hist.SyncRead(counts.ledger.deviceId), Apply: async v => hist.SyncApply(v), Pushed: async () => hist.SyncPushed() }

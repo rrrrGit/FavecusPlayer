@@ -32,7 +32,7 @@ struct ImportSheet: View {
             }
         }
         .onDisappear { if !coordinator.isBusy { coordinator.cancel() } } // スワイプで閉じたときも、一時コピーとアクセス権を後始末する
-        .interactiveDismissDisabled({ if case .importing = coordinator.phase { return true } else { return false } }())
+        .interactiveDismissDisabled(coordinator.isBusy)
     }
 
     private func chooser(_ plan: ImportPlan) -> some View {
