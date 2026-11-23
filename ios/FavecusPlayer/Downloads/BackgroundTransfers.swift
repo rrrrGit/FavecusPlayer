@@ -167,24 +167,24 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
     /// （背面のセッションは接続を待ち続けるため、止まったままの取得を検知する）。URLは記録しない。戻り値：取り直した・失敗にした取得の数。
     @discardableResult
     func restartStalled(_ id: String, idleFor: TimeInterval) async -> Int {
-        guard var job = job(id) else { return 0 }
-        let pending = job.streams.indices.filter { index in
-            !FileManager.default.fileExists(atPath: streamFile(job, index).path) && !FileManager.default.fileExists(atPath: errorFile(id, index).path)
+        guard let initial = self.job(id) else { return 0 }
+        let pending = initial.streams.indices.filter { index in
+            !FileManager.default.fileExists(atPath: streamFile(initial, index).path) && !FileManager.default.fileExists(atPath: errorFile(id, index).path)
         }
         guard !pending.isEmpty else { return 0 }
         // ジョブのどの取得にも動きがなければ、止まっているとみなす（再起動直後など、時刻が分からないときは、いまから数える）
         lock.lock()
-        let times = job.streams.indices.compactMap { activity["\(id)#\($0)"] }
-        if times.isEmpty { for index in job.streams.indices { activity["\(id)#\(index)"] = Date() } }
+        let times = initial.streams.indices.compactMap { activity["\(id)#\($0)"] }
+        if times.isEmpty { for index in initial.streams.indices { activity["\(id)#\(index)"] = Date() } }
         let last = times.max() ?? Date()
         let idle = Date().timeIntervalSince(last)
         lock.unlock()
         guard idle >= idleFor else { return 0 }
         let tasks = await session.allTasks.filter { Self.parse($0.taskDescription)?.id == id }
-        guard var latest = job(id) else { return 0 }
+        guard var latest = self.job(id) else { return 0 }
         var handled = 0
         for index in pending {
-            guard latest.streams.indices.contains(index) else { continue }
+            guard latest.streams.indices.contains(index), !FileManager.default.fileExists(atPath: streamFile(latest, index).path), !FileManager.default.fileExists(atPath: errorFile(id, index).path) else { continue }
             let description = "\(id)#\(index)"
             lock.lock()
             let bytes = written[id]?[index] ?? 0
