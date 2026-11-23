@@ -14,15 +14,28 @@ class TrashStore {
   // 削除の保存に成功したあとに呼ぶ。形が正しくないものは、入れない。
   Add(item) {
     if (!Trash.ValidItem(item)) return false;
+    const prev = this.items;
     this.items = Trash.Prune([item, ...this.items.filter(x => x.id !== item.id)], this.now());
-    return this.Save();
+    if (!this.Save()) { this.items = prev; return false; }
+    return true;
   }
   // 期限切れで保管から外れたことがあるか（外れたら、保存済みメディアの整理を、呼び出し側が行う）。
   TakePruned() { const value = this.pruned; this.pruned = false; return value; }
   List() { const before = this.items.length; this.items = Trash.Prune(this.items, this.now()); if (this.items.length < before) this.pruned = true; return this.items.map(item => Trash.Summary(item, this.now())); }
   Get(id) { return this.items.find(item => item.id === id) || null; }
-  Remove(id) { const before = this.items.length; this.items = this.items.filter(item => item.id !== id); if (this.items.length !== before) this.Save(); }
-  Clear() { this.items = []; this.Save(); }
+  Remove(id) {
+    const prev = this.items, next = prev.filter(item => item.id !== id);
+    if (next.length === prev.length) return true;
+    this.items = next;
+    if (!this.Save()) { this.items = prev; return false; }
+    return true;
+  }
+  Clear() {
+    const prev = this.items;
+    this.items = [];
+    if (!this.Save()) { this.items = prev; return false; }
+    return true;
+  }
   // 保管中の曲（保存済みメディアを、保管が終わるまで残すため、参照として数える）。
   Entries() { return this.items.flatMap(item => (item.kind === 'entry' ? [item.entry] : item.playlist.entries)); }
 }

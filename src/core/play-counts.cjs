@@ -4,7 +4,7 @@
 const fs = require('node:fs'), path = require('node:path');
 const { randomUUID, randomBytes } = require('node:crypto');
 const { ParseBilibili } = require('./urls.cjs');
-const { LibrarySyncKey } = require('./library-identity.cjs');
+const { LibrarySyncKey, CanonicalMediaKey } = require('./library-identity.cjs');
 const Ledger = require('./play-ledger.cjs');
 
 // 旧形式の曲のキー（Bilibiliの正規化URL、またはローカルのファイル名）。旧形式の読み込みと、テストで使う。
@@ -47,9 +47,11 @@ class PlayCounts {
     if (entry?.type === 'bilibili') { try { return LibrarySyncKey(this.aliases())({ ...ParseBilibili(entry.url), ...entry }) || ''; } catch { return ''; } }
     return entry?.type === 'local' && /^[A-Za-z0-9._-]{1,200}$/.test(String(entry.fileName || '')) ? `local:${entry.fileName}` : '';
   }
-  Count(entry) { const key = this.KeyOf(entry); if (!key) return 0; this.totals ||= Ledger.Totals(this.ledger); return this.totals.get(key) || 0; }
+  Canonical() { return CanonicalMediaKey(this.aliases()); }
+  InvalidateCache() { this.totals = null; }
+  Count(entry) { const key = this.KeyOf(entry); if (!key) return 0; const canonical = this.Canonical(); this.totals ||= Ledger.Totals(this.ledger, canonical); return this.totals.get(canonical(key)) || 0; }
   // 再生の統計（月ごとの回数・回数の多い曲。規則は play-ledger.cjs の Stats）。
-  Stats(options) { return Ledger.Stats(this.ledger, options); }
+  Stats(options) { return Ledger.Stats(this.ledger, { ...options, canonical: this.Canonical() }); }
   Begin(entry) { this.tracker.Begin(this.KeyOf(entry), this.now()); }
   Observe(media) {
     const key = this.tracker.Observe(media, this.now());
@@ -94,6 +96,8 @@ class PlayCounts {
   }
   // 送れた行の印だけを消す（読み取りのあとにさらに変わった行は、次の同期でもう一度送る）
   SyncPushed() { for (const id of this.inFlight) if (!this.touched.has(id)) this.dirty.delete(id); this.inFlight = new Set(); this.touched = new Set(); this.pushedOnce = true; }
+  // 接続初期化時：cursor と送信印を戻し、次の接続先で全行を送り直せるようにする。
+  ResetSync() { this.ledger.syncCursor = 0; this.pushedOnce = false; this.dirty.clear(); this.inFlight.clear(); this.touched.clear(); try { this.Persist(); } catch {} }
   // 同期へ送る行（Bilibiliの曲だけ）と世代。
   SyncState() { return { deviceId: this.ledger.deviceId, epoch: this.ledger.epoch, rows: Ledger.SyncRows(this.ledger) }; }
 }

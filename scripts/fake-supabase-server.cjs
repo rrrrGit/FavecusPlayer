@@ -15,7 +15,8 @@ http.createServer((req, res) => {
   req.on('end', async () => {
     try {
       const text = Buffer.concat(chunks).toString('utf8');
-      const headers = { apikey: req.headers.apikey, Authorization: req.headers.authorization, 'Content-Type': req.headers['content-type'] };
+      const headers = { apikey: req.headers.apikey, Authorization: req.headers.authorization, 'Content-Type': req.headers['content-type'], prefer: req.headers.prefer };
+      server.now = Date.now();
       const reply = await server.request(req.method, `http://127.0.0.1:${port}${req.url}`, { headers, body: text ? JSON.parse(text) : undefined });
       res.writeHead(reply.status, { 'content-type': 'application/json' });
       res.end(JSON.stringify(reply.json === undefined ? null : reply.json));

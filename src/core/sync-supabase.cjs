@@ -6,6 +6,8 @@
 const S = require('./sync-state.cjs');
 const { Records, RETENTION_MS } = require('./sync-engine.cjs');
 const { DerivedId } = require('./sync-library.cjs');
+const FavCore = require('./favorites-core.cjs');
+const History = require('./play-history.cjs');
 
 class SyncError extends Error {
   constructor(code, message) { super(message); this.code = code; } // code: offline | auth | paused | server | bad
@@ -125,15 +127,23 @@ class SupabaseSyncRepository {
     const got = await this.Rows(cursor);
     return { changes: got.rows.map(row => ({ id: row.record_id, f: row.f })), cursor: got.last };
   }
-  // ---- v0.7.1：再生回数・設定（別テーブル。supabase/schema.sql を再実行していないときは、code: 'missing' で知らせる。ライブラリの同期は、これと無関係に動く）
+  // ---- v0.7.1〜v0.7.5：再生回数・設定・お気に入り・再生履歴（別テーブル。supabase/schema.sql を再実行していないときは、code: 'missing' で知らせる。ライブラリの同期は、これと無関係に動く）
   async Extra(method, path, options) {
     try { return await this.Call(method, path, options); }
-    catch (error) { if (error instanceof SyncError && error.code === 'bad' && /404/.test(error.message)) throw new SyncError('missing', '再生回数の同期は、まだ設定されていません（Supabaseで schema.sql をもう一度実行してください）。'); throw error; }
+    catch (error) { if (error instanceof SyncError && error.code === 'bad' && /404/.test(error.message)) throw new SyncError('missing', '再生回数・お気に入り・再生履歴の同期は、まだ設定されていません（Supabaseで最新の schema.sql を実行してください）。'); throw error; }
   }
-  // 自分の端末の行を、1つずつ上書きで送る（サーバーは、回数が減る更新を拒む）。rows：[{ epoch, month, key, n }]
+  // 自分の端末の行を、一意化・ソートして上書きで送る（サーバーは、回数が減る更新を拒む）。rows：[{ epoch, month, key, n }]
   async PushCounts(deviceId, rows) {
-    for (let i = 0; i < rows.length; i += this.chunk) {
-      await this.Extra('POST', 'sync_counts?on_conflict=user_id,device_id,epoch,month,media_key', { body: rows.slice(i, i + this.chunk).map(row => ({ device_id: deviceId, epoch: row.epoch, month: row.month, media_key: row.key, n: row.n })), prefer: 'resolution=merge-duplicates,return=minimal' });
+    const best = new Map();
+    for (const row of rows || []) {
+      if (!row || !Number.isSafeInteger(row.epoch) || row.epoch < 0 || typeof row.month !== 'string' || typeof row.key !== 'string' || !Number.isFinite(row.n) || row.n < 1) continue;
+      const n = Math.floor(row.n), id = `${row.epoch}\0${row.month}\0${row.key}`, prev = best.get(id);
+      if (!prev || n > prev.n) best.set(id, { epoch: row.epoch, month: row.month, key: row.key, n });
+    }
+    const body = [...best.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+      .map(([, row]) => ({ device_id: deviceId, epoch: row.epoch, month: row.month, media_key: row.key, n: row.n }));
+    for (let i = 0; i < body.length; i += this.chunk) {
+      await this.Extra('POST', 'sync_counts?on_conflict=user_id,device_id,epoch,month,media_key', { body: body.slice(i, i + this.chunk), prefer: 'resolution=merge-duplicates,return=minimal' });
     }
   }
   // cursorより後に変わった行（自分の端末の行は除く）。戻り値：{ rows: [{ device, epoch, month, key, n }], cursor }
@@ -159,6 +169,73 @@ class SupabaseSyncRepository {
   }
   async PutPrefs({ epoch, weighted, at }) {
     await this.Extra('POST', 'sync_prefs?on_conflict=user_id', { body: [{ epoch, weighted_shuffle: weighted, weighted_at: at }], prefer: 'resolution=merge-duplicates,return=minimal' });
+  }
+  // お気に入り（v0.7.5）：送信前に曲キーで一意化・ソートして ON CONFLICT 重複エラーを防ぐ。
+  async PushFavorites(deviceId, rows) {
+    const best = new Map();
+    for (const row of rows || []) {
+      if (!row || !FavCore.IsSyncKey(row.key) || typeof row.fav !== 'boolean' || !Number.isFinite(row.at) || row.at < 1) continue;
+      const at = Math.floor(row.at), prev = best.get(row.key);
+      if (!prev || FavCore.Newer({ fav: row.fav, at }, prev)) best.set(row.key, { fav: row.fav, at });
+    }
+    const body = [...best.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+      .map(([key, s]) => ({ media_key: key, fav: s.fav, updated_at: s.at, device_id: deviceId }));
+    for (let i = 0; i < body.length; i += this.chunk) {
+      await this.Extra('POST', 'sync_favorites?on_conflict=user_id,media_key', { body: body.slice(i, i + this.chunk), prefer: 'resolution=merge-duplicates,return=minimal' });
+    }
+  }
+  // 共有行のため device_id フィルタはしない（初期化・破損後の自己復旧を可能にするため）。
+  async PullFavorites(cursor) {
+    const rows = []; let last = Number.isInteger(cursor) && cursor >= 0 ? cursor : 0;
+    for (let page = 0; page < 10000; page++) {
+      const got = await this.Extra('GET', `sync_favorites?select=seq,media_key,fav,updated_at&seq=gt.${last}&order=seq.asc&limit=${this.pageSize}`);
+      if (!Array.isArray(got)) throw new SyncError('bad', FRIENDLY.bad);
+      if (got.length === 0) break;
+      for (const row of got) {
+        if (!Number.isInteger(row.seq) || row.seq <= last) throw new SyncError('bad', FRIENDLY.bad);
+        last = row.seq;
+        rows.push({ key: row.media_key, fav: row.fav === true, at: Number(row.updated_at) });
+      }
+    }
+    return { rows, cursor: last };
+  }
+  // 再生履歴（v0.7.5）：曲ごとに最新の再生時刻を保持。送信前に一意化・ソートする。
+  async PushHistory(deviceId, rows) {
+    const best = new Map();
+    for (const row of rows || []) {
+      if (!row || !History.IsSyncKey(row.key) || !Number.isFinite(row.at) || row.at < 1) continue;
+      const at = Math.floor(row.at), prev = best.get(row.key) || 0;
+      if (at > prev) best.set(row.key, at);
+    }
+    const body = [...best.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+      .map(([key, at]) => ({ media_key: key, played_at: at, device_id: deviceId }));
+    for (let i = 0; i < body.length; i += this.chunk) {
+      await this.Extra('POST', 'sync_history?on_conflict=user_id,media_key', { body: body.slice(i, i + this.chunk), prefer: 'resolution=merge-duplicates,return=minimal' });
+    }
+  }
+  async PullHistory(cursor) {
+    const rows = []; let last = Number.isInteger(cursor) && cursor >= 0 ? cursor : 0;
+    for (let page = 0; page < 10000; page++) {
+      const got = await this.Extra('GET', `sync_history?select=seq,media_key,played_at&seq=gt.${last}&order=seq.asc&limit=${this.pageSize}`);
+      if (!Array.isArray(got)) throw new SyncError('bad', FRIENDLY.bad);
+      if (got.length === 0) break;
+      for (const row of got) {
+        if (!Number.isInteger(row.seq) || row.seq <= last) throw new SyncError('bad', FRIENDLY.bad);
+        last = row.seq;
+        rows.push({ key: row.media_key, at: Number(row.played_at) });
+      }
+    }
+    return { rows, cursor: last };
+  }
+  async GetHistoryState() {
+    const got = await this.Extra('GET', 'sync_history_state?select=cleared_at');
+    if (!Array.isArray(got)) throw new SyncError('bad', FRIENDLY.bad);
+    const row = got[0];
+    return row ? { clearedAt: Number(row.cleared_at) || 0 } : null;
+  }
+  async PutHistoryState({ clearedAt }) {
+    const at = Number.isFinite(clearedAt) && clearedAt >= 0 ? Math.floor(clearedAt) : 0;
+    await this.Extra('POST', 'sync_history_state?on_conflict=user_id', { body: [{ cleared_at: at }], prefer: 'resolution=merge-duplicates,return=minimal' });
   }
   // 保持期間を過ぎたTombstoneの整理。どのレコードを消すかは共通の規則（S.Compact：復旧に使われるTombstoneは残す）で決め、サーバーは指定されたIDの行を消すだけ。
   async Compact(now = this.now(), retentionMs = RETENTION_MS) {

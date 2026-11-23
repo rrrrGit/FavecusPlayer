@@ -63,12 +63,19 @@ function PaintSync(status) {
   $('sync-send').disabled = !ready || !status?.encryption; $('sync-verify').disabled = !ready; $('sync-signout').disabled = !signed || on;
   $('sync-enable').disabled = on || !signed; $('sync-disable').disabled = !on; $('sync-reset').disabled = on; $('sync-now').disabled = !on || status?.state === 'syncing';
   $('sync-encryption').classList.toggle('hidden', !status || status.encryption);
+  const notice = $('sync-extras-notice');
+  if (notice) {
+    const text = status?.extrasNotice || '';
+    notice.textContent = text;
+    notice.classList.toggle('hidden', !text);
+  }
   $('sync-blocked').classList.toggle('hidden', !(status && status.enabled && status.state === 'blocked' && status.canUnblock));
 }
 function SyncSettings() {
   OpenModal('プレイリストの同期', `
     <p class="form-note">自分のSupabaseプロジェクトを使って、プレイリストの構成と曲の登録情報をWindows版・iPhone版で同期します。曲のファイル・保存したメディア・ログイン情報は同期しません。既定はオフです。</p>
     <p id="sync-state" class="status-detail" role="status" aria-live="polite"></p>
+    <p id="sync-extras-notice" class="status-detail hidden" role="status"></p>
     <p id="sync-encryption" class="status-detail hidden">この環境ではサインイン情報を安全に保存できないため、同期を使えません。</p>
     <section class="settings-block"><h3>1. 接続先</h3>
       <label class="field">Project URL<input id="sync-url" maxlength="100" placeholder="https://xxxx.supabase.co" autocomplete="off" spellcheck="false"></label>
@@ -200,7 +207,7 @@ function ShuffleSettings() {
   const save = () => SaveSettingsSection({ weightedShuffle: $('weighted-shuffle').checked });
   OpenModal('シャッフルの再生回数', '<label class="check-row"><input id="weighted-shuffle" type="checkbox">再生回数が少ない曲を優先する</label><p class="form-note">通常再生も含め、実際に3秒以上再生した回数を曲単位で保存します。同じ動画URL・パートや同じ保存ファイルは、別のリストでも共通の回数です。回数が多い曲ほど後に出やすくなりますが、順序は毎回変わります。</p><button type="button" id="reset-play-counts" class="button secondary">再生回数をリセット</button><p class="form-note">リセットは次にシャッフルを開始すると反映されます。現在の再生予定は変更しません。</p>', save, '保存して戻る', save);
   $('weighted-shuffle').checked = state.settings.weightedShuffle !== false;
-  $('reset-play-counts').onclick = () => OpenModal('再生回数をリセット', '<p class="form-note">全楽曲の再生回数を0に戻します。プレイリストや保存ファイルは残ります。</p>', async () => { await api.resetPlayCounts(); ShuffleSettings(); Toast('再生回数をリセットしました。'); }, 'リセットする');
+  $('reset-play-counts').onclick = () => OpenModal('再生回数をリセット', '<p class="form-note">全楽曲の再生回数を0に戻します。プレイリストや保存ファイルは残ります。</p>', async () => { const epoch = modalEpoch; await api.resetPlayCounts(); Toast('再生回数をリセットしました。'); if (epoch === modalEpoch && $('modal').open) { ShuffleSettings(); return false; } }, 'リセットする');
 }
 function PlaybackSettings() {
   const s = state.settings;

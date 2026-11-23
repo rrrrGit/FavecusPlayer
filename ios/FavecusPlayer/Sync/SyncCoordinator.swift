@@ -32,6 +32,8 @@ struct SyncStatus: Equatable {
     var conflicts = 0
     /// 停止の理由が保存されていて、利用者が「復元」か「この端末を正とする」を選べる状態。
     var canUnblock = false
+    /// 再生回数・お気に入り・再生履歴の同期だけ失敗しているときの知らせ（テーブル未作成など）。
+    var extrasNotice = ""
 }
 
 /// iPhone版の同期の運用。規則（baseとの差分・受信は先にライブラリ・既定リストの扱い・空の状態の停止・整理）は共通JS（FavecusCore.Sync*）。
@@ -49,10 +51,17 @@ final class SyncCoordinator: ObservableObject {
     private var opened = false
     private var blockedReason = ""
     private var unblockable = false
+    private var extrasNotice = ""
     private var chain: Task<Void, Never>?
+    private var pendingReset: Task<Void, Never>?
     private var debounce: Task<Void, Never>?
     private var observer: AnyCancellable?
     private var foreground: NSObjectProtocol?
+    var onResetExtras: (() -> Void)?
+
+    deinit {
+        if let foreground { NotificationCenter.default.removeObserver(foreground) }
+    }
 
     var configURL: URL { store.syncDirectory.appendingPathComponent("config.json") }
 
@@ -92,6 +101,7 @@ final class SyncCoordinator: ObservableObject {
         next.canUnblock = unblockable && !blockedReason.isEmpty
         next.email = config.email
         next.url = config.url
+        next.extrasNotice = extrasNotice
         if let pending = summary["pending"] as? Int { next.pending = pending }
         if let conflicts = summary["conflicts"] as? Int { next.conflicts = conflicts }
         if let last = summary["lastSyncAt"] as? Double { next.lastSyncAt = last }
@@ -104,7 +114,9 @@ final class SyncCoordinator: ObservableObject {
         let result = try await call("SyncValidate", ["config": ["url": url, "anonKey": anonKey]])
         if let error = result["error"] as? String { throw TransferError.message(error) }
         guard let normalized = result["config"] as? [String: Any], let cleanURL = normalized["url"] as? String, let key = normalized["anonKey"] as? String else { throw TransferError.message("接続先を確認できません。") }
-        if cleanURL != config.url { vault.clear() } // 別の接続先へ古いトークンを送らない
+        if cleanURL != config.url {
+            host.clearSession()
+        } // 別の接続先へ古いトークンを送らない
         opened = false // 設定が変わったら、同期のJSを開き直す（古い設定・トークンを使い続けない）
         config.url = cleanURL
         config.anonKey = key
@@ -123,7 +135,7 @@ final class SyncCoordinator: ObservableObject {
         let result = try await call("SyncVerifyCode", ["config": configObject, "email": email, "code": code])
         if let error = result["error"] as? String { throw TransferError.message(error) }
         guard let session = result["session"], let data = try? JSONSerialization.data(withJSONObject: session) else { throw TransferError.message("サインインできませんでした。") }
-        try vault.set(String(decoding: data, as: UTF8.self))
+        try host.setSession(String(decoding: data, as: UTF8.self))
         opened = false // アカウントが変わり得るので、同期のJSを開き直す
         config.email = email.trimmingCharacters(in: .whitespacesAndNewlines)
         try writeConfig()
@@ -131,9 +143,13 @@ final class SyncCoordinator: ObservableObject {
     }
 
     func signOut() {
-        vault.clear()
+        host.clearSession()
         opened = false
-        publish(state: status.state, message: status.message)
+        if config.enabled {
+            disable()
+        } else {
+            publish(state: status.state == .syncing ? .off : status.state, message: status.message)
+        }
     }
 
     private var configObject: [String: Any] { ["url": config.url, "anonKey": config.anonKey] }
@@ -145,8 +161,10 @@ final class SyncCoordinator: ObservableObject {
         // ライブラリが変わった瞬間に同期で受ける（同期自身の書き込みか、利用者の編集かを、その場で区別するため）。
         store.onChange = { [weak self] bySync in self?.storeChanged(bySync: bySync) }
         #if canImport(UIKit)
-        foreground = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.request() }
+        if foreground == nil {
+            foreground = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.request() }
+            }
         }
         #endif
         guard config.enabled else { publish(state: .off); return }
@@ -185,6 +203,10 @@ final class SyncCoordinator: ObservableObject {
     }
 
     func enable() async throws {
+        let previous = chain
+        let reset = pendingReset
+        await previous?.value
+        await reset?.value
         guard let current = session() else { throw TransferError.message("先にサインインしてください。") }
         guard await open() else { throw TransferError.message(status.message.isEmpty ? "同期を開始できません。" : status.message) }
         let result = try await call("SyncEnable", ["origin": ["url": config.url, "userId": current.userId]])
@@ -205,6 +227,10 @@ final class SyncCoordinator: ObservableObject {
     /// 別のプロジェクト・アカウントへ切り替える：同期データは別名で残し、手元のライブラリから新しく始める。
     /// 停止の解除（利用者の選択）。mode：restore＝同期した内容でこの端末を復元／keep＝この端末の内容を正として同期する（削除も送る）。
     func unblock(mode: String) async throws {
+        let previous = chain
+        let reset = pendingReset
+        await previous?.value
+        await reset?.value
         guard await open() else { throw TransferError.message("同期を開始できません。") }
         let result = try await call("SyncUnblock", ["mode": mode])
         if let error = result["error"] as? String { throw TransferError.message(error) }
@@ -216,13 +242,24 @@ final class SyncCoordinator: ObservableObject {
 
     func resetLink() {
         disable()
+        host.invalidateSession()
         let host = self.host
+        let onReset = onResetExtras
         opened = false
         blockedReason = ""
         unblockable = false
+        extrasNotice = ""
         status = SyncStatus(state: .off, message: "", enabled: false, configured: status.configured, signedIn: status.signedIn, email: status.email, url: status.url)
-        // 実行中の同期が、退避した後の状態ファイルを書き直さないよう、JSの状態を戻してから退避する
-        Task { _ = try? await call("SyncReset", [:]); host.setAsideState() }
+        // 実行中の同期（chain）が、退避した後の状態ファイルを書き戻さないよう、完了を待ってから JS の状態を戻して退避する
+        let previous = chain
+        let previousReset = pendingReset
+        pendingReset = Task { [weak self] in
+            await previous?.value
+            await previousReset?.value
+            _ = try? await self?.call("SyncReset", [:])
+            host.setAsideState()
+            onReset?()
+        }
     }
 
     // MARK: 同期
@@ -230,6 +267,18 @@ final class SyncCoordinator: ObservableObject {
     private func storeChanged(bySync: Bool) {
         Task { _ = try? await call("SyncChanged", [:]) }
         guard config.enabled, !bySync, blockedReason.isEmpty else { return }
+        debounce?.cancel()
+        debounce = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if !Task.isCancelled { self?.request() }
+        }
+    }
+
+    func scheduleExtras() {
+        guard config.enabled, blockedReason.isEmpty else { return }
+        #if canImport(UIKit)
+        guard UIApplication.shared.applicationState == .active else { return }
+        #endif
         debounce?.cancel()
         debounce = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_500_000_000)
@@ -246,8 +295,10 @@ final class SyncCoordinator: ObservableObject {
     @discardableResult
     func syncNow() async -> Bool {
         let previous = chain
+        let reset = pendingReset
         let work = Task { () -> Bool in
             await previous?.value
+            await reset?.value
             return await self.cycle()
         }
         chain = Task { _ = await work.value }
@@ -257,11 +308,15 @@ final class SyncCoordinator: ObservableObject {
     private func cycle() async -> Bool {
         guard config.enabled, blockedReason.isEmpty else { return false }
         guard await open() else { return false }
+        guard config.enabled else { return false }
         guard let current = session() else { publish(state: .error, message: "サインインが必要です。"); return false }
         publish(state: .syncing)
+        let saveScope = host.beginSessionSaveScope()
+        defer { host.endSessionSaveScope(saveScope) }
         do {
             // いまの接続先・アカウントを渡す。同期データの作成時と違えば、JSが通信せずに止める。
             let result = try await call("SyncCycle", ["origin": ["url": config.url, "userId": current.userId]])
+            guard config.enabled, opened else { return false }
             if result["mismatch"] as? Bool == true {
                 publish(state: .error, message: (result["error"] as? String) ?? "接続先またはアカウントが異なります。", summary: result)
                 return false
@@ -272,6 +327,9 @@ final class SyncCoordinator: ObservableObject {
                 publish(state: .blocked, summary: result)
                 return false
             }
+            if let extras = result["extras"] as? [String: Any] {
+                extrasNotice = (extras["ok"] as? Bool == false) ? (extras["error"] as? String ?? "") : ""
+            }
             if result["ok"] as? Bool == true {
                 publish(state: .idle, summary: result)
                 return true
@@ -279,6 +337,7 @@ final class SyncCoordinator: ObservableObject {
             publish(state: .error, message: (result["error"] as? String) ?? "同期に失敗しました。", summary: result)
             return false
         } catch {
+            guard config.enabled, opened else { return false }
             publish(state: .error, message: ErrorText.safe(error))
             return false
         }

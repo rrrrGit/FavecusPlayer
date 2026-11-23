@@ -4,7 +4,7 @@
 const Actions = require('./library-actions.cjs');
 const Tree = require('../ui/library-tree.js');
 const { ValidateLibrary, CleanText } = require('./library-data.cjs');
-const { ValidateIdentityVersion, LibrarySyncKey } = require('./library-identity.cjs');
+const { ValidateIdentityVersion, LibrarySyncKey, CanonicalMediaKey } = require('./library-identity.cjs');
 const Transfer = require('./library-transfer.cjs');
 const { Queue } = require('./queue.cjs');
 const Ledger = require('./play-ledger.cjs');
@@ -12,6 +12,7 @@ const AutoListsCore = require('./auto-lists.cjs');
 const LibrarySearch = require('../ui/library-search.js');
 const EntryView = require('../ui/entry-view.js');
 const History = require('./play-history.cjs');
+const FavCore = require('./favorites-core.cjs');
 const LibraryAudit = require('./library-audit.cjs');
 const SongNotes = require('./song-notes.cjs');
 const AutoListSettings = require('./auto-list-settings.cjs');
@@ -239,16 +240,24 @@ function LedgerOpen(options) {
 // keys：曲のキーの配列 → { counts: { キー: 回数 } }（現在の世代の合計）と、抽選の重み（weights）
 function LedgerCounts(options) {
   try {
-    const totals = Ledger.Totals(JSON.parse(options.text)), counts = {}, weights = {}, favorites = new Set(Array.isArray(options.favorites) ? options.favorites : []);
+    const canonical = options.aliases ? CanonicalMediaKey(options.aliases) : null;
+    const totals = Ledger.Totals(JSON.parse(options.text), canonical), counts = {}, weights = {}, favorites = new Set(Array.isArray(options.favorites) ? options.favorites : []);
     // favorites：お気に入りの曲のキー（任意）。お気に入りは、重みに倍率が掛かる（共通：play-ledger.cjs）
-    for (const key of options.keys || []) { const n = totals.get(key) || 0; counts[key] = n; weights[key] = Ledger.WeightOf(n, favorites.has(key)); }
+    for (const key of options.keys || []) {
+      const k = canonical ? canonical(key) : key;
+      const n = totals.get(k) || 0;
+      counts[key] = n;
+      weights[key] = Ledger.WeightOf(n, favorites.has(key) || favorites.has(k));
+    }
     return { counts, weights };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
-// 再生の統計（月ごとの回数・回数の多い曲。規則は play-ledger.cjs の Stats）。options：{ text（台帳）, topLimit?, months?, nowMs? }
+// 再生の統計（月ごとの回数・回数の多い曲。規則は play-ledger.cjs の Stats）。options：{ text（台帳）, topLimit?, months?, nowMs?, aliases? }
 function LedgerStats(options) {
-  try { return Ledger.Stats(JSON.parse(options.text), { topLimit: options.topLimit, months: options.months, nowMs: options.nowMs }); }
-  catch (error) { return { error: String(error && error.message || error) }; }
+  try {
+    const canonical = options.aliases ? CanonicalMediaKey(options.aliases) : null;
+    return Ledger.Stats(JSON.parse(options.text), { topLimit: options.topLimit, months: options.months, nowMs: options.nowMs, canonical });
+  } catch (error) { return { error: String(error && error.message || error) }; }
 }
 // 曲の情報（アーティスト・タグ・メモ・チャプター。規則は song-notes.cjs）。入力を、安全な形にする。
 function NotesNormalize(options) {
@@ -268,6 +277,87 @@ function HistoryAdd(options) {
 }
 function HistoryKeys(options) {
   try { return { keys: History.RecentKeys(History.Clean({ items: options.items }), options.limit) }; } catch (error) { return { error: String(error && error.message || error) }; }
+}
+// 再生履歴の同期状態つき管理（v0.7.5）。
+function HistoryOpen(options) {
+  try {
+    if (options && options.text !== undefined && options.text !== null) {
+      const raw = JSON.parse(options.text);
+      if (!raw || typeof raw !== 'object' || raw.version !== 1) throw new Error('再生履歴の形式が正しくありません。');
+      return { text: JSON.stringify(History.CleanState(raw)) };
+    }
+    return { text: JSON.stringify(History.CleanState(null)) };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+function HistoryAddState(options) {
+  try {
+    const res = History.AddState(JSON.parse(options.text), options.key, options.at);
+    return { text: JSON.stringify(res.state), syncable: res.syncable };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+function HistoryClear(options) {
+  try {
+    const state = History.ClearState(JSON.parse(options.text), options.now);
+    return { text: JSON.stringify(state) };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+function HistoryMerge(options) {
+  try {
+    const res = History.MergeState(JSON.parse(options.text), { rows: options.rows || [], clearedAt: options.clearedAt || 0, cursor: options.cursor || 0 }, options.now || 0);
+    return { text: JSON.stringify(res.state), changed: res.changed || res.moved, itemsChanged: res.changed };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+function HistorySyncState(options) {
+  try {
+    const state = History.CleanState(JSON.parse(options.text));
+    return { cursor: state.syncCursor || 0, clearedAt: state.clearedAt || 0, rows: History.SyncRows(state, options.keys || null) };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+function HistoryMigrateAliases(options) {
+  try {
+    const res = History.MigrateAliases(JSON.parse(options.text), CanonicalMediaKey(options.aliases || []));
+    return { text: JSON.stringify(res.state), changed: res.changed, migratedKeys: res.migratedKeys };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+// お気に入りの状態と同期規則（v0.7.5。規則は favorites-core.cjs）。
+function FavoritesOpen(options) {
+  try {
+    if (options && options.text !== undefined && options.text !== null) {
+      const raw = JSON.parse(options.text);
+      if (!raw || typeof raw !== 'object' || raw.version !== 1) throw new Error('お気に入りの形式が正しくありません。');
+      const { doc, migrated } = FavCore.Clean(raw);
+      return { text: JSON.stringify(doc), keys: doc.keys, migrated };
+    }
+    const { doc } = FavCore.Clean(null);
+    return { text: JSON.stringify(doc), keys: doc.keys, migrated: false };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+function FavoritesSet(options) {
+  try {
+    const { doc } = FavCore.Clean(JSON.parse(options.text));
+    const res = FavCore.Set(doc, options.key, options.value, options.now, options.protectedKeys || null);
+    return { text: JSON.stringify(doc), keys: doc.keys, changed: res.changed, syncable: res.syncable, fav: res.fav };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+function FavoritesMerge(options) {
+  try {
+    const { doc } = FavCore.Clean(JSON.parse(options.text));
+    const res = FavCore.Merge(doc, options.rows || [], options.cursor || 0, options.now || 0, options.protectedKeys || null);
+    return { text: JSON.stringify(doc), keys: doc.keys, changed: res.changed > 0 || res.moved, mergedCount: res.changed };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+function FavoritesSyncState(options) {
+  try {
+    const { doc } = FavCore.Clean(JSON.parse(options.text));
+    return { cursor: doc.syncCursor || 0, rows: FavCore.SyncRows(doc, options.keys || null) };
+  } catch (error) { return { error: String(error && error.message || error) }; }
+}
+function FavoritesMigrateAliases(options) {
+  try {
+    const { doc } = FavCore.Clean(JSON.parse(options.text));
+    const res = FavCore.MigrateAliases(doc, CanonicalMediaKey(options.aliases || []), options.protectedKeys || null);
+    return { text: JSON.stringify(doc), keys: doc.keys, changed: res.changed > 0, migratedKeys: res.migratedKeys };
+  } catch (error) { return { error: String(error && error.message || error) }; }
 }
 // 自動リストの設定（件数・条件。規則は auto-list-settings.cjs）。知らない値は、既定・いちばん近い選択肢にする。
 function AutoListSettingsNormalize(options) {
@@ -319,4 +409,4 @@ function MediaKeys(options) {
     return { keys: (options.entries || []).map(entry => { try { return keyOf({ type: 'bilibili', url: entry.url }); } catch { return null; } }) };
   } catch (error) { return { error: String(error && error.message || error) }; }
 }
-module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueInsert, QueueRun, ArrangeEntries, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerStats, NotesNormalize, NotesChapters, Audit, HistoryAdd, HistoryKeys, AutoListSettingsNormalize, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };
+module.exports = { MediaKeys, Open, Apply, TransferPrepare, TransferImport, TransferExport, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueInsert, QueueRun, ArrangeEntries, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerStats, NotesNormalize, NotesChapters, Audit, HistoryAdd, HistoryKeys, HistoryOpen, HistoryAddState, HistoryClear, HistoryMerge, HistorySyncState, HistoryMigrateAliases, FavoritesOpen, FavoritesSet, FavoritesMerge, FavoritesSyncState, FavoritesMigrateAliases, AutoListSettingsNormalize, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop };

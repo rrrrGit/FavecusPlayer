@@ -1,7 +1,7 @@
 import Foundation
 
-// 再生履歴・自動リストの設定・再生統計（v0.7.4）。規則は共通JS（core/play-history.cjs・auto-list-settings.cjs・play-ledger.cjs の Stats。PC版と同じ）。
-// この端末内だけに保存し、同期しない。Application Support/FavecusPlayer に、原子的に書く。
+// 再生履歴・自動リストの設定・再生統計（v0.7.4〜v0.7.5）。規則は共通JS（core/play-history.cjs・auto-list-settings.cjs・play-ledger.cjs の Stats。PC版と同じ）。
+// 自動リストの設定と再生時間は端末内のみ、再生履歴の Bilibili 曲と削除時刻は同期する。Application Support/FavecusPlayer に、原子的に書く。
 
 /// 自動リストの設定（件数・条件）。選択肢は、PC版・共通JS（auto-list-settings.cjs）と同じ。知らない値は、いちばん近い選択肢にする。
 struct AutoListSettings: Codable, Equatable {
@@ -52,53 +52,221 @@ final class AutoListSettingsStore: ObservableObject {
 }
 
 /// 再生履歴（最近聴いた曲）。数え方は、再生回数と同じ（実再生の3秒など）。新しいものが先頭・最大500件・同じ曲が1分以内に続いたら1回。
+/// ローカル曲は端末内のみ、Bilibili曲・削除時刻は同期する（v0.7.5。規則は共通JS：src/core/play-history.cjs）。
 @MainActor
-final class PlayHistoryStore {
+final class PlayHistoryStore: ObservableObject {
+    @Published private(set) var revision = 0
     private let core: SharedCore
     private let fileURL: URL
-    private var items: [[String: Any]] = []
+    private let aliasesProvider: (() -> [[String: String]])?
+    private var text = ""
+    private var dirty: Set<String> = []
+    private var dirtyCleared = false
+    private var inFlight: Set<String> = []
+    private var inFlightCleared = false
+    private var touched: Set<String> = []
+    private var touchedCleared = false
+    private var pushedOnce = false
     private var tail: Task<Void, Never> = Task {}
+    var onChange: (() -> Void)?
 
-    init(core: SharedCore, directory: URL) {
+    init(core: SharedCore, directory: URL, aliasesProvider: (() -> [[String: String]])? = nil) {
         self.core = core
+        self.aliasesProvider = aliasesProvider
         fileURL = directory.appendingPathComponent("play-history.json")
-        if let data = try? Data(contentsOf: fileURL), let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], object["version"] as? Int == 1 {
-            items = object["items"] as? [[String: Any]] ?? []
+        text = open()
+    }
+
+    private func open() -> String {
+        if let data = try? Data(contentsOf: fileURL) {
+            if let stored = String(data: data, encoding: .utf8),
+               let opened = try? Self.object(core.call("HistoryOpen", Self.json(["text": stored]))),
+               let normalized = opened["text"] as? String {
+                return normalized
+            }
+            // 壊れて読めないファイルは、削除や上書きをせず別名へ退避してから作り直す
+            let aside = fileURL.deletingLastPathComponent().appendingPathComponent("play-history.broken-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(8)).json")
+            try? FileManager.default.moveItem(at: fileURL, to: aside)
         }
+        let created = (try? Self.object(core.call("HistoryOpen", "{}"))) ?? [:]
+        return (created["text"] as? String) ?? "{\"version\":1,\"items\":[],\"clearedAt\":0,\"syncCursor\":0}"
+    }
+
+    private func persist() {
+        guard !text.isEmpty else { return }
+        do {
+            try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        } catch {}
+    }
+
+    private func enqueue(_ work: @escaping @MainActor () async -> Void) {
+        let previous = tail
+        tail = Task { @MainActor in
+            _ = await previous.value
+            await work()
+        }
+    }
+
+    private func serialized<T>(_ work: @escaping @MainActor () async -> T) async -> T {
+        let previous = tail
+        let mine = Task { @MainActor () -> T in
+            _ = await previous.value
+            return await work()
+        }
+        tail = Task { @MainActor in _ = await mine.value }
+        return await mine.value
     }
 
     /// 1回の再生を足す。順に1つずつ行う（await の間に、古い内容で上書きしないため）。
     func add(key: String) async {
-        let previous = tail
-        let mine = Task { @MainActor in
-            await previous.value
-            let request: [String: Any] = ["items": items, "key": key, "at": (Date().timeIntervalSince1970 * 1000).rounded()]
-            guard let text = try? String(decoding: JSONSerialization.data(withJSONObject: request), as: UTF8.self),
-                  let reply = try? await core.callAsync("HistoryAdd", text),
-                  let object = (try? JSONSerialization.jsonObject(with: Data(reply.utf8))) as? [String: Any], let next = object["items"] as? [[String: Any]] else { return }
-            items = next
-            save()
+        await serialized { [self] in
+            guard let reply = try? await core.callAsync("HistoryAddState", Self.json(["text": text, "key": key, "at": Self.nowMs()])),
+                  let object = try? Self.object(reply), let next = object["text"] as? String else { return }
+            text = next
+            persist()
+            revision += 1
+            if object["syncable"] as? Bool == true {
+                dirty.insert(key)
+                if inFlight.contains(key) { touched.insert(key) }
+                onChange?()
+            }
         }
-        tail = mine
-        await mine.value
     }
 
     /// 最近聴いた曲のキー（新しい順。同じ曲は1つ）。
     func keys(limit: Int) async -> [String] {
-        let request: [String: Any] = ["items": items, "limit": limit]
-        guard let text = try? String(decoding: JSONSerialization.data(withJSONObject: request), as: UTF8.self),
-              let reply = try? await core.callAsync("HistoryKeys", text),
-              let object = (try? JSONSerialization.jsonObject(with: Data(reply.utf8))) as? [String: Any] else { return [] }
-        return object["keys"] as? [String] ?? []
+        await serialized { [self] () async -> [String] in
+            guard let current = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+                  let items = current["items"] as? [[String: Any]],
+                  let reply = try? await core.callAsync("HistoryKeys", Self.json(["items": items, "limit": limit])),
+                  let object = try? Self.object(reply) else { return [] }
+            return object["keys"] as? [String] ?? []
+        }
     }
 
     func clear() {
-        items = []
-        try? FileManager.default.removeItem(at: fileURL)
+        enqueue { [self] in await clearSerialized() }
     }
 
-    private func save() {
-        try? AtomicJsonFile.writeJSONObject(["version": 1, "items": items], to: fileURL)
+    func clearAndWait() async {
+        await serialized { [self] in await clearSerialized() }
+    }
+
+    private func clearSerialized() async {
+        guard let reply = try? await core.callAsync("HistoryClear", Self.json(["text": text, "now": Self.nowMs()])),
+              let object = try? Self.object(reply), let next = object["text"] as? String else { return }
+        text = next
+        persist()
+        dirty.removeAll()
+        touched.removeAll()
+        dirtyCleared = true
+        if inFlightCleared { touchedCleared = true }
+        revision += 1
+        onChange?()
+    }
+
+    // MARK: 同期（sync-counts.cjs の history アダプター）
+
+    func syncRead(deviceId: String) async -> String? {
+        await serialized { [self] () async -> String? in
+            let filterKeys: Any = pushedOnce ? Array(dirty) : NSNull()
+            guard let reply = try? await core.callAsync("HistorySyncState", Self.json(["text": text, "keys": filterKeys])),
+                  var state = try? Self.object(reply) else { return nil }
+            let rows = state["rows"] as? [[String: Any]] ?? []
+            inFlight = Set(rows.compactMap { $0["key"] as? String })
+            touched = []
+            inFlightCleared = dirtyCleared
+            touchedCleared = false
+            state["deviceId"] = deviceId
+            return Self.json(state)
+        }
+    }
+
+    func syncApply(_ json: String) async {
+        guard let value = try? Self.object(json) else { return }
+        await serialized { [self] in
+            let request: [String: Any] = ["text": text, "rows": value["rows"] ?? [], "clearedAt": value["clearedAt"] ?? 0, "cursor": value["cursor"] ?? 0, "now": Self.nowMs()]
+            var didItemsChange = false
+            if let reply = try? await core.callAsync("HistoryMerge", Self.json(request)),
+               let merged = try? Self.object(reply), let next = merged["text"] as? String {
+                if merged["changed"] as? Bool == true {
+                    text = next
+                    persist()
+                    if merged["itemsChanged"] as? Bool == true { didItemsChange = true }
+                }
+            }
+            if await migrateAliasesSerialized(aliasesProvider?() ?? []) { didItemsChange = true }
+            if didItemsChange { revision += 1 }
+        }
+    }
+
+    func migrateAliases(_ explicit: [[String: String]]? = nil) async {
+        await serialized { [self] in
+            if await migrateAliasesSerialized(explicit ?? aliasesProvider?() ?? []) {
+                revision += 1
+            }
+        }
+    }
+
+    private func migrateAliasesSerialized(_ aliases: [[String: String]]) async -> Bool {
+        guard !aliases.isEmpty, text.contains("bili-av:") else { return false }
+        guard let reply = try? await core.callAsync("HistoryMigrateAliases", Self.json(["text": text, "aliases": aliases])),
+              let obj = try? Self.object(reply), obj["changed"] as? Bool == true,
+              let next = obj["text"] as? String else { return false }
+        text = next
+        persist()
+        let migratedKeys = obj["migratedKeys"] as? [String] ?? []
+        var syncable = false
+        for key in migratedKeys {
+            syncable = true
+            dirty.insert(key)
+            if inFlight.contains(key) { touched.insert(key) }
+        }
+        if syncable { onChange?() }
+        return true
+    }
+
+    func syncPushed() async {
+        await serialized { [self] in
+            for key in inFlight where !touched.contains(key) { dirty.remove(key) }
+            if inFlightCleared && !touchedCleared { dirtyCleared = false }
+            inFlight = []
+            touched = []
+            inFlightCleared = false
+            touchedCleared = false
+            pushedOnce = true
+        }
+    }
+
+    func resetSync() {
+        enqueue { [self] in
+            if var obj = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] {
+                obj["syncCursor"] = 0
+                text = Self.json(obj)
+                persist()
+            }
+            dirty.removeAll()
+            dirtyCleared = false
+            inFlight.removeAll()
+            inFlightCleared = false
+            touched.removeAll()
+            touchedCleared = false
+            pushedOnce = false
+        }
+    }
+
+    private static func nowMs() -> Double { (Date().timeIntervalSince1970 * 1000).rounded() }
+
+    private static func json(_ object: [String: Any]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: object), let text = String(data: data, encoding: .utf8) else { return "{}" }
+        return text
+    }
+
+    private static func object(_ text: String) throws -> [String: Any] {
+        guard let object = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else { throw SharedCoreError.invalidResult("object") }
+        if let message = object["error"] as? String { throw SharedCoreError.script(message) }
+        return object
     }
 }
 
@@ -199,9 +367,11 @@ final class PlayTimeStore {
 
     func flush(now: Date = Date()) {
         guard dirty else { return }
-        dirty = false
-        lastFlush = now
-        try? AtomicJsonFile.write(Document(version: 1, months: months), to: fileURL)
+        do {
+            try AtomicJsonFile.write(Document(version: 1, months: months), to: fileURL)
+            dirty = false
+            lastFlush = now
+        } catch {}
     }
 
     func stats(months count: Int = 12, now: Date = Date()) -> (totalSeconds: Int, byMonth: [String: Int]) {

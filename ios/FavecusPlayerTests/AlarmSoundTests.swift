@@ -90,4 +90,43 @@ final class AlarmSoundTests: XCTestCase {
         XCTAssertNotNil(sut.notice)
         XCTAssertEqual(sut.alarms.first?.sound?.mediaKey, "bili:BV1aaaaaaaaa:p1", "選んだ曲の記録は残す")
     }
+
+    func testResyncRecreatesMissingSoundFileWhenScheduleLost() async throws {
+        let source = try makeSource(seconds: 6)
+        let first = service(AlarmTests.FakeScheduler(), source: source)
+        let item = AlarmItem(hour: 7, minute: 0, weekdays: [2], sound: AlarmSound(mediaKey: "bili:BV1aaaaaaaaa:p1", startSeconds: 0, durationSeconds: 3))
+        await first.save(item)
+        let name = AlarmService.soundFileName(id: item.id)
+        let made = directory.appendingPathComponent("Sounds").appendingPathComponent(name)
+        try FileManager.default.removeItem(at: made)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: made.path))
+
+        let scheduler = AlarmTests.FakeScheduler()
+        let second = service(scheduler, source: source)
+        await second.resync()
+        XCTAssertEqual(scheduler.soundNames[item.id] ?? nil, name, "消えていたアラーム音源ファイルを作り直して予約する")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: made.path))
+    }
+
+    func testResyncWhileLibraryNotReadyDoesNotLockOutCustomSound() async throws {
+        let source = try makeSource(seconds: 6)
+        let first = service(AlarmTests.FakeScheduler(), source: source)
+        let item = AlarmItem(hour: 7, minute: 0, weekdays: [2], sound: AlarmSound(mediaKey: "bili:BV1aaaaaaaaa:p1", startSeconds: 0, durationSeconds: 3))
+        await first.save(item)
+        let name = AlarmService.soundFileName(id: item.id)
+        let made = directory.appendingPathComponent("Sounds").appendingPathComponent(name)
+        try FileManager.default.removeItem(at: made)
+
+        let scheduler = AlarmTests.FakeScheduler()
+        var ready = false
+        let second = service(scheduler, source: source)
+        second.isLibraryReady = { ready }
+        await second.resync()
+        XCTAssertNil(scheduler.scheduled[item.id], "ライブラリ未準備で音源欠損時は既定の音で仮予約しない")
+
+        ready = true
+        await second.resync()
+        XCTAssertEqual(scheduler.soundNames[item.id] ?? nil, name, "ライブラリ読み込み完了後に音源を作り直して予約する")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: made.path))
+    }
 }

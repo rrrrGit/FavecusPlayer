@@ -89,17 +89,26 @@ final class AVPlayerBackend: PlayerBackend {
     private func startCrossfade() {
         let seconds = crossfade
         crossfade = 0
-        guard seconds > 0, player.rate > 0, let old = player.currentItem, old.duration.seconds.isFinite else { return }
+        guard seconds > 0, player.rate > 0, let old = player.currentItem, old.duration.seconds.isFinite else {
+            endCrossfade()
+            return
+        }
         let time = player.currentTime()
+        let outgoingGain = levelGain
+        endCrossfade()
         removeItemObservers()
         player.replaceCurrentItem(with: nil) // 古い曲を、この再生から外す（1つの曲を、2つの再生に結びつけない）
         let outgoing = AVPlayer(playerItem: old)
-        outgoing.volume = fade * levelGain
+        outgoing.volume = fade * outgoingGain
         ghost = outgoing
-        outgoing.seek(to: time) { _ in outgoing.play() }
+        outgoing.seek(to: time) { [weak self, weak outgoing] _ in
+            Task { @MainActor in
+                guard let self, let outgoing, self.ghost === outgoing else { return }
+                outgoing.play()
+            }
+        }
         mix = 0
         applyVolume()
-        fadeTask?.cancel()
         fadeTask = Task { @MainActor [weak self] in
             let steps = max(1, Int(seconds * 20))
             for step in 1...steps {
@@ -108,7 +117,7 @@ final class AVPlayerBackend: PlayerBackend {
                 let progress = Float(step) / Float(steps)
                 self.mix = progress
                 self.applyVolume()
-                self.ghost?.volume = self.fade * self.levelGain * (1 - progress)
+                self.ghost?.volume = self.fade * outgoingGain * (1 - progress)
             }
             self?.endCrossfade()
         }

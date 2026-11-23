@@ -22,9 +22,10 @@ class PlayTimeStore {
     if (this.dirty && (becameStopped || nowMs - this.lastFlush >= FLUSH_INTERVAL_MS)) this.Flush();
   }
   Flush() {
-    if (!this.dirty) return;
+    if (!this.dirty) return false;
+    if (!WriteJsonAtomic(this.file, { version: 1, months: this.months })) return false;
     this.dirty = false; this.lastFlush = this.now();
-    WriteJsonAtomic(this.file, { version: 1, months: this.months });
+    return true;
   }
   Stats(options = {}) { return PlayTime.MonthlySeries(this.months, { nowMs: this.now(), ...options }); }
 }

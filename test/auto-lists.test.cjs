@@ -76,7 +76,7 @@ test('PC: the home shows the auto lists below the playlists and plays them throu
   assert.match(main, /AutoListsCore\.Select\(/, '選び方は、共通の core/auto-lists.cjs');
   assert.match(main, /Handle\('player:auto-play'/);
   assert.match(main, /ScopeEntries\(nextQueue\.playlistId\)/, '次の曲は、自動リストの並びから選ぶ');
-  assert.match(main, /AUTO_NAMES\[queue\.playlistId\] \? '\*' : queue\.playlistId/, '前回の続き：自動リストの再生は、全体を範囲として保存');
+  assert.match(main, /AUTO_NAMES\[queue\.playlistId\] \? current\.playlistId : queue\.playlistId/, '前回の続き：自動リストの再生は、対象曲の所属リストを範囲として保存');
   const app = readApp();
   assert.match(app, /const auto = MakeAutoLists\(\); if \(auto\) \$\('home'\)\.append\(auto\)/);
 });

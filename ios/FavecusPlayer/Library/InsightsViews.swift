@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 /// 自動リストの設定（件数・条件）。この端末だけ。同期しない。
@@ -45,6 +46,12 @@ struct AutoListSettingsView: View {
 struct StatsView: View {
     let player: PlaybackEngine?
     @State private var stats: PlayStats?
+    @State private var extrasRevision = 0
+
+    private var extrasChanges: AnyPublisher<Int, Never> {
+        guard let player else { return Empty(completeImmediately: false).eraseToAnyPublisher() }
+        return player.$extrasRevision.eraseToAnyPublisher()
+    }
 
     var body: some View {
         List {
@@ -89,7 +96,8 @@ struct StatsView: View {
         .background(Theme.background)
         .navigationTitle("再生統計")
         .navigationBarTitleDisplayMode(.inline)
-        .task { stats = await player?.playStats() ?? PlayStats() }
+        .task(id: extrasRevision) { stats = await player?.playStats() ?? PlayStats() }
+        .onReceive(extrasChanges) { extrasRevision = $0 }
     }
 
     @ViewBuilder private func songs(_ title: String, _ items: [StatsSong]) -> some View {

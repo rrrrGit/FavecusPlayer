@@ -132,7 +132,7 @@ struct BulkAddSheet: View {
                     catch {
                         noTitle += 1
                         // 拒否・制限・通信できない状態は、続けて要求を送らない（回避しない）。以降は、動画IDの名前で追加する
-                        if (error as? DownloadError)?.isRefusal == true || error is URLError { askTitles = false }
+                        if (error as? BilibiliError)?.stopBatch == true || (error as? DownloadError)?.isRefusal == true || error is URLError { askTitles = false }
                     }
                 }
                 let before = store.document?.playlist(playlistId)?.entries.count ?? 0

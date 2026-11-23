@@ -23,7 +23,7 @@ enum AtomicJsonFile {
 
     static func writeData(_ data: Data, to url: URL, fileManager: FileManager = .default) throws {
         try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: url, options: .atomic)
+        try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 
     static func writeJSONObject(_ object: Any, to url: URL, fileManager: FileManager = .default) throws {

@@ -36,6 +36,7 @@ for (const event of ['play', 'pause', 'timeupdate', 'durationchange', 'loadedmet
 video.addEventListener('loadedmetadata', () => { controls.hidden = false; Paint(); Wake(); });
 seek.addEventListener('input', () => { scrubbing = true; if (video.duration > 0) { video.currentTime = Number(seek.value) / 1000 * video.duration; Paint(); } });
 seek.addEventListener('change', () => { scrubbing = false; seek.blur(); });
+seek.addEventListener('pointercancel', () => { scrubbing = false; Paint(); });
 for (const event of ['mousemove', 'pointerdown', 'touchstart']) document.addEventListener(event, Wake, { passive: true });
 document.addEventListener('mouseleave', () => { if (!video.paused) { document.body.classList.remove('is-active'); document.body.classList.add('is-idle'); } });
 

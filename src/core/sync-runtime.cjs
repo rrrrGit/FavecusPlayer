@@ -39,12 +39,26 @@ function Adapter(host) {
     }
   };
 }
-// 再生回数の同期のアダプター：読み書きは、Swiftの host（PlayCountStore）が行う。countsRead() → JSON文字列（sync-counts.cjs の Read と同じ形。対応していなければ null）
+// 再生回数・お気に入り・再生履歴の同期アダプター：読み書きは、Swift の host が行う。
 function CountsAdapter(host) {
   return {
-    Read: async () => { const text = await host.countsRead(); if (!text) throw new Error('再生回数の保存先を開けません。'); return JSON.parse(text); },
+    Read: async () => { const text = await host.countsRead(); return text ? JSON.parse(text) : null; },
     Apply: async value => { await host.countsApply(JSON.stringify(value)); },
     Pushed: async () => { await host.countsPushed(); }
+  };
+}
+function FavoritesAdapter(host) {
+  return {
+    Read: async () => { const text = await host.favoritesRead(); return text ? JSON.parse(text) : null; },
+    Apply: async value => { await host.favoritesApply(JSON.stringify(value)); },
+    Pushed: async () => { await host.favoritesPushed(); }
+  };
+}
+function HistoryAdapter(host) {
+  return {
+    Read: async () => { const text = await host.historyRead(); return text ? JSON.parse(text) : null; },
+    Apply: async value => { await host.historyApply(JSON.stringify(value)); },
+    Pushed: async () => { await host.historyPushed(); }
   };
 }
 const Status = () => runtime && runtime.session.device ? { pending: runtime.session.device.outbox.length, conflicts: runtime.session.device.conflicts.length, lastSyncAt: runtime.session.lastSyncAt, origin: runtime.session.origin, blocked: runtime.session.blocked, deviceId: runtime.session.device.id } : { pending: 0, conflicts: 0, lastSyncAt: 0, origin: { url: '', userId: '' }, blocked: '', deviceId: '' };
@@ -82,9 +96,18 @@ async function Cycle(options) {
   try {
     if (!runtime || !runtime.session.ready) throw new Error('同期が有効になっていません。');
     const result = await runtime.session.Cycle(options || {});
-    // 再生回数・「再生回数が少ない曲を優先する」設定の同期（ライブラリの同期が成功したあと。失敗・SQL未実行でも、ライブラリの同期には影響しない）
+    // 再生回数・お気に入り・再生履歴の同期（ライブラリの同期が成功したあと。失敗・SQL未実行でも、ライブラリの同期には影響しない）
     let extras = null;
-    if (result.ok && typeof Host().countsRead === 'function') extras = await SyncExtras(CountsAdapter(Host()), runtime.session.makeRepository());
+    const host = Host();
+    const hasCounts = typeof host.countsRead === 'function';
+    const hasFavorites = typeof host.favoritesRead === 'function';
+    const hasHistory = typeof host.historyRead === 'function';
+    if (result.ok && (hasCounts || hasFavorites || hasHistory)) {
+      const adapter = hasCounts ? CountsAdapter(host) : {};
+      if (hasFavorites) adapter.favorites = FavoritesAdapter(host);
+      if (hasHistory) adapter.history = HistoryAdapter(host);
+      extras = await SyncExtras(adapter, runtime.session.makeRepository());
+    }
     return { ...result, ...(extras ? { extras } : {}), ...Status() };
   } catch (error) { return Fail(error); }
 }

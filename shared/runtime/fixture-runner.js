@@ -21,6 +21,8 @@ const importIdentity = require('../core/import-identity.cjs');
 const iconData = require('../core/playlist-icon-data.cjs');
 const actions = require('../core/library-actions.cjs');
 const libraryApp = require('../core/library-app.cjs');
+const favCore = require('../core/favorites-core.cjs');
+const playHistory = require('../core/play-history.cjs');
 const tree = require('../ui/library-tree.js');
 const search = require('../ui/library-search.js');
 
@@ -100,6 +102,23 @@ const CALLS = {
   SyncMerge: changes => { const merged = changes.reduce((state, change) => syncState.Merge(state, [change]).state, syncState.NewState()); return JSON.parse(syncState.Canonical(merged)); },
   SyncMaterialize: (library, context) => { const state = syncState.Merge(syncState.NewState(), syncLibrary.FromLibrary(library)).state, result = syncLibrary.Materialize(state, context || {}); data.ValidateLibrary(result.library, false, Counter()); return result; },
   SyncRun: spec => SyncRun(spec),
+  FavoritesMerge: spec => {
+    const { doc, migrated } = favCore.Clean(spec.doc || null);
+    for (const op of spec.ops || []) {
+      if (op.set) favCore.Set(doc, op.set.key, op.set.value, op.set.now, op.set.protectedKeys);
+      else if (op.merge) favCore.Merge(doc, op.merge.rows, op.merge.cursor, op.merge.now, op.merge.protectedKeys);
+    }
+    return { doc, migrated, syncRows: favCore.SyncRows(doc) };
+  },
+  HistoryMerge: spec => {
+    let state = playHistory.CleanState(spec.state || null);
+    for (const op of spec.ops || []) {
+      if (op.add) state = playHistory.AddState(state, op.add.key, op.add.at).state;
+      else if (op.clear !== undefined) state = playHistory.ClearState(state, op.clear);
+      else if (op.merge) state = playHistory.MergeState(state, op.merge, op.now || 0).state;
+    }
+    return { state, keys: playHistory.RecentKeys(state.items, 100), syncRows: playHistory.SyncRows(state) };
+  },
   DeviceMediaList: (records, aliases, available) => deviceMedia.DeviceMediaList({ records, videoAliases: aliases || [], isAvailable: record => (available || []).includes(record.token) })
 };
 
@@ -229,6 +248,17 @@ const NotesChapters = json => JSON.stringify(libraryApp.NotesChapters(JSON.parse
 const Audit = json => JSON.stringify(libraryApp.Audit(JSON.parse(json)));
 const HistoryAdd = json => JSON.stringify(libraryApp.HistoryAdd(JSON.parse(json)));
 const HistoryKeys = json => JSON.stringify(libraryApp.HistoryKeys(JSON.parse(json)));
+const HistoryOpen = json => JSON.stringify(libraryApp.HistoryOpen(JSON.parse(json || '{}')));
+const HistoryAddState = json => JSON.stringify(libraryApp.HistoryAddState(JSON.parse(json)));
+const HistoryClear = json => JSON.stringify(libraryApp.HistoryClear(JSON.parse(json)));
+const HistoryMerge = json => JSON.stringify(libraryApp.HistoryMerge(JSON.parse(json)));
+const HistorySyncState = json => JSON.stringify(libraryApp.HistorySyncState(JSON.parse(json)));
+const HistoryMigrateAliases = json => JSON.stringify(libraryApp.HistoryMigrateAliases(JSON.parse(json)));
+const FavoritesOpen = json => JSON.stringify(libraryApp.FavoritesOpen(JSON.parse(json || '{}')));
+const FavoritesSet = json => JSON.stringify(libraryApp.FavoritesSet(JSON.parse(json)));
+const FavoritesMerge = json => JSON.stringify(libraryApp.FavoritesMerge(JSON.parse(json)));
+const FavoritesSyncState = json => JSON.stringify(libraryApp.FavoritesSyncState(JSON.parse(json)));
+const FavoritesMigrateAliases = json => JSON.stringify(libraryApp.FavoritesMigrateAliases(JSON.parse(json)));
 const AutoListSettingsNormalize = json => JSON.stringify(libraryApp.AutoListSettingsNormalize(JSON.parse(json)));
 const LedgerStats = json => JSON.stringify(libraryApp.LedgerStats(JSON.parse(json)));
 const LedgerCounts = json => JSON.stringify(libraryApp.LedgerCounts(JSON.parse(json)));
@@ -242,4 +272,4 @@ const PlayStop = json => JSON.stringify(libraryApp.PlayStop(JSON.parse(json)));
 const TransferPrepare = json => JSON.stringify(libraryApp.TransferPrepare(JSON.parse(json)));
 const TransferImport = json => JSON.stringify(libraryApp.TransferImport(JSON.parse(json)));
 const TransferExport = json => JSON.stringify(libraryApp.TransferExport(JSON.parse(json)));
-module.exports = { RunCases, Observe, Bench, MediaKeys, LibraryOpen, LibraryApply, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueInsert, ArrangeEntries, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerStats, NotesNormalize, NotesChapters, Audit, HistoryAdd, HistoryKeys, AutoListSettingsNormalize, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop, SyncOpen, SyncEnable, SyncCycle, SyncUnblock, SyncChanged, SyncReset, SyncState, SyncValidate, SyncSendCode, SyncVerifyCode, BiliResolveAsync, BiliInfoAsync, BiliShotsAsync, BiliProfile, TransferPrepare, TransferImport, TransferExport };
+module.exports = { RunCases, Observe, Bench, MediaKeys, LibraryOpen, LibraryApply, QueueStart, QueueMove, QueueSync, QueuePeek, QueueList, QueueReorder, QueueJump, QueueInsert, ArrangeEntries, Search, AutoLists, PlaylistPath, LedgerOpen, LedgerCounts, LedgerStats, NotesNormalize, NotesChapters, Audit, HistoryAdd, HistoryKeys, HistoryOpen, HistoryAddState, HistoryClear, HistoryMerge, HistorySyncState, HistoryMigrateAliases, FavoritesOpen, FavoritesSet, FavoritesMerge, FavoritesSyncState, FavoritesMigrateAliases, AutoListSettingsNormalize, LedgerIncrement, LedgerReset, LedgerMerge, LedgerSyncState, PlayBegin, PlayObserve, PlayStop, SyncOpen, SyncEnable, SyncCycle, SyncUnblock, SyncChanged, SyncReset, SyncState, SyncValidate, SyncSendCode, SyncVerifyCode, BiliResolveAsync, BiliInfoAsync, BiliShotsAsync, BiliProfile, TransferPrepare, TransferImport, TransferExport };

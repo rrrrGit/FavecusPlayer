@@ -2,7 +2,7 @@
 // 画面（app.js）を、読み込み順に分けたもの：曲の複数選択と一括操作（移動・追加・お気に入り・保存・外す）。全体は、classic script として順に読み込む（index.html）。
 // 選択は、曲のIDの集まりとして持つ（行は、画面の近くに来てから作るため、行の部品には持たない）。
 
-let selectionMode = false;
+let selectionMode = false, selectionPlaylistId = null;
 const selectedEntries = new Map(); // 曲のID → { playlistId（その曲を持つリスト）, entryId }
 
 const EntryRefOf = entry => ({ playlistId: entry.playlistId, entryId: entry.id });
@@ -10,11 +10,24 @@ const SelectedRefs = () => [...selectedEntries.values()];
 // 画面に出ている曲（絞り込み・並べ替えのあと）
 function DisplayedEntries() { return DisplayRows($('filter').value.toLowerCase().trim()).filter(row => row.entry).map(row => row.entry); }
 
+function SyncSelectionModeUI() {
+  const button = $('select-mode'); if (button) { button.classList.toggle('enabled', selectionMode); button.textContent = selectionMode ? '選択を終わる' : '選択'; button.setAttribute('aria-pressed', String(selectionMode)); }
+  UpdateBulkBar();
+}
+function SyncSelectionScope() {
+  if (!selectionMode) return;
+  if (allListsView || (selectionPlaylistId && state?.activePlaylistId !== selectionPlaylistId)) {
+    selectionMode = false; selectionPlaylistId = null; selectedEntries.clear();
+    SyncSelectionModeUI();
+  } else {
+    UpdateBulkBar();
+  }
+}
 function SetSelectionMode(on) {
   selectionMode = !!on && !allListsView;
+  selectionPlaylistId = selectionMode ? state?.activePlaylistId || null : null;
   if (!selectionMode) selectedEntries.clear();
-  const button = $('select-mode'); if (button) { button.classList.toggle('enabled', selectionMode); button.textContent = selectionMode ? '選択を終わる' : '選択'; button.setAttribute('aria-pressed', String(selectionMode)); }
-  UpdateBulkBar(); RenderEntries();
+  SyncSelectionModeUI(); RenderEntries();
 }
 // 行の中身を作るとき（selectionMode のとき）：チェックと、行を押して選ぶ動き。
 function BindSelection(row, entry) {
@@ -39,7 +52,7 @@ function UpdateBulkBar() {
       ['bulk-save', '保存', () => BulkSave()], ['bulk-remove', 'リストから外す', () => BulkRemove()]];
     bar.append(Element('span', 'bulk-count', ''));
     for (const [id, label, run] of actions) { const b = Button(label, `button secondary${id === 'bulk-remove' ? ' danger' : ''}`, () => Run(run)); b.id = id; bar.append(b); }
-    $('entries').before(bar);
+    $('entries').before?.(bar);
   }
   // 無くなった曲（外した・移した）は、選びから外す
   const existing = new Set(state.playlists.flatMap(p => p.entries.map(e => e.id)));
@@ -61,7 +74,7 @@ function BulkTransfer(mode) {
   OpenModal(mode === 'move' ? '選んだ曲を、別のリストへ移動' : '選んだ曲を、別のリストへ追加',
     `<p class="form-note">${refs.length}曲を、${mode === 'move' ? '移動' : '追加（元のリストにも残す）'}します。移動・追加先は複数選べます。</p>`, async () => {
       const destinationIds = choose();
-      if (mode === 'copy') { const result = await AddSelected({ type: 'add-existing', entries: refs }, destinationIds); selectedEntries.clear(); UpdateBulkBar(); return result; }
+      if (mode === 'copy') { const result = await AddSelected({ type: 'add-existing', entries: refs }, destinationIds); if (result !== false) { selectedEntries.clear(); UpdateBulkBar(); RenderEntries(); } return result; }
       const result = await api.moveTracks({ entries: refs, destinationIds });
       state = result.state; selectedEntries.clear(); Render(); UpdateBulkBar();
       Toast(`${refs.length}曲を移動しました。`);
@@ -92,6 +105,6 @@ async function BulkRemove() {
   const byList = new Map();
   for (const ref of refs) byList.set(ref.playlistId, [...(byList.get(ref.playlistId) || []), ref.entryId]);
   for (const [playlistId, entryIds] of byList) await Action({ type: 'remove-many', playlistId, entryIds });
-  selectedEntries.clear(); UpdateBulkBar();
+  selectedEntries.clear(); UpdateBulkBar(); RenderEntries();
   Toast(`${refs.length}曲をリストから外しました。`);
 }

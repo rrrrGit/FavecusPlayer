@@ -16,8 +16,6 @@ final class LibraryStore: ObservableObject {
     @Published var notice: String?
     /// 今回の起動で、壊れた・なくなったライブラリをバックアップから復元した（同期は、空の状態を他の端末へ反映しないよう止まる）。
     private(set) var restoredThisLaunch = false
-    /// 同期の結果を書き込んでいる間（その変更では、同期の再実行を予約しない）。
-    var syncWriting = false
     /// ライブラリが変わった通知（引数：同期自身の書き込みか）。同期が、利用者の編集だけで再実行を予約するために使う。
     var onChange: (@MainActor (Bool) -> Void)?
     /// メディアの置き場にある実体のファイル名（再生できるローカル曲の判断に使う）。
@@ -132,27 +130,24 @@ final class LibraryStore: ObservableObject {
 
     /// 取り込みの結果で、ライブラリ全体を置き換える。取り込み準備中に保存データが変わっていたら、何も書かずに失敗する。
     /// 編集操作と同じ順番待ち（chain）に積む：実行中の編集の結果を、取り込みが上書きしたり、取り込みを編集が上書きしたりしない。
-    func replaceLibrary(expecting base: String, with newText: String) async throws {
+    func replaceLibrary(expecting base: String, with newText: String, bySync: Bool = false) async throws {
         let previous = chain
         let work = Task { () -> Result<Void, Error> in
             await previous?.value
-            do { try self.replaceNow(expecting: base, with: newText); return .success(()) }
+            do { try self.replaceNow(expecting: base, with: newText, bySync: bySync); return .success(()) }
             catch { return .failure(error) }
         }
         chain = Task { _ = await work.value }
         try await work.value.get()
     }
 
-    private func replaceNow(expecting base: String, with newText: String) throws {
+    private func replaceNow(expecting base: String, with newText: String, bySync: Bool) throws {
         guard isReady else { throw ZipError.invalid("保存データを開けないため、取り込めません。") }
         guard text == base else { throw ZipError.invalid("読み取り後に保存データが変更されました。やり直します。") }
         // 先に表示用の読み取りを確認してから保存する（保存した後に失敗して、参照されるメディアを消すことがないように）。
         let decoded = try JSONDecoder().decode(LibraryDocument.self, from: Data(newText.utf8))
         try persist(newText)
-        text = newText
-        document = decoded
-        mediaFiles = Self.listMedia(mediaDirectory)
-        onChange?(syncWriting)
+        try show(newText, decoded: decoded, bySync: bySync)
     }
 
     /// 前回の取り込みが途中で終了して残った、自分のステージング（.import-*）を片付ける。
@@ -239,12 +234,12 @@ final class LibraryStore: ObservableObject {
         return try JSONDecoder().decode(OpenResult.self, from: Data(response.utf8))
     }
 
-    private func show(_ newText: String) throws {
-        let decoded = try JSONDecoder().decode(LibraryDocument.self, from: Data(newText.utf8))
+    private func show(_ newText: String, decoded: LibraryDocument? = nil, bySync: Bool = false) throws {
+        let parsed = try decoded ?? JSONDecoder().decode(LibraryDocument.self, from: Data(newText.utf8))
         text = newText
-        document = decoded
+        document = parsed
         mediaFiles = Self.listMedia(mediaDirectory)
-        onChange?(syncWriting)
+        onChange?(bySync)
     }
 
     nonisolated static func listMedia(_ directory: URL) -> Set<String> {

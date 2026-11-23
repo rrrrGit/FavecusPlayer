@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -41,6 +42,12 @@ struct PlaylistDetail: View {
     @State private var transfer: TransferRequest?
     @State private var showBulkAdd = false
     @State private var infoTarget: EntryItem?
+    @State private var extrasRevision = 0
+
+    private var extrasChanges: AnyPublisher<Int, Never> {
+        guard let player = services.player else { return Empty(completeImmediately: false).eraseToAnyPublisher() }
+        return player.$extrasRevision.eraseToAnyPublisher()
+    }
 
     struct TransferRequest: Identifiable {
         let id = UUID()
@@ -119,10 +126,11 @@ struct PlaylistDetail: View {
         .background(Theme.background)
         .ignoresSafeArea(edges: .top)
         .onAppear { scrollToRevealed(proxy) }
-        .task(id: ArrangeKey(view: viewSetting, entries: entries)) {
+        .task(id: ArrangeKey(view: viewSetting, entries: entries, revision: extrasRevision)) {
             guard let view = viewSetting, let player = services.player else { arrangedIds = nil; return }
             arrangedIds = await player.arrangedIds(forEntries: entries, view: view)
         }
+        .onReceive(extrasChanges) { extrasRevision = $0 }
         .sheet(isPresented: $showView) {
             EntryViewSheet(initial: viewSetting ?? EntryViewSetting()) { next in
                 services.player?.listViews.set(next, for: parentId)
@@ -447,7 +455,7 @@ struct PlaylistDetail: View {
             return
         }
         guard let first = shown.first(where: { player.canPlay($0) }) ?? shown.first else { return }
-        player.shuffle = false
+        player.setShuffle(false)
         OpenPlayer.request()
         Task { await player.play(entryId: first.id, scope: parentId) }
     }

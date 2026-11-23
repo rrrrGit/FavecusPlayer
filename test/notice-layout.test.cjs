@@ -18,7 +18,7 @@ test('notice appearance and dismissal immediately update video bounds and replac
     toast: { textContent: '', classList: { add: x => hidden.add(x), remove: x => hidden.delete(x) } },
     'player-slot': { getBoundingClientRect: () => ({ x: 100, y: 120, width: 500, height: hidden.has('hidden') ? 400 : 320 }) }
   };
-  const context = { Date, $: id => elements[id], api: { bounds: b => sent.push(b) }, HasView: () => true, allListsView: false, state: { settings: { thumbnailMode: false } },
+  const context = { Date, $: id => elements[id], api: { bounds: b => sent.push(b) }, HasView: () => true, allListsView: false, transportMenuOpen: false, state: { settings: { thumbnailMode: false } },
     clearTimeout: id => timers.delete(id), setTimeout: (callback, delay) => { assert.equal(delay, 7000); const id = ++nextTimer; timers.set(id, callback); return id; } };
   vm.createContext(context);
   vm.runInContext(`let toastTimer; const toastLog = []; ${FunctionSource('SendBounds')} ${FunctionSource('Toast')}`, context);
@@ -36,5 +36,6 @@ test('notice appearance and dismissal immediately update video bounds and replac
   [...timers.values()][0](); assert.equal(sent.at(-1).height, 400); assert.ok(hidden.has('hidden'));
   context.state.settings.thumbnailMode = true; vm.runInContext('Toast(message)', context); assert.equal(sent.at(-1).visible, false);
   context.state.settings.thumbnailMode = false; context.allListsView = true; vm.runInContext('Toast(message)', context); assert.equal(sent.at(-1).visible, false);
+  context.allListsView = false; context.transportMenuOpen = true; vm.runInContext('Toast(message)', context); assert.equal(sent.at(-1).visible, false); context.transportMenuOpen = false;
   context.api = undefined; vm.runInContext('Toast(message)', context);
 });

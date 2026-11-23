@@ -179,4 +179,16 @@ final class LibraryStoreTests: XCTestCase {
         XCTAssertNil(MoveMapper.map(ids: ids, from: IndexSet(integer: 1), to: 2))
         XCTAssertNil(MoveMapper.map(ids: ids, from: IndexSet([0, 1]), to: 3))
     }
+
+    func testReplaceLibraryReportsBySyncFlagAccurately() async throws {
+        let store = try makeStore()
+        await store.load()
+        let base = store.currentText
+        var flags: [Bool] = []
+        store.onChange = { bySync in flags.append(bySync) }
+
+        try await store.replaceLibrary(expecting: base, with: base, bySync: true)
+        try await store.replaceLibrary(expecting: base, with: base)
+        XCTAssertEqual(flags, [true, false])
+    }
 }

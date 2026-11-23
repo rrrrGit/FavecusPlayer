@@ -42,7 +42,7 @@ struct FavecusPlayerApp: App {
 
     var body: some Scene {
         WindowGroup {
-            LibraryRootView(store: environment.store, importer: environment.importer, exporter: environment.exporter, player: environment.player, sync: environment.sync, bilibili: environment.bilibili, downloads: environment.downloads, artwork: environment.artwork, observer: environment.observer)
+            LibraryRootView(store: environment.store, importer: environment.importer, exporter: environment.exporter, player: environment.player, sync: environment.sync, bilibili: environment.bilibili, downloads: environment.downloads, artwork: environment.artwork, observer: environment.observer, onLibraryLoaded: { await environment.onLibraryLoaded() }, onDocumentChanged: { await environment.migrateAliases() })
                 .onChange(of: scenePhase) { phase in
                     if phase == .active {
                         Task { await environment.downloads?.resume(); await environment.alarms.resync(); await environment.playPendingAlarm() }
@@ -71,20 +71,56 @@ final class AppEnvironment: ObservableObject {
     let artwork: ArtworkStore
     /// アラーム（端末内だけ。同期しない）。保存先の準備に失敗しても、アラームの画面にだけ理由を出す。
     let alarms: AlarmService
+    private(set) var libraryReady = false
+    private var pendingAlarmId: String?
+    private var playingPendingAlarm = false
+
+    func migrateAliases() async {
+        let aliases = (store.document?.videoAliases ?? []).map { ["aid": $0.aid, "bvid": $0.bvid] }
+        await player?.migrateAliases(aliases)
+    }
+
+    func onLibraryLoaded() async {
+        await migrateAliases()
+        libraryReady = true
+        await alarms.resync()
+        await playPendingAlarm()
+    }
 
     /// アラームの「曲を再生」で開かれたとき、そのアラームの曲の全体を再生する。ライブラリ・保存の読み込みを待つ（最大10秒）。
     func playPendingAlarm() async {
-        guard let id = AlarmPlayRequest.take() else { return }
-        guard let alarm = alarms.alarms.first(where: { $0.id.uuidString == id }), let sound = alarm.sound else { return }
+        pendingAlarmId = pendingAlarmId ?? AlarmPlayRequest.take()
+        guard let id = pendingAlarmId, !playingPendingAlarm else { return }
+        playingPendingAlarm = true
+        defer { playingPendingAlarm = false }
+        guard let alarm = alarms.alarms.first(where: { $0.id.uuidString == id }), let sound = alarm.sound else {
+            pendingAlarmId = nil
+            return
+        }
         let catalog = AlarmSongCatalog(store: store, downloads: downloads)
+        var refreshedKeys = false
         for _ in 0..<50 {
-            if case .ready = store.state, let entryId = catalog.entryId(forKey: sound.mediaKey), let player {
-                OpenPlayer.request()
-                await player.play(entryId: entryId, scope: "*")
-                return
+            if case .ready = store.state {
+                if let entryId = catalog.entryId(forKey: sound.mediaKey), let player {
+                    pendingAlarmId = nil
+                    OpenPlayer.request()
+                    await player.play(entryId: entryId, scope: "*")
+                    return
+                }
+                if !refreshedKeys {
+                    refreshedKeys = true
+                    await downloads?.refreshKeys(entries: store.document?.playlists.flatMap(\.entries) ?? [])
+                    if let entryId = catalog.entryId(forKey: sound.mediaKey), let player {
+                        pendingAlarmId = nil
+                        OpenPlayer.request()
+                        await player.play(entryId: entryId, scope: "*")
+                        return
+                    }
+                }
             }
             try? await Task.sleep(nanoseconds: 200_000_000)
         }
+        pendingAlarmId = nil
         alarms.notice = "アラームの曲を再生できませんでした（曲が見つかりません）"
     }
 
@@ -111,7 +147,8 @@ final class AppEnvironment: ObservableObject {
             let caches = (try? FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)) ?? FileManager.default.temporaryDirectory
             let downloadService = service.map {
                 DownloadService(catalog: DownloadCatalog(url: downloadsDirectory.deletingLastPathComponent().appendingPathComponent("downloads.json"), mediaDirectory: downloadsDirectory),
-                                bilibili: $0, downloader: MediaDownloader(), transfers: BackgroundTransfers(configuration: BackgroundTransfers.backgroundConfiguration(), jobsDirectory: downloadsDirectory.deletingLastPathComponent().appendingPathComponent("download-jobs", isDirectory: true), stagingRoot: downloadsDirectory, wifiOnly: { UserDefaults.standard.bool(forKey: "downloadWiFiOnly") }), core: core, directory: downloadsDirectory, cacheDirectory: caches.appendingPathComponent("online", isDirectory: true))
+                                bilibili: $0, downloader: MediaDownloader(), transfers: BackgroundTransfers(configuration: BackgroundTransfers.backgroundConfiguration(), jobsDirectory: downloadsDirectory.deletingLastPathComponent().appendingPathComponent("download-jobs", isDirectory: true), stagingRoot: downloadsDirectory, wifiOnly: { UserDefaults.standard.bool(forKey: "downloadWiFiOnly") }), core: core, directory: downloadsDirectory, cacheDirectory: caches.appendingPathComponent("online", isDirectory: true),
+                                aliasesProvider: { (store.document?.videoAliases ?? []).map { ["aid": $0.aid, "bvid": $0.bvid] } })
             }
             let artworkStore = ArtworkStore(directory: downloadsDirectory.deletingLastPathComponent().appendingPathComponent("thumbnails", isDirectory: true))
             downloadService?.artwork = artworkStore
@@ -119,22 +156,35 @@ final class AppEnvironment: ObservableObject {
             downloads = downloadService
             if let downloadService { importer?.downloadImporter = { zip, records, entries in await downloadService.importDownloaded(from: zip, records: records, entries: entries) } }
             observer = ServicesObserver(downloads: downloadService, artwork: artworkStore)
-            let engine = PlaybackEngine(core: core, store: store, backend: AVPlayerBackend(), provider: downloadService, makeSystem: { SystemAudio(controls: $0) })
+            let appDataDirectory = store.syncDirectory.deletingLastPathComponent()
+            let aliasesProvider: () -> [[String: String]] = { (store.document?.videoAliases ?? []).map { ["aid": $0.aid, "bvid": $0.bvid] } }
+            let favoritesStore = FavoritesStore(directory: appDataDirectory, core: core, aliasesProvider: aliasesProvider)
+            let engine = PlaybackEngine(core: core, store: store, backend: AVPlayerBackend(), provider: downloadService, favorites: favoritesStore, makeSystem: { SystemAudio(controls: $0) })
             let artworkLookup = downloadService
             engine.artworkProvider = { entry in artworkStore.image(for: artworkLookup?.entryKeys[entry.id]) }
             // 再生回数の台帳（同期が無効でも数える）。数え方・重みの規則は共通JS
-            let playCounts = PlayCountStore(core: core, directory: store.syncDirectory.deletingLastPathComponent())
+            let playCounts = PlayCountStore(core: core, directory: appDataDirectory, aliasesProvider: aliasesProvider)
             engine.counts = playCounts
-            // 再生履歴：回数を数えたときに足す（同期しない）
-            let history = PlayHistoryStore(core: core, directory: store.syncDirectory.deletingLastPathComponent())
+            // 再生履歴：回数を数えたときに足す（Bilibili曲・削除時刻は同期する）
+            let history = PlayHistoryStore(core: core, directory: appDataDirectory, aliasesProvider: aliasesProvider)
             engine.history = history
             playCounts.onCounted = { key in Task { @MainActor in await history.add(key: key) } }
             engine.resumeStore = ResumeStore()
+            engine.bindExtras()
             player = engine
             // 同期は、再生などとは別のJavaScriptCoreで動かす。Keychainが使えない環境でも、起動は妨げない（同期の画面にエラーとして出る）。
             let vault = KeychainVault()
-            let host = StoreSyncHost(store: store, directory: store.syncDirectory, vault: vault, counts: playCounts)
-            sync = (try? SyncCore(bundle: .main, host: host)).map { SyncCoordinator(store: store, core: $0, host: host, vault: vault) }
+            let host = StoreSyncHost(store: store, directory: store.syncDirectory, vault: vault, counts: playCounts, favorites: favoritesStore, history: history)
+            let coordinator = (try? SyncCore(bundle: .main, host: host)).map { SyncCoordinator(store: store, core: $0, host: host, vault: vault) }
+            sync = coordinator
+            playCounts.onChange = { [weak coordinator] in coordinator?.scheduleExtras() }
+            favoritesStore.onChange = { [weak coordinator] in coordinator?.scheduleExtras() }
+            history.onChange = { [weak coordinator] in coordinator?.scheduleExtras() }
+            coordinator?.onResetExtras = {
+                playCounts.resetSync()
+                favoritesStore.resetSync()
+                history.resetSync()
+            }
             let catalog = AlarmSongCatalog(store: store, downloads: downloadService)
             alarmService.soundSource = { catalog.file(forKey: $0) }
             // アラームの「ランダム」：保存済みの曲から抽選（お気に入りは、少しだけ選ばれやすい）。音は、最初の30秒
@@ -155,5 +205,6 @@ final class AppEnvironment: ObservableObject {
             artwork = fallbackArtwork
             observer = ServicesObserver(downloads: nil, artwork: fallbackArtwork)
         }
+        alarms.isLibraryReady = { [weak self] in self?.libraryReady == true }
     }
 }

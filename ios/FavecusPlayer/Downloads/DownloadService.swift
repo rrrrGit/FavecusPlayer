@@ -21,6 +21,7 @@ final class DownloadService: ObservableObject, MediaProvider {
     private let downloader: MediaDownloader
     private let transfers: BackgroundTransfers
     private let core: SharedCore
+    private let aliasesProvider: (() -> [[String: String]])?
     let directory: URL      // 保存したメディア（バックアップ対象外・初回ロック解除までの保護）
     let cacheDirectory: URL // オンライン再生用の一時ファイル（容量を超えたら古いものから消す）
     private var chain: Task<Void, Never>?
@@ -37,6 +38,7 @@ final class DownloadService: ObservableObject, MediaProvider {
     private var framesTask: Task<Void, Never>?
     private var frameFailures: [String: Date] = [:]
     private var batchID = 0
+    private var refreshKeysGeneration = 0
     private var batchTargets: [EntryItem] = []
     private var batchKind = "audio"
     private var batchStopped = false
@@ -45,7 +47,7 @@ final class DownloadService: ObservableObject, MediaProvider {
     private var served: [URL] = []                // 直近に再生へ渡した一時ファイル（容量の整理で消さない）
     private static let cacheLimit: Int64 = 500 * 1024 * 1024
 
-    init(catalog: DownloadCatalog, bilibili: BilibiliService, downloader: MediaDownloader, transfers: BackgroundTransfers, core: SharedCore, directory: URL, cacheDirectory: URL) {
+    init(catalog: DownloadCatalog, bilibili: BilibiliService, downloader: MediaDownloader, transfers: BackgroundTransfers, core: SharedCore, directory: URL, cacheDirectory: URL, aliasesProvider: (() -> [[String: String]])? = nil) {
         self.catalog = catalog
         self.bilibili = bilibili
         self.downloader = downloader
@@ -53,6 +55,7 @@ final class DownloadService: ObservableObject, MediaProvider {
         self.core = core
         self.directory = directory
         self.cacheDirectory = cacheDirectory
+        self.aliasesProvider = aliasesProvider
         transfers.onChange = { [weak self] id in Task { @MainActor in await self?.evaluate(id) } }
         transfers.onProgress = { [weak self] id, value in Task { @MainActor in self?.setProgress(jobId: id, value) } }
     }
@@ -111,7 +114,7 @@ final class DownloadService: ObservableObject, MediaProvider {
     /// 保存中のものがあるときは何もしない（nil）。削除するのは、保存の記録が指すファイルだけ（アプリが管理していないファイルには触れない）。
     /// ファイルを先に消し、消せなかったものの記録は残す。戻り値：削除した件数と容量。
     func removeAllOffline() async -> (count: Int, bytes: Int64)? {
-        guard started, !removingAll, !records.values.contains(where: { $0.state.inProgress }) else { return nil }
+        guard started, !removingAll, batch == nil, !records.values.contains(where: { $0.state.inProgress }) else { return nil }
         removingAll = true // 削除の間に、同じ曲の保存を始めない
         defer { removingAll = false }
         var removedIds: [String] = []
@@ -243,11 +246,13 @@ final class DownloadService: ObservableObject, MediaProvider {
 
     // MARK: 参照
 
+    private func currentAliases() -> [[String: String]] { aliasesProvider?() ?? [] }
+
     /// 曲の同期用メディアキー（共通JS）。取得できない曲はnil。
     func key(for entry: EntryItem) async -> String? {
         guard entry.type == "bilibili", let url = entry.url else { return nil }
         do {
-            let request = String(decoding: try JSONSerialization.data(withJSONObject: ["entries": [["url": url]], "aliases": [Any]()]), as: UTF8.self)
+            let request = String(decoding: try JSONSerialization.data(withJSONObject: ["entries": [["url": url]], "aliases": currentAliases()]), as: UTF8.self)
             let response = try JSONSerialization.jsonObject(with: Data(try await core.callAsync("MediaKeys", request).utf8)) as? [String: Any]
             return (response?["keys"] as? [Any])?.first as? String
         } catch { return nil }
@@ -322,6 +327,10 @@ final class DownloadService: ObservableObject, MediaProvider {
         return savedFile(key: key, kind: "video")
     }
 
+    func cachedSyncKey(for entry: EntryItem) -> String? {
+        entry.type == "bilibili" ? entryKeys[entry.id] : nil
+    }
+
     /// 曲の同期用メディアキー（再生回数の台帳のキー）。MediaProvider。
     func syncKeys(for entries: [EntryItem]) async -> [String?] {
         let keys = await mediaKeys(forURLs: entries.map { $0.url ?? "" })
@@ -332,7 +341,7 @@ final class DownloadService: ObservableObject, MediaProvider {
     func mediaKeys(forURLs urls: [String]) async -> [String?] {
         guard !urls.isEmpty else { return [] }
         do {
-            let request = String(decoding: try JSONSerialization.data(withJSONObject: ["entries": urls.map { ["url": $0] }, "aliases": [Any]()]), as: UTF8.self)
+            let request = String(decoding: try JSONSerialization.data(withJSONObject: ["entries": urls.map { ["url": $0] }, "aliases": currentAliases()]), as: UTF8.self)
             guard let response = try JSONSerialization.jsonObject(with: Data(try await core.callAsync("MediaKeys", request).utf8)) as? [String: Any], let keys = response["keys"] as? [Any], keys.count == urls.count else { return urls.map { _ in nil } }
             return keys.map { $0 as? String }
         } catch { return urls.map { _ in nil } }
@@ -383,14 +392,17 @@ final class DownloadService: ObservableObject, MediaProvider {
 
     /// 一覧の曲のキーを、共通JSで1回にまとめて求める。
     func refreshKeys(entries: [EntryItem]) async {
+        refreshKeysGeneration += 1
+        let mine = refreshKeysGeneration
         // ローカルのファイルの曲：サムネイル用のキー（ファイル名）。Bilibiliの曲は、共通JSのメディアキー
         var locals: [String: String] = [:]
         for entry in entries where entry.type == "local" { if let name = entry.fileName { locals[entry.id] = "local:" + name } }
         let targets = entries.filter { $0.type == "bilibili" && $0.url != nil }
         guard !targets.isEmpty else { if entryKeys != locals { entryKeys = locals }; return }
         do {
-            let request = String(decoding: try JSONSerialization.data(withJSONObject: ["entries": targets.map { ["url": $0.url ?? ""] }, "aliases": [Any]()]), as: UTF8.self)
+            let request = String(decoding: try JSONSerialization.data(withJSONObject: ["entries": targets.map { ["url": $0.url ?? ""] }, "aliases": currentAliases()]), as: UTF8.self)
             guard let response = try JSONSerialization.jsonObject(with: Data(try await core.callAsync("MediaKeys", request).utf8)) as? [String: Any], let keys = response["keys"] as? [Any], keys.count == targets.count else { return }
+            guard mine == refreshKeysGeneration else { return }
             var result = locals
             for (entry, key) in zip(targets, keys) { if let key = key as? String { result[entry.id] = key } }
             if result != entryKeys { entryKeys = result }
@@ -453,7 +465,7 @@ final class DownloadService: ObservableObject, MediaProvider {
                 await self.chain?.value
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
-            if self.batchID == mine { self.batch = nil } // 新しいまとめての保存が始まっていたら、その表示を消さない
+            if self.batchID == mine { self.batch = nil; self.batchTargets = [] } // 新しいまとめての保存が始まっていたら、その表示を消さない
         }
     }
 
@@ -461,8 +473,10 @@ final class DownloadService: ObservableObject, MediaProvider {
     func cancelAll() {
         batchTask?.cancel()
         batch = nil
+        let targets = batchTargets
+        batchTargets = []
         // 始めたときの対象・形式で取り消す（画面の選択が変わっていても、別の曲・別の形式を取り消さない）
-        for entry in batchTargets where entry.type == "bilibili" {
+        for entry in targets where entry.type == "bilibili" {
             guard let key = entryKeys[entry.id], record(key: key, kind: batchKind)?.state.inProgress == true else { continue }
             cancel(key: key, kind: batchKind)
         }

@@ -38,27 +38,31 @@ function Clean(raw) {
   }
   return { ledger, dropped };
 }
-// 曲の合計（現在の世代の行だけ）。Map<key, count>。
-function Totals(ledger) {
+// 曲の合計（現在の世代の行だけ）。Map<key, count>。canonical があれば別名キー（av→BV）を合算する。
+function Totals(ledger, canonical = null) {
   const totals = new Map();
   for (const [id, n] of Object.entries(ledger.rows)) {
     const row = ParseRowId(id);
-    if (row && row.epoch === ledger.epoch) totals.set(row.key, Math.min(MAX_COUNT, (totals.get(row.key) || 0) + n));
+    if (row && row.epoch === ledger.epoch) {
+      const key = typeof canonical === 'function' ? canonical(row.key) : row.key;
+      totals.set(key, Math.min(MAX_COUNT, (totals.get(key) || 0) + n));
+    }
   }
   return totals;
 }
-const Count = (ledger, key) => Totals(ledger).get(key) || 0;
+const Count = (ledger, key, canonical = null) => Totals(ledger, canonical).get(typeof canonical === 'function' ? canonical(key) : key) || 0;
 // 再生の統計（v0.7.4）。現在の世代の行だけを使い、すべての端末ぶん（同期で受け取った行を含む）を合計する。
 // 返すもの：{ total＝合計回数, months＝最近 months か月の、月ごとの回数（古い順。0の月も含む）, top＝回数の多い曲（全期間）, thisMonthTop＝今月に聴いた回数の多い曲 }。
-function Stats(ledger, { topLimit = 20, months = 12, nowMs = Date.now() } = {}) {
+function Stats(ledger, { topLimit = 20, months = 12, nowMs = Date.now(), canonical = null } = {}) {
   const perMonth = new Map(), perKey = new Map(), thisMonth = new Map(), current = MonthOf(nowMs);
   let total = 0;
   for (const [id, n] of Object.entries(ledger.rows)) {
     const row = ParseRowId(id);
     if (!row || row.epoch !== ledger.epoch || !(n > 0)) continue;
-    total += n; perKey.set(row.key, (perKey.get(row.key) || 0) + n);
+    const key = typeof canonical === 'function' ? canonical(row.key) : row.key;
+    total += n; perKey.set(key, (perKey.get(key) || 0) + n);
     if (row.month !== LEGACY) perMonth.set(row.month, (perMonth.get(row.month) || 0) + n);
-    if (row.month === current) thisMonth.set(row.key, (thisMonth.get(row.key) || 0) + n);
+    if (row.month === current) thisMonth.set(key, (thisMonth.get(key) || 0) + n);
   }
   const span = Math.max(1, Math.min(60, Math.floor(months) || 12)), series = [];
   const [year, month] = current.split('-').map(Number);
@@ -115,8 +119,11 @@ function ImportLegacy(ledger, counts, keyOf) {
   ledger.legacyImported = true;
   return { imported, skipped };
 }
-// 同期へ送る行（Bilibiliの曲だけ。ローカルの曲は端末内のみ）。
-const SyncRows = ledger => Object.entries(ledger.rows).filter(([id]) => IsSyncKey(ParseRowId(id)?.key)).map(([id, n]) => ({ ...ParseRowId(id), n }));
+// 同期へ送る行（自端末の Bilibili 曲の行だけ。他端末行の再送信やローカル曲の送信はしない）。
+const SyncRows = ledger => Object.entries(ledger.rows)
+  .map(([id, n]) => ({ row: ParseRowId(id), n }))
+  .filter(({ row }) => row && row.device === ledger.deviceId && IsSyncKey(row.key))
+  .map(({ row, n }) => ({ ...row, n }));
 
 // 再生を数える規則（実再生3秒で1回。シークで飛ばした時間・停止・読み込み失敗は含めない。短い曲は80%以上を実再生して終わったとき）。
 // 位置の増分を時計の経過と照合する。端末APIなし：現在時刻は呼び出し側が渡す（ミリ秒）。

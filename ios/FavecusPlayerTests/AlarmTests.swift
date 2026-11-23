@@ -151,6 +151,30 @@ final class AlarmTests: XCTestCase {
         let defaultSound = AlarmItem(hour: 7, minute: 0)
         XCTAssertEqual(AlarmListView.soundSummary(defaultSound) { titles[$0] }, "既定の音")
     }
+
+    func testResyncSkipsRandomRollUntilLibraryReady() async {
+        let scheduler = FakeScheduler()
+        let sut = service(scheduler)
+        var current = Date(timeIntervalSince1970: 1_700_000_000)
+        var ready = false
+        var rollCount = 0
+        sut.now = { current }
+        sut.isLibraryReady = { ready }
+        sut.randomPicker = {
+            rollCount += 1
+            return AlarmSound(mediaKey: "local:song.mp3", startSeconds: 0, durationSeconds: 30)
+        }
+        await sut.save(AlarmItem(hour: 7, minute: 0, weekdays: [2], randomSound: true))
+        XCTAssertEqual(rollCount, 1)
+
+        current = current.addingTimeInterval(14 * 86400)
+        await sut.resync()
+        XCTAssertEqual(rollCount, 1, "ライブラリ読み込み完了前はランダム再抽選しない")
+
+        ready = true
+        await sut.resync()
+        XCTAssertEqual(rollCount, 2, "ライブラリ読み込み完了後の resync で再抽選する")
+    }
 }
 
 /// 「曲を再生」ボタンからの再生の依頼（v0.7.3 Step4）。

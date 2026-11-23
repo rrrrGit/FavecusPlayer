@@ -1,11 +1,17 @@
 import Foundation
 
+struct VideoAlias: Decodable, Equatable {
+    var aid: String
+    var bvid: String
+}
+
 /// 画面の表示用に読み取るだけのモデル。保存・編集の正本は共通JSが返すJSON文字列で、Swiftの構造体から書き戻さない
 /// （未知の項目を落とさないため）。
 struct LibraryDocument: Decodable, Equatable {
     var rootPlaylistIds: [String]
     var playlists: [PlaylistItem]
     var activePlaylistId: String?
+    var videoAliases: [VideoAlias]? = nil
 
     func playlist(_ id: String) -> PlaylistItem? { playlists.first { $0.id == id } }
 

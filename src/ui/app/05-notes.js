@@ -2,11 +2,13 @@
 // 画面（app.js）を、読み込み順に分けたもの：曲の情報（アーティスト・タグ・メモ・チャプター）。全体は、classic script として順に読み込む（index.html）。
 // 規則と保存は main 側（core/song-notes.cjs・song-notes-store.cjs。この端末内だけ。同期しない）。
 
-let currentChapters = []; // 再生中の曲のチャプター（時刻順）
+let currentChapters = [], chapterRequest = 0; // 再生中の曲のチャプター（時刻順）
 
 // 曲の情報の編集。チャプターは、1行に「時刻 題名」（動画の説明欄の目次を、そのまま貼り付けて取り込める）。
 async function SongInfoDialog(playlistId, entry) {
+  const epoch = modalEpoch;
   const info = await api.notesGet(playlistId, entry.id);
+  if (epoch !== modalEpoch) return;
   if (!info.identified) { Toast('この曲は、まだ識別できないため、情報を保存できません。再生などで動画の情報を取得してから、もう一度お試しください。'); return; }
   const record = info.record || { artist: '', tags: [], memo: '', chapters: [] };
   OpenModal('曲の情報', `<p class="form-note" id="notes-title"></p><p class="form-note">この曲の情報は、このPCだけに保存します（同期・ZIPには含めません）。同じ動画・同じファイルの曲は、どのリストでも共通です。</p>
@@ -25,9 +27,18 @@ async function SongInfoDialog(playlistId, entry) {
 
 // 再生中の曲のチャプターを取り直し、ボタンの表示を合わせる。
 async function RefreshChapters() {
-  const button = $('chapters');
+  const button = $('chapters'), req = ++chapterRequest;
   currentChapters = [];
-  if (current && api.notesGet) { try { const info = await api.notesGet(current.playlistId, current.entryId); currentChapters = info.record?.chapters || []; } catch { currentChapters = []; } }
+  if (current && api.notesGet) {
+    try {
+      const info = await api.notesGet(current.playlistId, current.entryId);
+      if (req !== chapterRequest) return;
+      currentChapters = info.record?.chapters || [];
+    } catch {
+      if (req !== chapterRequest) return;
+      currentChapters = [];
+    }
+  }
   if (button) { button.classList.toggle('hidden', !currentChapters.length); button.title = `チャプター（${currentChapters.length}）`; button.setAttribute('aria-label', button.title); }
 }
 function ChapterList() {

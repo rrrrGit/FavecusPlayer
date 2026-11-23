@@ -117,6 +117,7 @@ struct BilibiliLoginView: UIViewRepresentable {
             let store = webView.configuration.websiteDataStore.httpCookieStore
             Task { @MainActor in
                 if await account.capture(from: store) {
+                    guard !done else { return }
                     done = true
                     await account.refresh()
                     onFinished()

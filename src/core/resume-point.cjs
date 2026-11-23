@@ -40,7 +40,7 @@ class ResumeStore {
   Flush() {
     if (!this.pending) return;
     const value = this.pending; this.pending = null; this.lastWrite = this.now(); this.value = value;
-    WriteJsonAtomic(this.file, { version: 1, ...value });
+    if (!WriteJsonAtomic(this.file, { version: 1, ...value })) this.pending = value;
   }
   // 保存済みの内容（書き込み前の最新を含む）。再開の位置は、規則で補正して返す。
   Get() {

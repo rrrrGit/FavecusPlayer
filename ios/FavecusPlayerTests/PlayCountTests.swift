@@ -65,7 +65,7 @@ final class PlayCountTests: XCTestCase {
         XCTAssertEqual(rows.count, 1)
         XCTAssertEqual(rows.first?["key"] as? String, song)
         XCTAssertEqual((state["prefs"] as? [String: Any])?["weighted"] as? Bool, true)
-        store.syncPushed()
+        await store.syncPushed()
         state = try await readState(store)
         rows = try XCTUnwrap(state["rows"] as? [[String: Any]])
         XCTAssertEqual(rows.count, 0, "送ったあとは、変わった行だけ")
@@ -111,5 +111,81 @@ final class PlayCountTests: XCTestCase {
         await store.increment(key: song)
         let count = await store.count(for: song)
         XCTAssertEqual(count, 1)
+    }
+
+    func testPlayHistorySyncsAndRemoteClearKeepsLocalSongs() async throws {
+        let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let hist = PlayHistoryStore(core: core, directory: directory)
+        await hist.add(key: song)
+        await hist.add(key: local)
+        let readText = await hist.syncRead(deviceId: "ios-hist")
+        let readObj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(readText).utf8)) as? [String: Any])
+        let rows = try XCTUnwrap(readObj["rows"] as? [[String: Any]])
+        XCTAssertEqual(rows.map { $0["key"] as? String }, [song], "ローカル曲は送らない")
+        await hist.syncPushed()
+        // リモートの履歴と新しいクリア時刻を取り込む：クリア前の Bilibili 曲は消えるが、ローカル曲は残る
+        let futureAt = Int64((Date().timeIntervalSince1970 * 1000).rounded()) + 10_000
+        let incoming: [String: Any] = [
+            "cursor": 12,
+            "clearedAt": futureAt,
+            "rows": [
+                ["key": other, "at": futureAt + 5000]
+            ]
+        ]
+        await hist.syncApply(String(decoding: try JSONSerialization.data(withJSONObject: incoming), as: UTF8.self))
+        let keys = await hist.keys(limit: 10)
+        XCTAssertEqual(keys, [other, local], "クリア以前だった song は消え、クリア後の other と端末内 local が残る")
+        await hist.clearAndWait()
+        let empty = await hist.keys(limit: 10)
+        XCTAssertEqual(empty, [], "自分のクリア操作はすべて消す")
+        hist.resetSync()
+        let resetText = await hist.syncRead(deviceId: "ios-hist")
+        let resetObj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(resetText).utf8)) as? [String: Any])
+        XCTAssertEqual(resetObj["cursor"] as? Int, 0)
+    }
+
+    func testABrokenPlayHistoryFileIsKeptAsideAndStartsEmpty() async throws {
+        let historyURL = directory.appendingPathComponent("play-history.json")
+        try Data([0xFF, 0xFE, 0x00, 0x80]).write(to: historyURL)
+        let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let hist = PlayHistoryStore(core: core, directory: directory)
+        let initial = await hist.keys(limit: 10)
+        XCTAssertEqual(initial, [])
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        XCTAssertTrue(names.contains { $0.hasPrefix("play-history.broken-") }, "壊れた履歴ファイルは別名へ退避する")
+        await hist.add(key: song)
+        let after = await hist.keys(limit: 10)
+        XCTAssertEqual(after, [song])
+    }
+
+    func testObserveSupportsPlaybackRateAndDoesNotDropEndedWhenConcurrent() async throws {
+        let store = try makeStore()
+        await store.begin(key: song)
+        await store.observe(position: 0, duration: 1.4, paused: false, playbackRate: 2)
+        try await Task.sleep(nanoseconds: 1_300_000_000)
+        async let periodic: Void = store.observe(position: 2.5, duration: 1.4, paused: false, ended: false, playbackRate: 2)
+        async let ended: Void = store.observe(position: 2.5, duration: 1.4, paused: false, ended: true, playbackRate: 2)
+        await periodic
+        await ended
+        let count = await store.count(for: song)
+        XCTAssertEqual(count, 1, "2倍速での再生時間と同時終了呼び出しの両方で1回カウントされる")
+    }
+
+    func testAliasesAggregateCountsAndMigratePlayHistory() async throws {
+        let aliases = [["aid": "123", "bvid": "BV1aaaaaaaaa"]]
+        let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let store = PlayCountStore(core: core, directory: directory, defaults: defaults, aliasesProvider: { aliases })
+        await store.increment(key: "bili-av:123:p1")
+        await store.increment(key: song)
+        let count = await store.count(for: song)
+        XCTAssertEqual(count, 2, "av と BV の再生回数を合算する")
+        let counts = await store.counts(for: [song])
+        XCTAssertEqual(counts[song], 2)
+
+        let hist = PlayHistoryStore(core: core, directory: directory, aliasesProvider: { aliases })
+        await hist.add(key: "bili-av:123:p1")
+        await hist.migrateAliases()
+        let keys = await hist.keys(limit: 10)
+        XCTAssertEqual(keys, [song], "履歴の av キーも正規化される")
     }
 }

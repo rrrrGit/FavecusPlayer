@@ -67,4 +67,101 @@ final class FavoritesTests: XCTestCase {
         XCTAssertEqual(boosted["local:a.mp3"], 1.5)
         XCTAssertEqual(boosted["local:b.mp3"], 1)
     }
+
+    func testLegacyKeysMigrateAtTimestampOneSyncLwwAndExcludeLocal() async throws {
+        let localFavs = ["bili:BV1aaaaaaaaa:p1", "local:only.mp3"]
+        let legacyData = try JSONSerialization.data(withJSONObject: ["version": 1, "keys": localFavs])
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try legacyData.write(to: directory.appendingPathComponent("favorites.json"))
+        let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let store = FavoritesStore(defaults: defaults(), directory: directory, core: core)
+        XCTAssertEqual(store.keys, Set(localFavs))
+        // 初回の syncRead には local:only.mp3 が含まれず、at=1 の Bilibili 曲のみが返る
+        let readText = await store.syncRead(deviceId: "ios-test")
+        let readObj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(readText).utf8)) as? [String: Any])
+        let rows = try XCTUnwrap(readObj["rows"] as? [[String: Any]])
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?["key"] as? String, "bili:BV1aaaaaaaaa:p1")
+        XCTAssertEqual((rows.first?["at"] as? NSNumber)?.int64Value, 1)
+        // 同値 at=1 で fav=false が来ても true が優先される。新しい fav=true の別曲は追加され、ローカル曲は残る
+        let incoming: [String: Any] = [
+            "cursor": 5,
+            "rows": [
+                ["key": "bili:BV1aaaaaaaaa:p1", "fav": false, "at": 1],
+                ["key": "bili:BV1bbbbbbbbb:p1", "fav": true, "at": 1000]
+            ]
+        ]
+        await store.syncApply(String(decoding: try JSONSerialization.data(withJSONObject: incoming), as: UTF8.self))
+        XCTAssertTrue(store.contains("bili:BV1aaaaaaaaa:p1"), "同時刻競合はお気に入り優先")
+        XCTAssertTrue(store.contains("bili:BV1bbbbbbbbb:p1"))
+        XCTAssertTrue(store.contains("local:only.mp3"))
+        await store.syncPushed()
+        // 再送では変化がなければ 0 行
+        let readAgain = await store.syncRead(deviceId: "ios-test")
+        let againObj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(readAgain).utf8)) as? [String: Any])
+        XCTAssertEqual((againObj["rows"] as? [[String: Any]])?.count, 0)
+        XCTAssertEqual(againObj["cursor"] as? Int, 5)
+        // resetSync で cursor=0 に戻る
+        store.resetSync()
+        let resetText = await store.syncRead(deviceId: "ios-test")
+        let resetObj = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(try XCTUnwrap(resetText).utf8)) as? [String: Any])
+        XCTAssertEqual(resetObj["cursor"] as? Int, 0)
+        XCTAssertEqual((resetObj["rows"] as? [[String: Any]])?.count, 2)
+    }
+
+    func testSyncApplyDoesNotExceedMaxKeysEvenWithConcurrentLocalEdits() async throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        var initialStates: [String: [String: Any]] = [:]
+        for i in 1...FavoritesStore.maxKeys {
+            initialStates["ok:\(i)"] = ["fav": true, "at": 10]
+        }
+        let doc: [String: Any] = ["version": 1, "keys": [String](), "states": initialStates, "syncCursor": 0]
+        try JSONSerialization.data(withJSONObject: doc).write(to: directory.appendingPathComponent("favorites.json"))
+
+        let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let store = FavoritesStore(defaults: defaults(), directory: directory, core: core)
+        XCTAssertEqual(store.keys.count, FavoritesStore.maxKeys)
+
+        // 1件外して枠を1つ空けつつ、リモート同期とローカル競合が重なっても maxKeys を絶対に超えないことを確認する
+        XCTAssertTrue(store.set("ok:1", false))
+        let payload: [String: Any] = [
+            "cursor": 5,
+            "rows": [
+                ["key": "bili:BV1xxxxxxxx1:p1", "fav": true, "at": Int64((Date().timeIntervalSince1970 * 1000).rounded())],
+                ["key": "bili:BV1xxxxxxxx2:p1", "fav": true, "at": Int64((Date().timeIntervalSince1970 * 1000).rounded())]
+            ]
+        ]
+        let payloadText = String(decoding: try JSONSerialization.data(withJSONObject: payload), as: UTF8.self)
+        let applying = Task { await store.syncApply(payloadText) }
+        await Task.yield()
+        _ = store.set("bili:BV1xxxxxxxx3:p1", true)
+        await applying.value
+        XCTAssertLessThanOrEqual(store.keys.count, FavoritesStore.maxKeys)
+        XCTAssertTrue(store.contains("bili:BV1xxxxxxxx3:p1"), "同時編集したローカルのお気に入りが上限時に残る")
+    }
+
+    func testMigrateAliasesCanonicalizesAvFavorites() async throws {
+        let aliases = [["aid": "123", "bvid": "BV1aaaaaaaaa"]]
+        let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let store = FavoritesStore(defaults: defaults(), directory: directory, core: core, aliasesProvider: { aliases })
+        XCTAssertTrue(store.set("bili-av:123:p1", true))
+        await store.migrateAliases()
+        XCTAssertTrue(store.contains("bili:BV1aaaaaaaaa:p1"))
+        XCTAssertFalse(store.contains("bili-av:123:p1"))
+    }
+
+    func testMigrateAliasesKeepsConcurrentLocalEdits() async throws {
+        let aliases = [["aid": "123", "bvid": "BV1aaaaaaaaa"]]
+        let core = try SharedCore(bundle: Bundle(for: SharedCore.self))
+        let store = FavoritesStore(defaults: defaults(), directory: directory, core: core, aliasesProvider: { aliases })
+        XCTAssertTrue(store.set("bili-av:123:p1", true))
+
+        let migrating = Task { await store.migrateAliases() }
+        await Task.yield()
+        XCTAssertTrue(store.set("local:concurrent.mp3", true))
+        await migrating.value
+
+        XCTAssertTrue(store.contains("bili:BV1aaaaaaaaa:p1"))
+        XCTAssertTrue(store.contains("local:concurrent.mp3"), "エイリアス移行中の並行ローカル編集も消えない")
+    }
 }

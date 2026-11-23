@@ -338,7 +338,7 @@ async function LoadThumbnail() {
 function AcceptPlayback(data) {
   playback = data; playCounts?.Observe(data); playTimeStore?.Observe(data); Emit('playback', data); UpdatePresence();
   // 前回の続きから再生：曲・再生範囲・位置を、この端末にだけ保存する（約10秒ごと・一時停止の瞬間）
-  if (current?.playlistId && queue?.playlistId) resumeStore?.Observe({ entryId: current.entryId, playlistId: current.playlistId, scope: AUTO_NAMES[queue.playlistId] ? '*' : queue.playlistId, position: data.position, duration: data.duration }, data.paused === true);
+  if (current?.playlistId && queue?.playlistId) resumeStore?.Observe({ entryId: current.entryId, playlistId: current.playlistId, scope: AUTO_NAMES[queue.playlistId] ? current.playlistId : queue.playlistId, position: data.position, duration: data.duration }, data.paused === true);
   if (current?.officialPlayer && !data.paused && data.position >= 3) { officialPreferred.add(current.entry.videoId); const season = playbackMetadata.get(current.entry.videoId)?.ugc_season?.id; if (season) officialPreferred.add(`season:${season}`); if (officialPreferred.size > 1000) officialPreferred.delete(officialPreferred.values().next().value); }
 }
 function StopPlayer() {
@@ -352,7 +352,7 @@ function ResumeOffer() {
   const saved = resumeStore?.Get();
   if (!saved || current || !store) return null;
   let entry = null;
-  try { entry = store.Entries(saved.scope).find(e => e.id === saved.entryId) || null; } catch {}
+  try { entry = ArrangedEntries(saved.scope).find(e => e.id === saved.entryId) || null; } catch {}
   if (!entry) return null;
   return { title: entry.title || entry.videoId || 'ローカル動画', position: saved.position, duration: saved.duration };
 }
@@ -382,7 +382,7 @@ function MiniState() {
   const list = store?.data.playlists.find(p => p.id === store.data.activePlaylistId);
   return { title: playback?.title || current?.entry?.title || current?.entry?.videoId || list?.name || 'Favecus Player',
     artist: current ? (playback?.artist || (current.source === 'local' ? 'ローカルファイル' : 'Bilibili')) : '動画を選んで再生',
-    paused: playback?.paused !== false, canToggle: !!current || !!(list && store.Entries(list.id).length), canStop: !!current, canStep: !!current?.playlistId, volume: store?.data.settings.volume ?? 1 };
+    paused: playback?.paused !== false, canToggle: !!current || !!(list && ArrangedEntries(list.id).length), canStop: !!current, canStep: !!current?.playlistId, volume: store?.data.settings.volume ?? 1 };
 }
 async function Accounts(force = true) {
   if (accountRefresh) return accountRefresh;
@@ -485,7 +485,12 @@ function MakeView(source, forceNew = false, officialPlayer = false) {
       try {
         const target = ParseBilibili(url);
         if (!MatchesCurrentURL(target.url)) { event.preventDefault(); Notify('別の動画はURLを再生リストへ追加して再生してください。'); }
-      } catch {}
+      } catch {
+        try {
+          const host = new URL(url).hostname;
+          if (host !== 'passport.bilibili.com' && host !== 'player.bilibili.com') event.preventDefault();
+        } catch { event.preventDefault(); }
+      }
     }
   });
   wc.on('will-redirect', (event, url, _inPlace, mainFrame) => {
@@ -515,8 +520,26 @@ function PlayableEntry(playlistId, entryId) {
   if (entry.type === 'local' && !fs.existsSync(path.join(store.media, entry.fileName))) throw new Error('動画ファイルが見つかりません。「ファイル追加」で再登録してください。');
   return entry;
 }
+function MigrateAliases() {
+  const aliases = store?.data.videoAliases || [];
+  playCounts?.InvalidateCache();
+  const favChanged = !!favorites?.MigrateAliases(aliases);
+  const histChanged = !!historyStore?.MigrateAliases(aliases);
+  notesStore?.MigrateAliases(aliases);
+  return { favChanged, histChanged };
+}
 function RememberVideo(entry, details) {
-  try { if (store.RememberVideo(entry, details)) { Emit('state', store.Snapshot()); if (offline) Emit('downloads', offline.Snapshot()); } }
+  try {
+    if (store.RememberVideo(entry, details)) {
+      const { histChanged } = MigrateAliases();
+      SyncPlayingQueue(false);
+      Emit('state', store.Snapshot());
+      if (favorites) Emit('favorites', FavoriteIds());
+      if (histChanged) Emit('extras-updated', { history: true });
+      Emit('extras-updated', { counts: true });
+      if (offline) Emit('downloads', offline.Snapshot());
+    }
+  }
   catch (error) { Notify(`動画の対応情報を保存できません: ${error.message}`); }
 }
 function WarmMetadata(entry) {
@@ -575,7 +598,7 @@ async function Step(direction, automatic = false) {
   PlayableEntry(next.playlistId, id); queue = nextQueue;
   await LoadEntry(next.playlistId, id);
 }
-function SyncPlayingQueue() {
+function SyncPlayingQueue(notify = true) {
   if (!current?.playlistId) return;
   const list = store.data.playlists.find(p => p.id === current.playlistId);
   if (!list?.entries.some(e => e.id === current.entryId)) StopPlayer();
@@ -585,6 +608,7 @@ function SyncPlayingQueue() {
     if (!entries.some(e => e.id === current.entryId)) { if (scope === '*') { StopPlayer(); return; } queue.Start(list.id, store.Entries(list.id), current.entryId, store.data.settings.shuffle); }
     else queue.Sync(scope, entries, current.entryId, store.data.settings.shuffle);
     current.queuePlaylistId = queue.playlistId;
+    if (notify) Emit('queue', QueueState());
   }
 }
 function SecureIPC(event) {
@@ -641,7 +665,7 @@ async function Command(command, value) {
   lastPlayerCommand = String(command).slice(0, 40);
   if (command === 'toggle' && !current) {
     const list = store.Playlist(store.data.activePlaylistId);
-    if (store.Entries(list.id).length) await Play(list.id);
+    if (ArrangedEntries(list.id).length) await Play(list.id);
     return;
   }
   if (!current) return;
@@ -699,13 +723,43 @@ async function Start() {
   sync = new SyncService({
     directory: syncDirectory, adapter: StoreAdapter(store, { validateLibrary: input => ValidateLibrary(input), mediaKey: LibraryMediaKey }), vault: new SessionVault(syncDirectory, safeStorage),
     request: async (method, url, { headers, body }) => { const response = await net.fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(30000) }); return { status: response.status, json: await response.json().catch(() => null) }; },
-    // 再生回数・「再生回数が少ない曲を優先する」設定の同期（ライブラリの同期のあとに行う）
+    // 再生回数・設定・お気に入り・再生履歴の同期（ライブラリの同期のあとに行う）
     extras: () => ({
       Read: async () => playCounts.SyncRead({ weighted: store.data.settings.weightedShuffle !== false, at: store.data.settings.weightedShuffleAt || 0 }),
-      Apply: async ({ rows, epoch, cursor, prefs }) => { playCounts.SyncApply({ rows, epoch, cursor }); if (prefs) Emit('state', store.Apply({ type: 'settings', settings: { weightedShuffle: prefs.weighted, weightedShuffleAt: prefs.at } })); },
-      Pushed: async () => playCounts.SyncPushed()
+      Apply: async ({ rows, epoch, cursor, prefs }) => {
+        const changed = playCounts.SyncApply({ rows, epoch, cursor });
+        if (prefs) Emit('state', sync.SuppressChanged(() => store.Apply({ type: 'settings', settings: { weightedShuffle: prefs.weighted, weightedShuffleAt: prefs.at } })));
+        if (changed > 0) { SyncPlayingQueue(); Emit('extras-updated', { counts: true }); }
+      },
+      Pushed: async () => playCounts.SyncPushed(),
+      favorites: {
+        Read: async () => favorites.SyncRead(playCounts.ledger.deviceId),
+        Apply: async ({ rows, cursor }) => {
+          const favChanged = favorites.SyncApply({ rows, cursor }) > 0;
+          const aliasChanged = store?.data.videoAliases?.length ? favorites.MigrateAliases(store.data.videoAliases) : false;
+          if (favChanged || aliasChanged) { SyncPlayingQueue(); Emit('favorites', FavoriteIds()); }
+        },
+        Pushed: async () => favorites.SyncPushed()
+      },
+      history: {
+        Read: async () => historyStore.SyncRead(playCounts.ledger.deviceId),
+        Apply: async ({ rows, clearedAt, cursor }) => {
+          const histChanged = historyStore.SyncApply({ rows, clearedAt, cursor }) > 0;
+          const aliasChanged = store?.data.videoAliases?.length ? historyStore.MigrateAliases(store.data.videoAliases) : false;
+          if (histChanged || aliasChanged) { SyncPlayingQueue(); Emit('extras-updated', { history: true }); }
+        },
+        Pushed: async () => historyStore.SyncPushed()
+      }
     }),
-    onStatus: status => Emit('sync', status), onApplied: () => { if (current?.playlistId) SyncPlayingQueue(); Emit('state', store.Snapshot()); }
+    onResetExtras: () => { playCounts?.ResetSync(); favorites?.ResetSync(); historyStore?.ResetSync(); },
+    onStatus: status => Emit('sync', status), onApplied: () => {
+      const { histChanged } = MigrateAliases();
+      if (current?.playlistId) SyncPlayingQueue(false);
+      Emit('state', store.Snapshot());
+      if (favorites) Emit('favorites', FavoriteIds());
+      if (histChanged) Emit('extras-updated', { history: true });
+      Emit('extras-updated', { counts: true });
+    }
   });
 
   protocol.handle('favecus', async request => {
@@ -734,6 +788,11 @@ async function Start() {
   await offline.Organize(); archive = new LibraryArchive(store, offline);
   // 再生回数：台帳は play-ledger.json。以前の play-counts.json は、変更せずに1回だけ引き継ぐ（同期は、台帳の行だけを送る）
   playCounts = new PlayCounts(path.join(app.getPath('userData'), 'play-ledger.json'), Notify, { legacyFile: path.join(app.getPath('userData'), 'play-counts.json'), aliases: () => store?.data.videoAliases || [] });
+  favorites.onChange = info => { if (info?.syncable) sync?.ScheduleExtras(); };
+  playCounts.onChange = info => {
+    if (info?.rows?.length || info?.epoch !== undefined) sync?.ScheduleExtras();
+    Emit('extras-updated', { counts: true });
+  };
   additionReview = new AdditionReview(store, { resolveTitle: async entry => {
     const data = await biliAccount.Details(entry.videoId);
     RememberVideo(entry, data);
@@ -845,6 +904,10 @@ async function Start() {
   playTimeStore = new PlayTimeStore(path.join(app.getPath('userData'), 'play-time.json'));
   autoListSettings = new AutoListSettingsStore(path.join(app.getPath('userData'), 'auto-list-settings.json'));
   playCounts.onCounted = (key, at) => historyStore.Add(key, at); // 回数を数えたとき（実再生の3秒など）に、再生履歴へ足す
+  historyStore.onChange = info => {
+    if (info?.syncable || info?.cleared) sync?.ScheduleExtras();
+    if (info?.cleared) Emit('extras-updated', { history: true });
+  };
   // 自動リストの設定（件数・条件）と、再生履歴・再生統計
   Handle('autolist:settings', value => (value === undefined || value === null ? autoListSettings.Get() : autoListSettings.Set(value)));
   Handle('history:clear', () => { historyStore.Clear(); return true; });
@@ -861,6 +924,7 @@ async function Start() {
   Handle('library:audit', () => { let files = []; try { files = fs.readdirSync(store.media); } catch { /* メディアの置き場がまだない */ } return LibraryAudit.Audit(store.data, files); });
   // 曲の情報（アーティスト・タグ・メモ・チャプター。この端末内だけ。曲のメディア単位）。chapterText は、編集用の文（1行に「時刻 題名」）。
   notesStore = new SongNotesStore(path.join(app.getPath('userData'), 'song-notes.json'));
+  MigrateAliases();
   Handle('notes:get', (playlistId, entryId) => {
     const key = playCounts?.KeyOf(store.Entry(String(playlistId), String(entryId))), record = key ? notesStore.Get(key) : null;
     return { identified: !!key, record: record ? { ...record, chapterText: SongNotes.FormatChapters(record.chapters) } : null };

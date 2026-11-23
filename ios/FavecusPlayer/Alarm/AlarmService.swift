@@ -13,6 +13,9 @@ final class AlarmService: ObservableObject {
     /// 「ランダム」の抽選（保存済みの曲から1曲選び、最初の30秒の音にして返す）。曲がなければ nil。
     var randomPicker: (() -> AlarmSound?)?
     var now: () -> Date = { Date() }
+    var isLibraryReady: () -> Bool = { true }
+    private var resyncing = false
+    private var needsResync = false
 
     init(store: AlarmStore, scheduler: AlarmScheduling) {
         self.store = store
@@ -94,7 +97,18 @@ final class AlarmService: ObservableObject {
     /// 起動時：OS側の予約と、保存内容を合わせる。繰り返しのアラームで予約が消えていれば作り直す。
     /// 繰り返しなしで予約が残っていないものは、すでに鳴ったものとして無効にする（翌日に鳴り直さない）。
     func resync() async {
+        if resyncing { needsResync = true; return }
+        resyncing = true
+        defer { resyncing = false }
+        repeat {
+            needsResync = false
+            await performResync()
+        } while needsResync
+    }
+
+    private func performResync() async {
         guard let live = await scheduler.scheduledIDs() else { return }
+        let ready = isLibraryReady()
         for item in alarms where item.enabled && !live.contains(item.id) {
             if item.weekdays.isEmpty {
                 var done = item
@@ -104,9 +118,15 @@ final class AlarmService: ObservableObject {
                 try? store.save(next)
                 alarms = next
             } else {
-                do { try await scheduler.schedule(item, soundName: soundFileIfReady(item)) } catch { notice = error.localizedDescription }
+                var soundName = soundFileIfReady(item)
+                if soundName == nil, item.sound != nil {
+                    guard ready else { continue }
+                    soundName = await prepareSound(item)
+                }
+                do { try await scheduler.schedule(item, soundName: soundName) } catch { notice = error.localizedDescription }
             }
         }
+        guard ready else { return }
         // 「ランダム」：鳴る時刻を過ぎていたら、次の1回の曲を抽選し直す（「曲を再生」で開かれる途中の曲は、変えない）
         let pending = AlarmPlayRequest.peek()
         for item in alarms where item.enabled && item.randomSound && (item.rolledFor ?? .distantPast) <= now() && item.id.uuidString != pending {
