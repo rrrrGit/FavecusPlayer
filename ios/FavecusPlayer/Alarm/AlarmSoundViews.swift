@@ -135,10 +135,18 @@ struct AlarmRangeEditor: View {
             }
             if total > 0 {
                 Section("開始位置：\(Self.clock(start))（全体 \(Self.clock(total))）") {
-                    Slider(value: $start, in: 0...maxStart, step: 1) { _ in clampLength() }
+                    if maxStart > 0 {
+                        Slider(value: $start, in: 0...maxStart, step: 1) { _ in clampLength() }
+                    } else {
+                        Text("先頭（\(Self.clock(0))）から再生します").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                    }
                 }
                 Section("長さ：\(Int(length))秒（最大\(Int(AlarmSound.maxDuration))秒）") {
-                    Slider(value: $length, in: AlarmSound.minDuration...maxLength, step: 1)
+                    if maxLength > AlarmSound.minDuration {
+                        Slider(value: $length, in: AlarmSound.minDuration...maxLength, step: 1)
+                    } else {
+                        Text("最短（\(Int(AlarmSound.minDuration))秒）に設定されます").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                    }
                 }
                 Section {
                     Button { preview() } label: { Label("試聴", systemImage: "play.fill") }
@@ -161,6 +169,7 @@ struct AlarmRangeEditor: View {
             }
         }
         .task { await load() }
+        .onChange(of: start) { _ in clampLength() }
         .onDisappear { stopPreview() }
     }
 

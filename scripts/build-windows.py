@@ -79,7 +79,7 @@ def symbol_rvas(pe):
     return result
 
 
-def build_exe(destination, mode, payload, version, work, source=None):
+def build_exe(destination, mode, payload, version, work, source=None, electron_folder=None):
     resource,fixups=resources(ROOT/'build/icon.ico',version,destination.name,payload)
     (work/'resource.bin').write_bytes(resource)
     (work/'imports.s').write_text('''.section .idata,"aw"
@@ -96,7 +96,9 @@ ExitProcess: .quad 0
 ''')
     (work/'resource.s').write_text('.section .rsrc,"a"\n.incbin "'+str(work/'resource.bin')+'"\n')
     flags=['-mabi=ms','-mno-red-zone','-fshort-wchar','-fpie','-ffreestanding','-fno-builtin','-fno-ident','-fno-stack-protector','-fno-asynchronous-unwind-tables','-fno-unwind-tables','-O2','-Wall','-Wextra','-Wno-unused-function','-Wno-unused-variable','-Wno-misleading-indentation']
-    run('gcc','-c',*flags,f'-DMODE={mode}',str(source or ROOT/'native/main.c'),'-o',str(work/'main.o'))
+    defines=[f'-DMODE={mode}']
+    if electron_folder:defines.append(f'-DELECTRON_FOLDER=L"{electron_folder}"')
+    run('gcc','-c',*flags,*defines,str(source or ROOT/'native/main.c'),'-o',str(work/'main.o'))
     for name in ['imports','resource']:run('gcc','-c',str(work/f'{name}.s'),'-o',str(work/f'{name}.o'))
     run('ld','-mi386pep','--subsystem','windows','--major-subsystem-version','6','--minor-subsystem-version','0','--image-base','0x140000000','--entry','Entry','--dynamicbase','--nxcompat','--stack','8388608,1048576',str(work/'main.o'),str(work/'imports.o'),str(work/'resource.o'),'-o',str(destination))
     pe=bytearray(destination.read_bytes());optional,sec=sections(pe);base_rva,base_raw,_,_=sec['.idata']
@@ -123,10 +125,10 @@ def main():
     node=args.node.read_bytes()
     if not node.startswith(b'MZ') or len(node)!=93381448 or hashlib.sha256(node).hexdigest()!='5c976096e04e5c2c1f091938926234cc9fbebfe9787ddd149351b3b0ecc707b5':raise ValueError('添付MSIから展開したNode.js v24.20.0 x64を指定してください')
     pkg=json.loads((ROOT/'package.json').read_text());version=pkg['version'];electron=json.loads((ROOT/'scripts/runtime-downloads.json').read_text())['electron']['version']
-    (ROOT/'native/config.h').write_text(f'#define ELECTRON_FOLDER L"runtime\\\\electron-{electron}"\n')
+    electron_folder=f'runtime\\\\electron-{electron}'
     args.output.mkdir(parents=True,exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='favecus-windows-build-') as temporary:
-        work=Path(temporary);launcher=args.output/'FavecusPlayer.exe';build_exe(launcher,0,None,version,work)
+        work=Path(temporary);launcher=args.output/'FavecusPlayer.exe';build_exe(launcher,0,None,version,work,electron_folder=electron_folder)
         taskbar=args.output/'FavecusPlayerTaskbar.exe';build_exe(taskbar,0,None,version,work,ROOT/'native/taskbar.c')
         records={}
         for folder in ['src','docs','build']:
@@ -141,8 +143,8 @@ def main():
         with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=7) as z:
             for name,file in records.items():z.write(file,name)
             z.writestr('manifest.json',json.dumps(manifest,ensure_ascii=False,indent=2))
-        build_exe(args.output/'Setup.exe',1,archive,version,work)
-        build_exe(args.output/'Patch.exe',2,archive,version,work)
+        build_exe(args.output/'Setup.exe',1,archive,version,work,electron_folder=electron_folder)
+        build_exe(args.output/'Patch.exe',2,archive,version,work,electron_folder=electron_folder)
     checksums={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in args.output.glob('*.exe')}
     (args.output/'SHA256SUMS.txt').write_text('\n'.join(f'{value}  {name}' for name,value in checksums.items())+'\n')
     print(json.dumps({'version':version,'files':[{ 'file':str(p),'bytes':p.stat().st_size } for p in args.output.iterdir()]},ensure_ascii=False))

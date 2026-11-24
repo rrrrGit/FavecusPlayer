@@ -110,11 +110,14 @@ class SyncSession {
     try { repository = this.makeRepository(); } catch (error) { return { ok: false, error: error.message }; }
     const base = this.base, version = this.version;
     const result = await E.Sync(this.device, repository, this.now(), await this.adapter.Context());
+    if (context.isAborted?.()) return { ok: false, aborted: true, error: '同期は中断されました。' };
     try {
       // 同期中にローカルの編集があった：同期前のbaseとの差分として取り込んでから反映する。先にライブラリ、その後に同期の状態。
       if (this.version !== version) await this.Converge(base); else await this.Apply(undefined);
+      if (context.isAborted?.()) return { ok: false, aborted: true, error: '同期は中断されました。' };
       if (result.ok) this.lastSyncAt = this.now();
       if (result.ok && this.now() - this.lastCompactAt > DAY) { try { await repository.Compact(this.now()); this.lastCompactAt = this.now(); } catch { /* 整理は次回に回す */ } }
+      if (context.isAborted?.()) return { ok: false, aborted: true, error: '同期は中断されました。' };
       await this.persist(this);
     } catch (error) { return { ok: false, error: `反映できません：${error.message}` }; }
     return result.ok ? { ok: true, resynced: !!result.resynced } : { ok: false, error: result.error };

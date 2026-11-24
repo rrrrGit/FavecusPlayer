@@ -343,14 +343,16 @@ final class DownloadTests: XCTestCase {
 
     // MARK: ZIPに同梱された保存済みメディアの取り込み
 
-    private func makeDownloadsZip(audio: Data, declaredBytes: Int? = nil, media: String = "downloads/media/abc.m4a") throws -> URL {
-        let url = directory.appendingPathComponent("downloads-\(UUID().uuidString).zip")
-        let writer = try ZipWriter(url: url)
-        let catalog: [String: Any] = ["version": 1, "files": [["url": "https://www.bilibili.com/video/BV1aaaaaaaaa/", "kind": "audio", "media": media, "bytes": declaredBytes ?? audio.count, "duration": 2, "height": 0]]]
+    private func makeDownloadsZip(audio: Data, declaredBytes: Int? = nil, media: String = "downloads/media/abc.m4a", url: String = "https://www.bilibili.com/video/BV1aaaaaaaaa/", aliases: [String] = []) throws -> URL {
+        let dlUrl = directory.appendingPathComponent("downloads-\(UUID().uuidString).zip")
+        let writer = try ZipWriter(url: dlUrl)
+        var item: [String: Any] = ["url": url, "kind": "audio", "media": media, "bytes": declaredBytes ?? audio.count, "duration": 2, "height": 0]
+        if !aliases.isEmpty { item["aliases"] = aliases }
+        let catalog: [String: Any] = ["version": 1, "files": [item]]
         try writer.add(name: "downloads/catalog.json", data: try JSONSerialization.data(withJSONObject: catalog))
         try writer.add(name: media, data: audio)
         try writer.finish()
-        return url
+        return dlUrl
     }
 
     func testDownloadedMediaInTheZipIsImportedForSongsInTheLibraryAndNotForOthers() async throws {
@@ -373,6 +375,25 @@ final class DownloadTests: XCTestCase {
         let again = await service.importDownloaded(from: url, records: records, entries: [entry])
         XCTAssertEqual(again.imported, 0)
         XCTAssertTrue(leftovers(service).isEmpty)
+    }
+
+    func testImportedDownloadMatchesCatalogAliasesAndConcurrentRefreshKeys() async throws {
+        let audio = try makeAudio(seconds: 2)
+        let zipUrl = try makeDownloadsZip(audio: audio, url: "https://www.bilibili.com/video/av123/", aliases: ["https://www.bilibili.com/video/BV1aaaaaaaaa/"])
+        let zip = try ZipArchive(source: try FileSource(url: zipUrl))
+        let records = try TransferService.readDownloads(zip)
+        XCTAssertEqual(records.first?.aliases, ["https://www.bilibili.com/video/BV1aaaaaaaaa/"])
+
+        let (service, _) = try environment(Fixture(audio: audio))
+        await service.start()
+        // importDownloaded 中に別タスクで refreshKeys(entries: []) が競合しても、取り込み対象の照合を落とさない
+        async let importedResult = service.importDownloaded(from: zipUrl, records: records, entries: [entry])
+        async let competingRefresh: [String: String] = service.refreshKeys(entries: [])
+        let (result, _) = await (importedResult, competingRefresh)
+        XCTAssertEqual(result.imported, 1)
+        XCTAssertEqual(result.failed, 0)
+        let key = try await requireKey(service)
+        XCTAssertNotNil(service.savedFile(key: key))
     }
 
     func testABrokenOrMismatchedDownloadsCatalogIsRefusedAndAnUnreadableMediaFileIsCountedAsFailed() async throws {

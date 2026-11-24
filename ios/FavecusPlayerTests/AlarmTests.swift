@@ -19,8 +19,10 @@ final class AlarmTests: XCTestCase {
         var scheduled: [UUID: AlarmItem] = [:]
         var soundNames: [UUID: String?] = [:]
         var failure: AlarmError?
+        var waitBeforeSchedule: (() async -> Void)?
         func requestAuthorization() async -> AlarmAuthorization { failure == nil ? .authorized : .denied }
         func schedule(_ item: AlarmItem, soundName: String?) async throws {
+            if let waitBeforeSchedule { await waitBeforeSchedule() }
             if let failure { throw failure }
             scheduled[item.id] = item
             soundNames[item.id] = soundName
@@ -174,6 +176,69 @@ final class AlarmTests: XCTestCase {
         ready = true
         await sut.resync()
         XCTAssertEqual(rollCount, 2, "ライブラリ読み込み完了後の resync で再抽選する")
+    }
+
+    func testSaveAndRemoveAreSerializedAndDisablingDoesNotReRollOrLeaveOldCaf() async throws {
+        let scheduler = FakeScheduler()
+        var gateContinuation: CheckedContinuation<Void, Never>?
+        var enterContinuation: CheckedContinuation<Void, Never>?
+        scheduler.waitBeforeSchedule = {
+            enterContinuation?.resume()
+            enterContinuation = nil
+            await withCheckedContinuation { gateContinuation = $0 }
+        }
+        let sut = service(scheduler)
+        sut.soundsDirectory = directory.appendingPathComponent("Sounds", isDirectory: true)
+        try FileManager.default.createDirectory(at: sut.soundsDirectory!, withIntermediateDirectories: true)
+
+        // 1) save のスケジュール待機中に remove を呼んでも、削除済みアラームが復活しない
+        let raced = AlarmItem(hour: 7, minute: 0, weekdays: [2])
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            enterContinuation = cont
+            Task { await sut.save(raced) }
+        }
+        let removeTask = Task { await sut.remove(id: raced.id) }
+        await Task.yield()
+        scheduler.waitBeforeSchedule = nil
+        gateContinuation?.resume()
+        gateContinuation = nil
+        await removeTask.value
+        XCTAssertTrue(sut.alarms.isEmpty, "save 待機中の remove 後に削除済みアラームが復活しない")
+        XCTAssertTrue(scheduler.scheduled.isEmpty)
+
+        // 2) setEnabled(false) ではランダム再抽選せず、pendingPlayAlarmId 設定中も resync で再抽選しない
+        var current = Date(timeIntervalSince1970: 1_700_000_000)
+        var rollCount = 0
+        sut.now = { current }
+        sut.randomPicker = {
+            rollCount += 1
+            return AlarmSound(mediaKey: "local:song.mp3", startSeconds: 0, durationSeconds: 30)
+        }
+        let randomAlarm = AlarmItem(hour: 8, minute: 0, weekdays: [2], randomSound: true)
+        await sut.save(randomAlarm)
+        XCTAssertEqual(rollCount, 1)
+        await sut.setEnabled(id: randomAlarm.id, false)
+        XCTAssertEqual(rollCount, 1, "無効化時は再抽選しない")
+        await sut.setEnabled(id: randomAlarm.id, true)
+        XCTAssertEqual(rollCount, 2)
+
+        current = current.addingTimeInterval(14 * 86400)
+        sut.pendingPlayAlarmId = { randomAlarm.id.uuidString }
+        await sut.resync()
+        XCTAssertEqual(rollCount, 2, "曲を再生の待機中は resync で上書き抽選しない")
+        sut.pendingPlayAlarmId = nil
+
+        // 3) 既定の音に戻すと旧 .caf が削除され、前回の notice も消える
+        let custom = AlarmItem(hour: 9, minute: 0, sound: AlarmSound(mediaKey: "local:missing.mp3", startSeconds: 0, durationSeconds: 10))
+        await sut.save(custom)
+        XCTAssertNotNil(sut.notice)
+        let oldCaf = sut.soundsDirectory!.appendingPathComponent(AlarmService.soundFileName(id: custom.id))
+        try Data("dummy".utf8).write(to: oldCaf)
+        var reverted = custom
+        reverted.sound = nil
+        await sut.save(reverted)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldCaf.path), "既定の音に戻すと旧 .caf を削除する")
+        XCTAssertNil(sut.notice, "保存成功時は過去の notice を消す")
     }
 }
 

@@ -20,11 +20,22 @@ struct ImportList: Decodable, Identifiable, Equatable {
 /// ZIPに同梱された、保存済みの動画・音声（Windows版の downloads/catalog.json の1件）。
 struct ImportDownload: Equatable {
     let url: String
+    let aliases: [String]
     let kind: String      // audio / video
     let media: String     // ZIP内の名前（downloads/media/…）
     let bytes: Int64
     let duration: Double
     let height: Int
+
+    init(url: String, aliases: [String] = [], kind: String, media: String, bytes: Int64, duration: Double, height: Int) {
+        self.url = url
+        self.aliases = aliases
+        self.kind = kind
+        self.media = media
+        self.bytes = bytes
+        self.duration = duration
+        self.height = height
+    }
 }
 
 struct ImportPlan {
@@ -185,7 +196,8 @@ final class TransferService: @unchecked Sendable {
                   zip.entries[media]?.bytes == UInt64(bytes), seen.insert(media).inserted else {
                 throw TransferError.message("保存済みデータの参照が正しくありません。")
             }
-            return ImportDownload(url: url, kind: kind, media: media, bytes: bytes, duration: (file["duration"] as? NSNumber)?.doubleValue ?? 0, height: (file["height"] as? NSNumber)?.intValue ?? 0)
+            let aliases = (file["aliases"] as? [String] ?? []).filter { !$0.isEmpty }
+            return ImportDownload(url: url, aliases: aliases, kind: kind, media: media, bytes: bytes, duration: (file["duration"] as? NSNumber)?.doubleValue ?? 0, height: (file["height"] as? NSNumber)?.intValue ?? 0)
         }
     }
 

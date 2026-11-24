@@ -22,6 +22,8 @@ struct LibraryTab: View {
     @State private var hitTotal = 0
     @State private var hitPage = 0
     @State private var hitPages = 1
+    @State private var searchGeneration = 0
+    @State private var loadMoreTask: Task<Void, Never>?
 
     private var document: LibraryDocument? { store.document }
     private var roots: [PlaylistItem] { document?.children(of: nil) ?? [] }
@@ -48,9 +50,16 @@ struct LibraryTab: View {
 
     /// 検索の入力・ライブラリの変化で、先頭の50件を取り直す（入力が続く間は待つ）。
     private func runSearch(page: Int) async {
-        guard !trimmedQuery.isEmpty, let player = services.player else { hits = []; hitTotal = 0; hitPage = 0; hitPages = 1; return }
-        if page == 0 { try? await Task.sleep(nanoseconds: 200_000_000); if Task.isCancelled { return } }
-        guard let result = await player.search(query: trimmedQuery, page: page), !Task.isCancelled else { return }
+        if page == 0 {
+            loadMoreTask?.cancel()
+            loadMoreTask = nil
+            searchGeneration += 1
+        }
+        let mine = searchGeneration
+        let targetQuery = trimmedQuery
+        guard !targetQuery.isEmpty, let player = services.player else { hits = []; hitTotal = 0; hitPage = 0; hitPages = 1; return }
+        if page == 0 { try? await Task.sleep(nanoseconds: 200_000_000); if Task.isCancelled || mine != searchGeneration || targetQuery != trimmedQuery { return } }
+        guard let result = await player.search(query: targetQuery, page: page), !Task.isCancelled, mine == searchGeneration, targetQuery == trimmedQuery else { return }
         hits = page == 0 ? result.items : hits + result.items
         hitTotal = result.total; hitPage = result.page; hitPages = result.pages
     }
@@ -115,7 +124,11 @@ struct LibraryTab: View {
                 SongRow(entry: item.entry, scope: item.list.id, services: services, context: item.list.name)
             }
             if services.player != nil, hitPage + 1 < hitPages {
-                Button("さらに表示") { Task { await runSearch(page: hitPage + 1) } }.listRowBackground(Theme.background)
+                Button("さらに表示") {
+                    loadMoreTask?.cancel()
+                    loadMoreTask = Task { await runSearch(page: hitPage + 1) }
+                }
+                .listRowBackground(Theme.background)
             }
             Color.clear.frame(height: 80).listRowBackground(Theme.background).listRowSeparator(.hidden)
         }

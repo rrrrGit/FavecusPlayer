@@ -109,6 +109,7 @@ function AddURL(prefill = {}) {
     return AddSelected({ type: 'add-videos', videos: [{ ...resolved.video, title: $('url-title').value }] }, destinations());
   }, '追加する');
   destinations = AddDestinations(); const epoch = modalEpoch;
+  const optionalDestinations = () => { try { return destinations(); } catch { return []; } };
   $('url-input').value = prefill.url || ''; $('url-title').value = prefill.title || ''; $('modal-submit').disabled = true;
   const analyze = async () => {
     const value = $('url-input').value.trim(), token = ++request; $('url-load').disabled = true; $('modal-submit').disabled = true;
@@ -117,13 +118,13 @@ function AddURL(prefill = {}) {
       const result = await api.resolveURL(value);
       if (epoch !== modalEpoch || token !== request || value !== $('url-input').value.trim()) return;
       resolved = result; readInput = value;
-      if (result.kind === 'playlist') { PlaylistURL({ url: value, sources: result.sources, destinationIds: destinations() }); return; }
+      if (result.kind === 'playlist') { PlaylistURL({ url: value, sources: result.sources, destinationIds: optionalDestinations() }); return; }
       if (result.kind === 'videos') { $('url-single').classList.add('hidden'); $('url-related').classList.add('hidden'); $('url-analysis').textContent = `単体動画 ${result.videos.length}件を読み込みました。`; $('modal-submit').disabled = false; return; }
       $('url-single').classList.remove('hidden'); $('url-analysis').textContent = `単体動画 · ${result.video.videoId} · P${result.video.part}`;
       if (!$('url-title').value) $('url-title').value = result.video.title || '';
       $('modal-submit').disabled = false; $('url-related').replaceChildren();
       $('url-related').classList.toggle('hidden', !result.sources.length);
-      if (result.sources.length) $('url-related').append(Button('この動画の全パート・再生リストを開く', 'button secondary', () => PlaylistURL({ url: value, sources: result.sources, destinationIds: destinations() })));
+      if (result.sources.length) $('url-related').append(Button('この動画の全パート・再生リストを開く', 'button secondary', () => PlaylistURL({ url: value, sources: result.sources, destinationIds: optionalDestinations() })));
     } catch (error) { if (epoch === modalEpoch && token === request) { resolved = null; $('url-analysis').textContent = error.message; } }
     finally { if (epoch === modalEpoch && token === request) $('url-load').disabled = false; }
   };

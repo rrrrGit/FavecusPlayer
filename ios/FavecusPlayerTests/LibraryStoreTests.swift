@@ -170,6 +170,18 @@ final class LibraryStoreTests: XCTestCase {
         XCTAssertEqual(try read(damaged), "{broken")
     }
 
+    func testInvalidUTF8FileFallsBackToTheBackupAndKeepsTheDamagedFile() async throws {
+        let store = try await storeWithABackup()
+        try Data([0xFF, 0xFE, 0x80]).write(to: store.fileURL)
+        let reloaded = try makeStore()
+        await reloaded.load()
+        XCTAssertEqual(reloaded.state, .ready)
+        let names = Set(reloaded.document?.playlists.map(\.name) ?? [])
+        XCTAssertTrue(names.contains("残る"))
+        XCTAssertFalse(names.contains("最後"))
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: directory.path).contains { $0.hasPrefix("library.json.damaged-") })
+    }
+
     func testMoveMapperTranslatesOnMoveIntoBeforeAndAfter() {
         let ids = ["a", "b", "c", "d"]
         XCTAssertEqual(MoveMapper.map(ids: ids, from: IndexSet(integer: 0), to: 3), MoveMapper.Result(id: "a", targetId: "c", after: true))

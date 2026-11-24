@@ -20,9 +20,12 @@ extension PlaybackEngine {
     func setShuffle(_ on: Bool) {
         guard shuffle != on else { return }
         shuffle = on
-        guard var request = syncRequest() else { return }
-        request["shuffle"] = on
+        let mine = generation
+        guard syncRequest() != nil else { return }
         Task {
+            let weights: [String: Double]? = on ? await shuffleWeights() : nil
+            guard self.shuffle == on, mine == self.generation, var request = syncRequest() else { return }
+            if let weights { request["weights"] = weights } else { request["weights"] = NSNull() }
             _ = await queue("QueueSync", request)
             await refreshQueue()
         }
@@ -49,13 +52,18 @@ extension PlaybackEngine {
         guard Crossfade.shouldStart(seconds: seconds, position: position, duration: duration, isPlaying: isPlaying, repeatOne: repeatMode == .one, nextIsReady: ready, alreadyStarted: crossfadeStartedFor == current.entryId) else { return }
         crossfadeStartedFor = current.entryId
         crossfadePending = true
-        Task { await advance(direction: 1, automatic: true); crossfadePending = false } // 失敗・中断のときも、印を戻す（次の手動の曲選びで、重ならないように）
+        let mine = generation
+        Task {
+            await advance(direction: 1, automatic: true)
+            if self.generation == mine { crossfadePending = false } // 失敗・中断のときも、印を戻す（次の手動の曲選びで、重ならないように）
+        }
     }
 
     /// 「次に再生」（where: "next"）・「キューの最後に追加」（where: "end"）。再生していないときは、何もしない。
     @discardableResult
     func enqueue(_ item: EntryItem, listId: String, where position: String) async -> Bool {
         guard current != nil, canPlay(item) else { message = "再生中の曲があるときに使えます"; return false }
+        if restoredPending { await prepareRestoredQueue() }
         let entry: [String: Any] = ["id": item.id, "playlistId": ownerListId(of: item) ?? listId, "title": item.title, "type": item.type]
         let request: [String: Any] = ["entry": entry, "where": position]
         guard let text = try? String(decoding: JSONSerialization.data(withJSONObject: request), as: UTF8.self),
@@ -71,6 +79,7 @@ extension PlaybackEngine {
     func playQueued(_ id: String) async {
         guard let canPlayEntry = entry(id), canPlay(canPlayEntry) else { return }
         failureStreak = 0
+        crossfadePending = false
         generation += 1
         let mine = generation
         guard let result = await queue("QueueJump", ["id": id]), let target = result.id, let playlistId = result.playlistId else { return }

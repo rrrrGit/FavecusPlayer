@@ -159,13 +159,13 @@ class SyncService {
     this.cycling = true;
     this.Emit('syncing');
     try {
-      const result = await this.session.Cycle(); // データの安全に関わる規則は共通の sync-session.cjs
       const aborted = () => gen !== this.resetGen || this.pendingReset || this.disposed || !this.config.enabled;
-      if (aborted()) return { ok: false, error: '同期は中断されました。' };
+      const result = await this.session.Cycle({ isAborted: aborted }); // データの安全に関わる規則は共通の sync-session.cjs
+      if (aborted() || result.aborted) return { ok: false, error: '同期は中断されました。' };
       if (result.blocked) { this.blocked = result.blocked; this.Emit('blocked'); return { ok: false, error: result.blocked }; }
       if (result.ok && this.extras) {
-        const extra = await SyncExtras(this.extras(), this.Repository());
-        if (aborted()) return { ok: false, error: '同期は中断されました。' };
+        const extra = await SyncExtras(this.extras(), this.Repository(), { isAborted: aborted });
+        if (aborted() || extra.aborted) return { ok: false, error: '同期は中断されました。' };
         this.extrasNotice = extra.ok ? '' : extra.error; // テーブル未作成（SQL未実行）などは、お知らせとして表示するだけ
       }
       this.Emit(result.ok ? 'idle' : 'error', result.ok ? '' : result.error);

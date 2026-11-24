@@ -9,7 +9,10 @@ enum AlarmSoundMaker {
     static let maxBoost: Float = 4
     static let fadeInSeconds = 0.2
 
-    private final class LevelState: @unchecked Sendable { var framesDone = 0 }
+    private final class LevelState: @unchecked Sendable {
+        var framesDone = 0
+        var finished = false
+    }
 
     private static func peakOf(asset: AVURLAsset, track: AVAssetTrack, range: CMTimeRange, settings: [String: Any]) throws -> Int {
         let reader = try AVAssetReader(asset: asset)
@@ -87,16 +90,32 @@ enum AlarmSoundMaker {
         guard writer.startWriting() else { throw AlarmError.sound("音声を書き出せません") }
         writer.startSession(atSourceTime: CMTime(seconds: from, preferredTimescale: 600))
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let complete: @Sendable () -> Void = {
+                guard !level.finished else { return }
+                level.finished = true
+                input.markAsFinished()
+                continuation.resume()
+            }
             input.requestMediaDataWhenReady(on: DispatchQueue(label: "favecus.alarm.sound")) {
+                if level.finished { return }
                 while input.isReadyForMoreMediaData {
-                    if let buffer = readerOutput.copyNextSampleBuffer() {
-                        scale(buffer, gain: gain, fadeFrames: fadeFrames, state: level)
-                        input.append(buffer)
-                    } else {
-                        input.markAsFinished()
-                        continuation.resume()
+                    guard writer.status == .writing, reader.status == .reading || reader.status == .completed else {
+                        complete()
                         return
                     }
+                    if let buffer = readerOutput.copyNextSampleBuffer() {
+                        scale(buffer, gain: gain, fadeFrames: fadeFrames, state: level)
+                        if !input.append(buffer) {
+                            complete()
+                            return
+                        }
+                    } else {
+                        complete()
+                        return
+                    }
+                }
+                if writer.status != .writing || reader.status == .failed || reader.status == .cancelled {
+                    complete()
                 }
             }
         }

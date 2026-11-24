@@ -206,5 +206,6 @@ final class AppEnvironment: ObservableObject {
             observer = ServicesObserver(downloads: nil, artwork: fallbackArtwork)
         }
         alarms.isLibraryReady = { [weak self] in self?.libraryReady == true }
+        alarms.pendingPlayAlarmId = { [weak self] in self?.pendingAlarmId }
     }
 }

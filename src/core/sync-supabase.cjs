@@ -120,11 +120,22 @@ class SupabaseSyncRepository {
   }
   async Pull(cursor) {
     const meta = await this.Meta();
-    if (!Number.isInteger(cursor) || cursor < meta.watermark) {
-      const all = await this.Rows(0);
-      return { resync: true, snapshot: Records(S.Merge(S.NewState(), all.rows.map(row => ({ id: row.record_id, f: row.f }))).state), cursor: Math.max(all.last, meta.lastSeq) };
-    }
+    const fullResync = async initialMeta => {
+      let current = initialMeta;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const all = await this.Rows(0);
+        const after = await this.Meta();
+        if (after.watermark === current.watermark || attempt === 1) {
+          return { resync: true, snapshot: Records(S.Merge(S.NewState(), all.rows.map(row => ({ id: row.record_id, f: row.f }))).state), cursor: Math.max(all.last, current.lastSeq) };
+        }
+        current = after;
+      }
+    };
+    if (!Number.isInteger(cursor) || cursor < meta.watermark) return fullResync(meta);
     const got = await this.Rows(cursor);
+    const after = await this.Meta();
+    // 取得中に Compact が走って watermark が進んだ場合は、90日超の削除 Tombstone 取りこぼしを防ぐため全量再同期へ切り替える。
+    if (after.watermark > meta.watermark || cursor < after.watermark) return fullResync(after);
     return { changes: got.rows.map(row => ({ id: row.record_id, f: row.f })), cursor: got.last };
   }
   // ---- v0.7.1〜v0.7.5：再生回数・設定・お気に入り・再生履歴（別テーブル。supabase/schema.sql を再実行していないときは、code: 'missing' で知らせる。ライブラリの同期は、これと無関係に動く）

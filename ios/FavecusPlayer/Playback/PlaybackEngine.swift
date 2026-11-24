@@ -73,7 +73,13 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     var resumeStore: ResumeStore?
     /// 起動後に、前回の曲を「一時停止の状態」で表示しているだけ（まだ読み込んでいない）。再生を押すと、保存した位置から始める。
     @Published private(set) var restoredPending = false
-    private var resumeSeek: (id: String, position: Double)?
+    private var restoredQueuePrepared = false
+    private var restoredQueueTask: Task<Void, Never>?
+    private var restoringPlayTask: Task<Void, Never>?
+    private var endedAtTail = false
+    private var videoFallbackPosition: Double?
+    private var levelingGeneration = 0
+    private var resumeSeek: (id: String, position: Double, token: UUID)?
     /// 再生回数の台帳（数える・抽選の重み）。なければ、数えず、均等に抽選する。
     var counts: PlayCountStore?
     /// 曲の並べ替え・絞り込みの選択（リストごと。この端末内だけ）。再生順にも使う。
@@ -169,6 +175,14 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         autoSettings.$settings.dropFirst().sink { [weak self] _ in
             self?.extrasRevision += 1
         }.store(in: &extrasObservers)
+        if let downloads = provider as? DownloadService {
+            downloads.$records.dropFirst().sink { [weak self] _ in
+                self?.extrasRevision += 1
+            }.store(in: &extrasObservers)
+            downloads.$entryKeys.dropFirst().sink { [weak self] _ in
+                self?.extrasRevision += 1
+            }.store(in: &extrasObservers)
+        }
     }
 
     func migrateAliases(_ aliases: [[String: String]]) async {
@@ -218,6 +232,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             }
         }
         failureStreak = 0
+        crossfadePending = false
         generation += 1
         let mine = generation
         // そのリストに、並べ替え・絞り込みを選んでいるときは、その順で再生する（明示の曲の並びがあるときは、それを優先）
@@ -300,11 +315,13 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     func previous() { Task { await goPrevious() } }
 
     func goNext() async {
+        crossfadePending = false
         if restoredPending { await prepareRestoredQueue() } // 起動直後の表示だけの状態：先に、前回の曲を基準に再生キューを作る
         await advance(direction: 1, automatic: false)
     }
 
     func goPrevious() async {
+        crossfadePending = false
         if restoredPending { await playRestored(fromStart: true); return } // 読み込み前：この曲の頭から再生する
         // 再生位置が数秒進んでいれば、前の曲ではなく、この曲の頭へ戻る（一般的なプレイヤーの動作）。
         if position > 3 { seek(to: 0); return }
@@ -313,13 +330,36 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     func resume() {
         guard current != nil else { return }
-        if restoredPending { Task { await playRestored(fromStart: false) }; return }
+        if restoredPending {
+            if restoringPlayTask == nil {
+                restoringPlayTask = Task {
+                    await playRestored(fromStart: false)
+                    restoringPlayTask = nil
+                }
+            }
+            return
+        }
+        system?.activate()
+        let restarted = endedAtTail
+        if endedAtTail {
+            endedAtTail = false
+            backend.seek(to: 0)
+        }
         backend.play()
         refresh()
+        if restarted {
+            position = 0
+            system?.update(title: current?.title, position: 0, duration: duration, playing: isPlaying, artwork: currentArtwork(), rate: speed)
+        }
         playTime.observe(position: position, paused: false, rate: speed)
     }
 
     func pause() {
+        if restoredPending {
+            isPlaying = false
+            system?.update(title: current?.title, position: position, duration: duration, playing: false, artwork: currentArtwork(), rate: speed)
+            return
+        }
         backend.pause()
         refresh()
         playTime.observe(position: position, paused: true, rate: speed)
@@ -333,6 +373,14 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     func seek(to seconds: Double) {
         crossfadeStartedFor = nil
+        endedAtTail = false
+        videoFallbackPosition = nil
+        if restoredPending {
+            let clamped = duration > 0 ? min(max(0, seconds), duration) : max(0, seconds)
+            position = clamped
+            system?.update(title: current?.title, position: clamped, duration: duration, playing: false, artwork: currentArtwork(), rate: speed)
+            return
+        }
         backend.seek(to: seconds)
         position = seconds
         refresh()
@@ -340,9 +388,15 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
 
     func stop() {
         generation += 1
+        levelingGeneration += 1
         playSession += 1
         loadedSession = 0
         crossfadeStartedFor = nil
+        crossfadePending = false
+        restoredPending = false
+        restoredQueuePrepared = false
+        endedAtTail = false
+        videoFallbackPosition = nil
         if let counts { Task { await counts.stop() } }
         playTime.stop()
         isPreparing = false
@@ -394,6 +448,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         if result?.stopped == true { stop(); return } // 現在の曲がライブラリからなくなった（Windows版と同じく止める）
         guard let result, let id = result.id, let playlistId = result.playlistId else {
             // 最後まで再生した（リピートなし）／前がない：止める。曲の表示は残す。
+            endedAtTail = direction > 0
             backend.pause()
             refresh()
             playTime.observe(position: position, paused: true, rate: speed)
@@ -404,25 +459,40 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     }
 
     /// ライブラリが変わったとき、再生中の曲が再生範囲に残っているかを確かめる（なくなったら止める）。
-    private func resync() async {
+    func resync() async {
         guard let sync = syncRequest() else { return }
         let mine = generation
         let result = await queue("QueueSync", sync)
-        guard mine == generation, result?.stopped == true else { return }
-        stop()
+        guard mine == generation else { return }
+        if result?.stopped == true { stop(); return }
+        await refreshQueue()
+    }
+
+    /// リストの並べ替え・絞り込み設定が変わったとき、そのリストを再生中ならキューを追従させる。
+    func onListViewChanged(playlistId: String) async {
+        guard current != nil, scope == playlistId else { return }
+        let mine = generation
+        let updated = await scopeArrangedIds(playlistId)
+        guard mine == generation, current != nil, scope == playlistId else { return }
+        scopeEntryIds = updated
+        await resync()
     }
 
     func load(id: String, playlistId: String) async {
         guard let target = entry(id) else { return }
         generation += 1
+        levelingGeneration += 1
         playSession += 1
         crossfadeStartedFor = nil
+        endedAtTail = false
+        videoFallbackPosition = nil
         let mine = generation
         playTime.stop()
         await counts?.stop()
         guard mine == generation else { return }
         system?.activate()
         restoredPending = false
+        restoredQueuePrepared = false
         // 次の曲の準備中に、前の曲のファイルで動画に切り替えないよう、前の曲の動画の情報を消しておく
         videoMode = false
         videoAvailable = false
@@ -505,16 +575,20 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     private func switchVideo(_ on: Bool) {
         guard current != nil, on != videoMode else { return }
         guard let target = on ? videoFile : audioFile else { return }
-        let position = backend.position, playing = backend.isPlaying
+        let savedPosition = backend.position > 0 ? backend.position : position
+        let playing = backend.isPlaying
         videoMode = on
+        videoFallbackPosition = on ? savedPosition : nil
+        levelingGeneration += 1
         if loadedFile != target {
             backend.load(url: target)
-            backend.seek(to: position)
+            backend.seek(to: savedPosition)
             loadedFile = target
             applyLeveling(file: target, generation: generation) // 別のファイルなので、音量の倍率も測り直す（前のファイルの倍率を残さない）
         }
         if playing { backend.play() }
         refresh()
+        if position == 0, savedPosition > 0 { position = savedPosition }
     }
 
     /// ログイン要・リスク制御・混雑のような、続けても同じ結果になる失敗は、止めて知らせる。それ以外は、その曲を飛ばす。
@@ -546,6 +620,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         playTime.observe(position: duration, paused: true, rate: speed)
         playTime.flush()
         if sleepTimer.consumeEndOfSong() { // 「この曲の終わりまで」：次の曲へ進まず、ここで止める
+            endedAtTail = true
             backend.pause()
             refresh()
             return
@@ -562,7 +637,9 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         guard current != nil else { return } // 止めたあとに届いた古い失敗は無視する
         // 動画を映しているときの失敗は、次の曲へ送らず、音声に戻す
         if videoMode, let audio = audioFile {
-            let resume = position
+            let resume = position > 0 ? position : (videoFallbackPosition ?? 0)
+            videoFallbackPosition = nil
+            levelingGeneration += 1
             videoMode = false
             videoAvailable = false
             videoFile = nil
@@ -574,10 +651,12 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
             backend.play()
             message = "動画を再生できませんでした。音声に戻しました。"
             refresh()
+            if position == 0, resume > 0 { position = resume }
             return
         }
         failureStreak += 1
-        guard failureStreak <= max(3, playableIds().count) else {
+        let scopeCount = scope.map { entriesInScope($0).filter(canPlay).count } ?? playableIds().count
+        guard failureStreak <= max(3, scopeCount) else {
             message = "再生できる曲がありません：\(reason)"
             failureStreak = 0
             stop()
@@ -593,10 +672,11 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         guard UserDefaults.standard.object(forKey: "volumeLeveling") as? Bool ?? true else { backend.gain = 1; return }
         if let cached = loudness.cachedGain(file) { backend.gain = Float(cached); return }
         backend.gain = 1
+        let levelGen = levelingGeneration
         Task { [weak self] in
             guard let meanDb = await VolumeLeveling.meanDb(of: file), let self else { return }
             self.loudness.store(file, meanDb: meanDb)
-            if mine == self.generation, UserDefaults.standard.object(forKey: "volumeLeveling") as? Bool ?? true { self.backend.gain = Float(VolumeLeveling.gain(meanDb: meanDb)) }
+            if mine == self.generation, levelGen == self.levelingGeneration, UserDefaults.standard.object(forKey: "volumeLeveling") as? Bool ?? true { self.backend.gain = Float(VolumeLeveling.gain(meanDb: meanDb)) }
         }
     }
 
@@ -621,36 +701,55 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
         duration = record.duration
         isPlaying = false
         restoredPending = true
+        restoredQueuePrepared = false
+        endedAtTail = false
     }
 
     /// 表示だけの前回の曲を、実際に読み込んで再生する（保存した位置から。fromStart なら頭から）。
     private func playRestored(fromStart: Bool) async {
         guard restoredPending, let current else { return }
+        let targetId = current.entryId
         let start = fromStart ? 0 : position
-        resumeSeek = start > 0 ? (id: current.entryId, position: start) : nil
-        await play(entryId: current.entryId, scope: scope ?? "*")
+        let token = UUID()
+        resumeSeek = start > 0 ? (id: targetId, position: start, token: token) : nil
+        defer { if resumeSeek?.token == token { resumeSeek = nil } }
+        if restoredQueuePrepared {
+            failureStreak = 0
+            await load(id: current.entryId, playlistId: current.playlistId)
+        } else {
+            await play(entryId: current.entryId, scope: scope ?? "*")
+        }
     }
 
-    /// 表示だけの前回の曲を基準に、再生キューだけを作る（次の曲へ進むため）。
-    private func prepareRestoredQueue() async {
-        guard restoredPending, let current else { return }
-        let mine = generation
-        let restoreScope = scope ?? "*"
-        var entryIds = await scopeArrangedIds(restoreScope)
-        guard mine == generation, restoredPending, self.current?.entryId == current.entryId else { return }
-        if let ids = entryIds, !ids.contains(current.entryId) { entryIds = [current.entryId] + ids }
-        guard let result = await startQueue(entryId: current.entryId, scope: restoreScope, entryIds: entryIds),
-              mine == generation, restoredPending, self.current?.entryId == current.entryId, result.id == current.entryId else { return }
-        scopeEntryIds = entryIds
-        restoredPending = false
-        self.current = NowPlaying(entryId: current.entryId, playlistId: result.playlistId ?? current.playlistId, title: current.title)
+    /// 表示だけの前回の曲を基準に、再生キューだけを作る（次の曲へ進む・キュー追加のため。再生自体はまだ始めない）。
+    func prepareRestoredQueue() async {
+        if let existing = restoredQueueTask { await existing.value; return }
+        guard restoredPending, !restoredQueuePrepared, let current else { return }
+        let task = Task { @MainActor in
+            let mine = generation
+            let restoreScope = scope ?? "*"
+            var entryIds = await scopeArrangedIds(restoreScope)
+            guard mine == generation, restoredPending, self.current?.entryId == current.entryId else { return }
+            if let ids = entryIds, !ids.contains(current.entryId) { entryIds = [current.entryId] + ids }
+            guard let result = await startQueue(entryId: current.entryId, scope: restoreScope, entryIds: entryIds),
+                  mine == generation, restoredPending, self.current?.entryId == current.entryId, result.id == current.entryId else { return }
+            scopeEntryIds = entryIds
+            restoredQueuePrepared = true
+            self.current = NowPlaying(entryId: current.entryId, playlistId: result.playlistId ?? current.playlistId, title: current.title)
+        }
+        restoredQueueTask = task
+        await task.value
+        restoredQueueTask = nil
     }
 
     private func tick() {
         refresh()
         startCrossfadeIfDue()
         saveResume()
-        if isPlaying && position > 0.5 { failureStreak = 0 } // 実際に再生できたら、失敗の連続を数え直す
+        if isPlaying && position > 0.5 {
+            failureStreak = 0 // 実際に再生できたら、失敗の連続を数え直す
+            videoFallbackPosition = nil
+        }
         if current != nil, !isPreparing {
             playTime.observe(position: position, paused: !isPlaying, rate: speed)
         }

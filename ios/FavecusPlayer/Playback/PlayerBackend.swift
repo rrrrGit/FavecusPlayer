@@ -103,7 +103,7 @@ final class AVPlayerBackend: PlayerBackend {
         ghost = outgoing
         outgoing.seek(to: time) { [weak self, weak outgoing] _ in
             Task { @MainActor in
-                guard let self, let outgoing, self.ghost === outgoing else { return }
+                guard let self, let outgoing, self.ghost === outgoing, self.fadeTask != nil else { return }
                 outgoing.play()
             }
         }
@@ -194,7 +194,10 @@ final class AVPlayerBackend: PlayerBackend {
 
     func play() { player.play() }
 
-    func pause() { ghost?.pause(); player.pause() }
+    func pause() {
+        endCrossfade()
+        player.pause()
+    }
 
     func seek(to seconds: Double) {
         player.seek(to: CMTime(seconds: max(0, seconds), preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)

@@ -61,11 +61,21 @@ final class LibraryStore: ObservableObject {
         loading = true
         defer { loading = false }
         do {
-            let fileText = try readFile(fileURL)
-            var result = try await open(core, fileText)
+            var fileText: String? = nil
+            var readError: Error? = nil
+            do { fileText = try readFile(fileURL) }
+            catch { readError = error }
+            var result: OpenResult
+            if let readError {
+                guard FileManager.default.fileExists(atPath: fileURL.path) else { throw readError }
+                // UTF-8 デコード不能などファイル実体はあるが読めない破損も、.bak からの復元対象にする。
+                result = OpenResult(status: "invalid", text: nil, message: "保存データを読み込めません：\(ErrorText.safe(readError))")
+            } else {
+                result = try await open(core, fileText)
+            }
             var restored = false
             // 本体がない場合も、直前のバックアップがあれば先にそれを試す（Windows版のStore.Readと同じ順序）。
-            if result.status == "new", fileText == nil, let backup = try readFile(backupURL) {
+            if result.status == "new", fileText == nil, let backup = try? readFile(backupURL) {
                 let fromBackup = try await open(core, backup)
                 if fromBackup.status == "ok" {
                     result = fromBackup
@@ -79,13 +89,13 @@ final class LibraryStore: ObservableObject {
                 break
             case "invalid":
                 // 壊れている：直前のバックアップを試す。元のファイルは別名で残す（削除・上書きしない）。
-                if fileText != nil, let backup = try readFile(backupURL) {
+                if (fileText != nil || readError != nil), let backup = try? readFile(backupURL) {
                     let fromBackup = try await open(core, backup)
                     if fromBackup.status == "ok" {
                         try keepDamaged(fileURL)
                         result = fromBackup
                         restored = true
-                    restoredThisLaunch = true
+                        restoredThisLaunch = true
                         notice = "保存データを読み込めなかったため、バックアップから復元しました。"
                         break
                     }

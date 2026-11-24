@@ -104,7 +104,13 @@ function SyncSettings() {
   $('sync-keep').onclick = () => { if (confirm('この端末の内容を正として同期します。サーバーと他の端末にある、この端末にない内容は削除されます。よろしいですか？')) call({ action: 'unblock', mode: 'keep' }, '同期しました。'); };
   $('sync-reset').onclick = () => { if (confirm('別のプロジェクト・アカウントへ切り替えるため、同期の紐付けを初期化します。手元のプレイリストは変わりません。よろしいですか？')) call({ action: 'reset' }, '初期化しました。'); };
   $('sync-now').onclick = () => call({ action: 'now' }, '同期しました。');
-  Run(async () => { const status = await api.sync({ action: 'status' }); PaintSync(status); $('sync-email').value = status.email || ''; $('sync-url').value = status.url || ''; });
+  const epoch = modalEpoch;
+  Run(async () => {
+    const status = await api.sync({ action: 'status' });
+    PaintSync(status);
+    if (epoch !== modalEpoch || !$('sync-email') || !$('sync-url')) return;
+    $('sync-email').value = status.email || ''; $('sync-url').value = status.url || '';
+  });
 }
 function KeySettings() {
   const keys = window.FavecusKeys, draft = { ...keys.Validate(state.settings.keybindings) }, inputs = new Map();

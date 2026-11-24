@@ -14,8 +14,11 @@ final class AlarmService: ObservableObject {
     var randomPicker: (() -> AlarmSound?)?
     var now: () -> Date = { Date() }
     var isLibraryReady: () -> Bool = { true }
+    /// 「曲を再生」で起動・処理中のアラームID（resync 中にランダム再抽選で書き換えないため）。
+    var pendingPlayAlarmId: (() -> String?)?
     private var resyncing = false
     private var needsResync = false
+    private var opChain: Task<Void, Never>?
 
     init(store: AlarmStore, scheduler: AlarmScheduling) {
         self.store = store
@@ -24,12 +27,27 @@ final class AlarmService: ObservableObject {
         if case .blocked(let message) = store.state { notice = message }
     }
 
+    private func serialize(_ work: @escaping @MainActor () async -> Void) async {
+        let previous = opChain
+        let task = Task { @MainActor in
+            await previous?.value
+            await work()
+        }
+        opChain = task
+        await task.value
+    }
+
     /// 追加または更新（同じIDは置き換える）。有効なら予約し、無効なら予約を外す。
     func save(_ input: AlarmItem) async {
+        await serialize { await self.performSave(input, rollRandom: true, clearNotice: true) }
+    }
+
+    private func performSave(_ input: AlarmItem, rollRandom: Bool, clearNotice: Bool = true) async {
+        if clearNotice { notice = nil }
         var item = input
         item.sound = item.sound?.normalized()
         guard item.isValid else { notice = AlarmError.invalid.localizedDescription; return }
-        if item.randomSound { roll(&item) }
+        if item.randomSound && rollRandom { roll(&item) }
         if item.enabled {
             do { try await scheduler.schedule(item, soundName: await prepareSound(item)) } catch {
                 // 予約できなかったアラームは、無効のまま保存し、理由を知らせる
@@ -41,19 +59,29 @@ final class AlarmService: ObservableObject {
         }
         var next = alarms
         if let index = next.firstIndex(where: { $0.id == item.id }) { next[index] = item } else { next.append(item) }
-        do { try store.save(next); alarms = next } catch {
+        do {
+            try store.save(next)
+            alarms = next
+            if item.sound == nil, let url = soundURL(id: item.id) { try? FileManager.default.removeItem(at: url) }
+        } catch {
             await scheduler.cancel(id: item.id)
             notice = error.localizedDescription
         }
     }
 
     func setEnabled(id: UUID, _ enabled: Bool) async {
-        guard var item = alarms.first(where: { $0.id == id }) else { return }
-        item.enabled = enabled
-        await save(item)
+        await serialize {
+            guard var item = self.alarms.first(where: { $0.id == id }) else { return }
+            item.enabled = enabled
+            await self.performSave(item, rollRandom: enabled)
+        }
     }
 
     func remove(id: UUID) async {
+        await serialize { await self.performRemove(id: id) }
+    }
+
+    private func performRemove(id: UUID) async {
         let next = alarms.filter { $0.id != id }
         do { try store.save(next); alarms = next } catch { notice = error.localizedDescription; return }
         await scheduler.cancel(id: id)
@@ -100,10 +128,12 @@ final class AlarmService: ObservableObject {
         if resyncing { needsResync = true; return }
         resyncing = true
         defer { resyncing = false }
-        repeat {
-            needsResync = false
-            await performResync()
-        } while needsResync
+        await serialize {
+            repeat {
+                self.needsResync = false
+                await self.performResync()
+            } while self.needsResync
+        }
     }
 
     private func performResync() async {
@@ -128,9 +158,9 @@ final class AlarmService: ObservableObject {
         }
         guard ready else { return }
         // 「ランダム」：鳴る時刻を過ぎていたら、次の1回の曲を抽選し直す（「曲を再生」で開かれる途中の曲は、変えない）
-        let pending = AlarmPlayRequest.peek()
+        let pending = pendingPlayAlarmId?() ?? AlarmPlayRequest.peek()
         for item in alarms where item.enabled && item.randomSound && (item.rolledFor ?? .distantPast) <= now() && item.id.uuidString != pending {
-            await save(item)
+            await performSave(item, rollRandom: true, clearNotice: false)
         }
     }
 }

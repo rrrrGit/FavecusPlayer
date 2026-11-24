@@ -34,6 +34,7 @@ enum ClipboardLink {
         configuration.timeoutIntervalForRequest = 15
         let capture = RedirectCapture()
         let used = session ?? URLSession(configuration: configuration)
+        defer { if session == nil { used.invalidateAndCancel() } }
         var request = URLRequest(url: url)
         request.httpShouldHandleCookies = false
         _ = try? await used.data(for: request, delegate: capture)

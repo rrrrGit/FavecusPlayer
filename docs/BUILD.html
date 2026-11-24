@@ -46,7 +46,7 @@ python3 scripts/test-windows-startup.py dist/windows
 <pre><code class="language-sh">python3 scripts/test-windows-startup.py dist/windows
 </code></pre>
 <h2>バージョンの更新</h2>
-<p>今回のリリースは0.6.6。以後の小修正はパッチ番号を増やし、package.json、package-lock.jsonのルートとpackages[&quot;&quot;].version、src/ui/index.htmlの初期表示、配布ファイル名を同じ番号にする。EXEのバージョン情報はpackage.jsonから自動生成される。</p>
+<p>各リリースの版は <code>package.json</code> で管理します。更新時は <code>package.json</code>、<code>package-lock.json</code> のルートと <code>packages[&quot;&quot;].version</code>、<code>src/ui/index.html</code> の初期表示、<code>ios/project.yml</code> の <code>MARKETING_VERSION</code>、<code>docs/CHANGELOG.md</code>、配布ファイル名を同じ番号にそろえます。EXEのバージョン情報は <code>package.json</code> から自動生成されます。</p>
 <h2>説明書HTMLの再生成</h2>
 <p>GUIDE.md、BUILD.md、DISCORD.md、TASKBAR.mdを編集した場合は、Node.js用Markdownパーサーmarkedを利用できる開発環境で <code>node scripts/render-guides.cjs</code> を実行する。完成済みHTMLを同梱するため、通常のインストールや再生ではmarkedは不要。</p>
 <h2>タスクバー用ヘルパー</h2>
@@ -63,7 +63,7 @@ python3 scripts/test-windows-startup.py dist/windows
 <p>既存の保存・持ち出し・タイトル整理・Discord・インストーラー・タスクバーの確認も通過している。これらはブラウザーやWindows実機の表示テストではない。映像停止の再現・解消、実Bilibili・Discordの確認は未実施。</p>
 <p>0.4.7ではmain-040で再読み込み後の表示モード・パート・キューの維持と、自動復旧が一度で止まることを確認した。list-artworkは表示中のみの取得、同時2件の上限、古い行への反映防止、画像の縮小、キャッシュの上限を検証する。ui-046はBILIと再生ボタンの間への配置と、画像を取得しても再生操作が起きないことを確認する。library:thumbnailは保存済みのリストID・曲IDだけを受け付ける。</p>
 <h2>0.5.0の追加事項</h2>
-<p>依存パッケージを増やさず、Node.js標準のcrypto・zlib・fsでZIPと暗号化を実装しています。JSONはリスト単位です。src/ui/library-tree.jsはメインと画面で共有します。テストには階層・アーカイブ・全リスト再生のケースを追加しました。v0.6.7の現在の検証結果はDEVELOPMENT-STATUS.md、旧版の検証はVALIDATION-064.mdを参照してください。</p>
+<p>依存パッケージを増やさず、Node.js標準のcrypto・zlib・fsでZIPと暗号化を実装しています。JSONはリスト単位です。src/ui/library-tree.jsはメインと画面で共有します。テストには階層・アーカイブ・全リスト再生のケースを追加しました。現在の検証結果はDEVELOPMENT-STATUS.md、v0.6.7の検証はVALIDATION-067.md、旧版の検証はVALIDATION-064.mdを参照してください。</p>
 <h2>0.5.1の変更</h2>
 <p>旧名のフォルダーはインストーラーとdata-migration.cjsで新名へ移行します。移行用の旧名文字列だけは検出処理に残します。新規のファイル、EXE、IPC公開名、プロトコル、AppUserModelIDは新名です。</p>
 <p>FVPA0002はランダムなキーを自動生成して同梱し、出力と取り込みの入力をなくしました。秘密保護用の形式ではありません。旧FVPA0001はUIからの取り込み対象外で、旧JSONは読み込めます。</p>
@@ -77,10 +77,10 @@ python3 scripts/test-windows-startup.py dist/windows
 <h2>0.6.1の検証追加</h2>
 <p>fixes-061は保存専用通信・Cookieの送信先・サムネイル補完・保存データの別名解決・一覧順序・Discordの画像とリンクを確認する。main-040では破棄中の同期focusと失効frame、再試行終了後の再読み込み、保存メディアと画像のネット不要再生・Range配信を確認する。revisionは0.6.0の最上位設定からruntime/configへの移行と切り替え後の失敗復元を確認する。実機の警告文は未取得で、特定のクラッシュを再現できたとは扱わない。</p>
 <p>0.6.2の修復EXEの配置はruntime/config/Maintenance.exeです。通常の配布フォルダー直下はapp、downloads、runtime、FavecusPlayer.exeとします。</p>
-<p>release-066とui-046で階層取り込み、位置指定ドロップ、保存開始と容量推計を検証する。前版の検証範囲はVALIDATION-066.md、v0.6.7の検証はDEVELOPMENT-STATUS.mdを参照する。</p>
+<p>release-066とui-046で階層取り込み、位置指定ドロップ、保存開始と容量推計を検証する。前版の検証範囲はVALIDATION-066.md、v0.6.7の検証はVALIDATION-067.mdを参照する。</p>
 <h2>v0.6.7の工程と確認範囲</h2>
 <p>Step11では、旧版/新機能を含む全Nodeテスト、構文・UI参照・版の整合性、模擬Win32のネイティブ処理、検証用Windows EXEの構造・内包ハッシュ・起動入口を確認します。ビルドスクリプトはSetup/Patchも一緒に生成しますが、この段階では検証用です。配布用Patchの最終再生成・梱包・出力はStep12で行います。</p>
-<p>共通データ検証/共有/検索/ID計画/再生順/PNG検証は、NodeやDOMを与えないVMでも確認します。保存と実際の画像縮小、暗号学的乱数の生成などは端末側から接続します。Windows GUI・実通信・Discord実表示は模擬検証と分け、最新の結果と未確認事項をDEVELOPMENT-STATUS.mdへ集約します。旧版のrelease-validationは上書きしません。</p>
+<p>共通データ検証/共有/検索/ID計画/再生順/PNG検証は、NodeやDOMを与えないVMでも確認します。保存と実際の画像縮小、暗号学的乱数の生成などは端末側から接続します。Windows GUI・実通信・Discord実表示は模擬検証と分け、v0.6.7時点の結果はVALIDATION-067.mdに記録しています。旧版のrelease-validationは上書きしません。</p>
 <h2>更新用Patchの梱包</h2>
 <p>Step11で検証したソースをコミットし、変更のない作業ツリーから最終ビルドとPE/起動入口検査を行います。検証結果を揃えてから、更新用の梱包を実行します。</p>
 <pre><code class="language-sh">python3 scripts/package-release.py --windows /path/to/windows --verification /path/to/verification --output /path/to/output --profile patch --platform windows-x64

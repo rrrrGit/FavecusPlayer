@@ -148,6 +148,12 @@ function QueueApply(target, options) {
 //   現在の曲が再生範囲に残っている → 通常の同期。範囲からは外れたが自分のリスト（ownScope）にはある → 自分のリストで組み直す（全体再生を除く）。
 //   曲そのもの（またはメディア）がなくなった → 再生を止める（stopped）。
 function QueueSyncState(target, sync) {
+  if (sync.weights && typeof sync.weights === 'object') {
+    const weights = sync.weights;
+    target.weight = entry => weights[entry && entry.id] ?? 1;
+  } else if (sync.weights === null) {
+    target.weight = null;
+  }
   let entries = PlayableEntries(sync);
   if (entries.some(e => e.id === sync.entryId)) { target.Sync(sync.scope, entries, sync.entryId, sync.shuffle); return { entries, stopped: false }; }
   if (sync.scope !== '*' && sync.ownScope) {

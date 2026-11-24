@@ -351,12 +351,24 @@ final class DownloadService: ObservableObject, MediaProvider {
     /// 端末内へ取り出して再生できるか確かめ、保存先へ移してから、記録（完了）を保存する。読み取れないものは取り込まず、数えて知らせる。
     func importDownloaded(from zipURL: URL, records: [ImportDownload], entries: [EntryItem]) async -> (imported: Int, failed: Int) {
         guard started else { return (0, records.count) }
-        await refreshKeys(entries: entries)
-        let wanted = Set(entryKeys.values)
-        let keys = await mediaKeys(forURLs: records.map(\.url))
+        // 取り込み中に .onChange(of: store.document) の別 refreshKeys が世代を進めても、ここで計算したキー自体を直接照合に使う。
+        let computed = await refreshKeys(entries: entries)
+        let wanted = Set(computed.values)
+        var allURLs: [String] = []
+        var candidateIndices: [[Int]] = []
+        for record in records {
+            var indices: [Int] = []
+            var seenURL = Set<String>()
+            for candidate in [record.url] + record.aliases where !candidate.isEmpty && seenURL.insert(candidate).inserted {
+                indices.append(allURLs.count)
+                allURLs.append(candidate)
+            }
+            candidateIndices.append(indices)
+        }
+        let resolvedKeys = await mediaKeys(forURLs: allURLs)
         var imported = 0, failed = 0
-        for (record, key) in zip(records, keys) {
-            guard let key, wanted.contains(key) else { continue }
+        for (record, indices) in zip(records, candidateIndices) {
+            guard let key = indices.compactMap({ resolvedKeys[$0] }).first(where: { wanted.contains($0) }) else { continue }
             if savedFile(key: key, kind: record.kind) != nil || self.record(key: key, kind: record.kind)?.state.inProgress == true { continue }
             let staging = directory.appendingPathComponent(".dl-import-" + UUID().uuidString, isDirectory: true)
             defer { try? FileManager.default.removeItem(at: staging) }
@@ -391,22 +403,23 @@ final class DownloadService: ObservableObject, MediaProvider {
     }
 
     /// 一覧の曲のキーを、共通JSで1回にまとめて求める。
-    func refreshKeys(entries: [EntryItem]) async {
+    @discardableResult
+    func refreshKeys(entries: [EntryItem]) async -> [String: String] {
         refreshKeysGeneration += 1
         let mine = refreshKeysGeneration
         // ローカルのファイルの曲：サムネイル用のキー（ファイル名）。Bilibiliの曲は、共通JSのメディアキー
         var locals: [String: String] = [:]
         for entry in entries where entry.type == "local" { if let name = entry.fileName { locals[entry.id] = "local:" + name } }
         let targets = entries.filter { $0.type == "bilibili" && $0.url != nil }
-        guard !targets.isEmpty else { if entryKeys != locals { entryKeys = locals }; return }
+        guard !targets.isEmpty else { if entryKeys != locals { entryKeys = locals }; return locals }
         do {
             let request = String(decoding: try JSONSerialization.data(withJSONObject: ["entries": targets.map { ["url": $0.url ?? ""] }, "aliases": currentAliases()]), as: UTF8.self)
-            guard let response = try JSONSerialization.jsonObject(with: Data(try await core.callAsync("MediaKeys", request).utf8)) as? [String: Any], let keys = response["keys"] as? [Any], keys.count == targets.count else { return }
-            guard mine == refreshKeysGeneration else { return }
+            guard let response = try JSONSerialization.jsonObject(with: Data(try await core.callAsync("MediaKeys", request).utf8)) as? [String: Any], let keys = response["keys"] as? [Any], keys.count == targets.count else { return entryKeys }
             var result = locals
             for (entry, key) in zip(targets, keys) { if let key = key as? String { result[entry.id] = key } }
-            if result != entryKeys { entryKeys = result }
-        } catch {}
+            if mine == refreshKeysGeneration, result != entryKeys { entryKeys = result }
+            return result
+        } catch { return entryKeys }
     }
 
     func record(key: String, kind: String = "audio") -> DeviceMediaRecord? { records["\(key)|\(kind)"] }
@@ -460,6 +473,7 @@ final class DownloadService: ObservableObject, MediaProvider {
                 if Task.isCancelled || self.batchStopped { break }
                 self.batch = (index, targets.count)
                 guard let key = await self.key(for: entry) else { continue }
+                if Task.isCancelled || self.batchStopped || self.batchID != mine { break }
                 if let existing = self.record(key: key, kind: kind), existing.state.inProgress || (existing.state == .completed && self.savedFile(key: key, kind: kind) != nil) { continue }
                 self.save(entry: entry, kind: kind, height: height)
                 await self.chain?.value

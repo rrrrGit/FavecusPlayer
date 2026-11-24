@@ -136,6 +136,7 @@ struct PlaylistDetail: View {
                 services.player?.listViews.set(next, for: parentId)
                 arrangedIds = nil
                 viewTick += 1
+                Task { await services.player?.onListViewChanged(playlistId: parentId) }
             }
         }
         .safeAreaInset(edge: .bottom) { if selecting { bulkBar } }
@@ -446,6 +447,26 @@ struct PlaylistDetail: View {
         store.perform(["type": "reorder", "playlistId": parentId, "entryId": move.id, "targetId": move.targetId, "after": move.after])
     }
 
+    private func firstPlayableEntry(player: PlaybackEngine) -> EntryItem? {
+        if let direct = shown.first(where: { player.canPlay($0) }) { return direct }
+        guard let document = store.document else { return shown.first }
+        var visited: Set<String> = [parentId]
+        var fallback: EntryItem?
+        func search(_ listId: String) -> EntryItem? {
+            guard visited.insert(listId).inserted, let list = document.playlist(listId) else { return nil }
+            if let playable = list.entries.first(where: { player.canPlay($0) }) { return playable }
+            if fallback == nil, let any = list.entries.first { fallback = any }
+            for childId in list.childIds {
+                if let found = search(childId) { return found }
+            }
+            return nil
+        }
+        for childId in parent?.childIds ?? [] {
+            if let found = search(childId) { return found }
+        }
+        return shown.first ?? fallback
+    }
+
     private func play(shuffled: Bool) {
         guard let player = services.player else { return }
         if shuffled {
@@ -454,7 +475,7 @@ struct PlaylistDetail: View {
             Task { await player.play(entryId: nil, scope: parentId) }
             return
         }
-        guard let first = shown.first(where: { player.canPlay($0) }) ?? shown.first else { return }
+        guard let first = firstPlayableEntry(player: player) else { return }
         player.setShuffle(false)
         OpenPlayer.request()
         Task { await player.play(entryId: first.id, scope: parentId) }

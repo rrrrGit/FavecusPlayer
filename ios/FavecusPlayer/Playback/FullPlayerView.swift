@@ -385,7 +385,8 @@ struct QueuePanel: View {
                 .onMove { source, destination in
                     guard let from = source.first else { return }
                     let to = destination > from ? destination - 1 : destination
-                    guard from != to else { return }
+                    guard from != to, player.upcoming.indices.contains(from), player.upcoming.indices.contains(to) else { return }
+                    player.upcoming.move(fromOffsets: source, toOffset: destination)
                     Task { await player.moveQueued(from: from, to: to) }
                 }
                 if player.upcoming.isEmpty {

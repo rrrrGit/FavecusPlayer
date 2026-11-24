@@ -151,8 +151,10 @@ async function AutoPlay(kind, entryId, shuffled) {
   if (!entries.length) throw new Error('再生する曲がありません。');
   const selected = entries.find(e => e.id === entryId) || entries[0];
   PlayableEntry(selected.playlistId, selected.id);
+  const previousQueue = queue.Clone();
   queue.Start(scope, entries, selected.id, store.data.settings.shuffle);
-  return LoadEntry(selected.playlistId, selected.id);
+  try { return await LoadEntry(selected.playlistId, selected.id); }
+  catch (error) { queue = previousQueue; Emit('queue', QueueState()); throw error; }
 }
 // 最近削除に保管中の曲も、保存済みメディアの整理では「参照されている」ものとして数える（元に戻したときに、保存済みの動画・音声が残るように）。
 function WithTrashedEntries(data) {
@@ -639,8 +641,10 @@ async function Play(playlistId, entryId, resume = null) {
   const entries = ArrangedEntries(playlistId), selected = entries.find(e => e.id === entryId) || (!entryId ? entries[0] : null);
   if (!selected) throw new Error('再生する曲がありません。');
   PlayableEntry(selected.playlistId, selected.id);
+  const previousQueue = queue.Clone();
   queue.Start(playlistId, entries, selected.id, store.data.settings.shuffle);
-  return LoadEntry(selected.playlistId, selected.id, false, resume ? { resume } : {});
+  try { return await LoadEntry(selected.playlistId, selected.id, false, resume ? { resume } : {}); }
+  catch (error) { queue = previousQueue; Emit('queue', QueueState()); throw error; }
 }
 async function ShufflePlay(playlistId) {
   const entries = ArrangedEntries(playlistId);

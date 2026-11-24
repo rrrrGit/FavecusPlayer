@@ -72,7 +72,7 @@ python3 scripts/test-windows-startup.py dist/windows
 
 ## バージョンの更新
 
-今回のリリースは0.6.6。以後の小修正はパッチ番号を増やし、package.json、package-lock.jsonのルートとpackages[""].version、src/ui/index.htmlの初期表示、配布ファイル名を同じ番号にする。EXEのバージョン情報はpackage.jsonから自動生成される。
+各リリースの版は `package.json` で管理します。更新時は `package.json`、`package-lock.json` のルートと `packages[""].version`、`src/ui/index.html` の初期表示、`ios/project.yml` の `MARKETING_VERSION`、`docs/CHANGELOG.md`、配布ファイル名を同じ番号にそろえます。EXEのバージョン情報は `package.json` から自動生成されます。
 
 ## 説明書HTMLの再生成
 

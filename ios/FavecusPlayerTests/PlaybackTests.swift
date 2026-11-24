@@ -447,4 +447,85 @@ final class PlaybackTests: XCTestCase {
         await engine.goNext()
         XCTAssertEqual(engine.current?.title, "ローカルA", "一覧の順（B→A）に進む")
     }
+
+    // MARK: v0.7.6 回帰確認（復元中の操作・末尾停止の再開・resync・重み付きシャッフル）
+
+    func testRestoredPendingAllowsPauseSeekAndEnqueueWithoutLosingPositionOrQueue() async throws {
+        let (store, engine, backend) = try await prepare()
+        let saved = resumeStore()
+        let a = try entry(store, "ローカルA"), b = try entry(store, "ローカルB")
+        let scope = try parentId(store)
+        saved.observe(ResumeRecord(entryId: a.id, playlistId: scope, scope: scope, position: 30, duration: 200), paused: true)
+        saved.flush()
+        engine.resumeStore = saved
+        engine.restoreLast()
+
+        engine.pause()
+        XCTAssertEqual(engine.position, 30)
+        XCTAssertEqual(engine.duration, 200)
+        engine.seek(to: 55)
+        XCTAssertEqual(engine.position, 55, "復元中もシーク位置を保持する")
+        XCTAssertEqual(engine.duration, 200)
+        XCTAssertTrue(engine.restoredPending)
+
+        let added = await engine.enqueue(b, listId: scope, where: "next")
+        XCTAssertTrue(added, "復元中も次に再生へ追加できる")
+        XCTAssertEqual(engine.upcoming.map(\.id), [b.id])
+
+        engine.resume()
+        try await waitFor { backend.isPlaying }
+        XCTAssertEqual(backend.position, 55)
+        XCTAssertEqual(engine.upcoming.map(\.id), [b.id], "追加したキューが再生開始後も維持される")
+    }
+
+    func testResumingAfterEndedAtTailSeeksToStartAndResyncUpdatesUpcoming() async throws {
+        let (store, engine, backend) = try await prepare()
+        let scope = try parentId(store)
+        let a = try entry(store, "ローカルA"), b = try entry(store, "ローカルB")
+        await engine.play(entryId: a.id, scope: scope)
+        try await waitFor { engine.upcoming.map(\.id) == [b.id] }
+
+        // リピートなしで最後まで再生停止 → 再開時は先頭へ戻る
+        await engine.goNext()
+        XCTAssertEqual(engine.current?.id, b.id)
+        backend.position = 10
+        backend.simulateEnd()
+        try await waitFor { !engine.isPlaying }
+        engine.resume()
+        XCTAssertTrue(backend.isPlaying)
+        XCTAssertEqual(backend.position, 0)
+        XCTAssertEqual(engine.position, 0)
+
+        // 再生中のライブラリ変更（b を削除）で resync が走り upcoming が追従する
+        await engine.play(entryId: a.id, scope: scope)
+        try await waitFor { !engine.upcoming.isEmpty }
+        let childId = try XCTUnwrap(store.document?.children(of: scope).first?.id)
+        store.perform(["type": "remove", "playlistId": childId, "entryId": b.id])
+        await store.waitUntilIdle()
+        try await waitFor { engine.upcoming.isEmpty }
+    }
+
+    func testEnablingShuffleAppliesPlayCountAndFavoriteWeights() async throws {
+        let provider = FakeProvider()
+        let (store, engine, _) = try await prepareWithProvider(provider)
+        let scope = try parentId(store)
+        let a = try entry(store, "ローカルA"), b = try entry(store, "ローカルB"), q1 = try entry(store, "曲1"), q4 = try entry(store, "曲4")
+        let countDir = directory.appendingPathComponent("counts-test", isDirectory: true)
+        let counts = PlayCountStore(core: try SharedCore(bundle: Bundle(for: SharedCore.self)), directory: countDir, defaults: UserDefaults(suiteName: "favecus-counts-\(UUID().uuidString)")!)
+        engine.counts = counts
+        // 再生可能曲を4曲にし、a と q4 に大量の再生回数・b にお気に入りを付与することで、順番再生→シャッフルON時に b が優先されることを検証する
+        for _ in 0..<50 {
+            await counts.increment(key: "local:" + (a.fileName ?? ""))
+            await counts.increment(key: "bili:BV1bbbbbbbbb:p1")
+        }
+        XCTAssertTrue(engine.favorites.set("local:" + (b.fileName ?? ""), true))
+
+        await engine.play(entryId: q1.id, scope: scope)
+        XCTAssertFalse(engine.shuffle)
+        XCTAssertEqual(engine.upcoming.count, 3)
+        engine.setShuffle(true)
+        try await waitFor { engine.shuffle && engine.upcoming.count == 3 }
+        // 重みが効いていれば、未再生＋お気に入りの ローカルB が大量再生済みの ローカルA・曲4 より先頭寄りになる
+        XCTAssertEqual(engine.upcoming.first?.id, b.id)
+    }
 }
