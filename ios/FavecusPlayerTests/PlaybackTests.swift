@@ -33,6 +33,7 @@ final class FakeProvider: MediaProvider {
     var delayed: Set<String> = []
     /// 保存済みの動画（曲名 → ファイル）。ない曲は nil。
     var videos: [String: URL] = [:]
+    var syncKeyByEntryId: [String: String] = [:]
 
     func playableFile(for entry: EntryItem) async throws -> URL {
         requested.append(entry.title)
@@ -42,6 +43,7 @@ final class FakeProvider: MediaProvider {
     }
 
     func savedVideoFile(for entry: EntryItem) async -> URL? { videos[entry.title] }
+    func syncKeys(for entries: [EntryItem]) async -> [String?] { entries.map { syncKeyByEntryId[$0.id] } }
 }
 
 /// 再生順は共通JS（Windows版と同じQueue）、再生の道具は偽物で確認する。実機のロック画面・割り込み・イヤホンの動作は、実機での確認項目。
@@ -514,8 +516,8 @@ final class PlaybackTests: XCTestCase {
         let counts = PlayCountStore(core: try SharedCore(bundle: Bundle(for: SharedCore.self)), directory: countDir, defaults: UserDefaults(suiteName: "favecus-counts-\(UUID().uuidString)")!)
         engine.counts = counts
         // 再生可能曲を4曲にし、a と q4 に大量の再生回数・b にお気に入りを付与することで、順番再生→シャッフルON時に b が優先されることを検証する
-        let q4Key = (await engine.countKeys(for: [q4])).first ?? nil
-        let q4SyncKey = try XCTUnwrap(q4Key)
+        let q4SyncKey = "bili:BV1q4test:p1"
+        provider.syncKeyByEntryId[q4.id] = q4SyncKey
         for _ in 0..<200 {
             await counts.increment(key: "local:" + (a.fileName ?? ""))
             await counts.increment(key: q4SyncKey)
