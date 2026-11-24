@@ -516,12 +516,19 @@ final class PlaybackTests: XCTestCase {
         let counts = PlayCountStore(core: try SharedCore(bundle: Bundle(for: SharedCore.self)), directory: countDir, defaults: UserDefaults(suiteName: "favecus-counts-\(UUID().uuidString)")!)
         engine.counts = counts
         // 再生可能曲を4曲にし、a と q4 に大量の再生回数・b にお気に入りを付与することで、順番再生→シャッフルON時に b が優先されることを検証する
-        let q4SyncKey = "bili:BV1q4test:p1"
+        let aKey = "local:" + (a.fileName ?? "")
+        let q4SyncKey = "bili:BV1q4test000:p1"
         provider.syncKeyByEntryId[q4.id] = q4SyncKey
-        for _ in 0..<500 {
-            await counts.increment(key: "local:" + (a.fileName ?? ""))
-            await counts.increment(key: q4SyncKey)
-        }
+        let syncRows: [[String: Any]] = [
+            ["device": "test-dev", "epoch": 0, "month": "2026-11", "key": aKey, "n": 10000],
+            ["device": "test-dev", "epoch": 0, "month": "2026-11", "key": q4SyncKey, "n": 10000]
+        ]
+        let syncJSON = String(decoding: try JSONSerialization.data(withJSONObject: ["rows": syncRows, "cursor": 0]), as: UTF8.self)
+        await counts.syncApply(syncJSON)
+        let aCount = await counts.count(for: aKey)
+        let q4Count = await counts.count(for: q4SyncKey)
+        XCTAssertEqual(aCount, 10000)
+        XCTAssertEqual(q4Count, 10000)
         XCTAssertTrue(engine.favorites.set("local:" + (b.fileName ?? ""), true))
 
         await engine.play(entryId: q1.id, scope: scope)
