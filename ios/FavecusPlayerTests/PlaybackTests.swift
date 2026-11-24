@@ -518,7 +518,7 @@ final class PlaybackTests: XCTestCase {
         // 再生可能曲を4曲にし、a と q4 に大量の再生回数・b にお気に入りを付与することで、順番再生→シャッフルON時に b が優先されることを検証する
         let q4SyncKey = "bili:BV1q4test:p1"
         provider.syncKeyByEntryId[q4.id] = q4SyncKey
-        for _ in 0..<200 {
+        for _ in 0..<500 {
             await counts.increment(key: "local:" + (a.fileName ?? ""))
             await counts.increment(key: q4SyncKey)
         }
@@ -526,10 +526,9 @@ final class PlaybackTests: XCTestCase {
 
         await engine.play(entryId: q1.id, scope: scope)
         XCTAssertFalse(engine.shuffle)
-        XCTAssertEqual(engine.upcoming.count, 3)
+        try await waitFor { engine.upcoming.count == 3 }
+        XCTAssertEqual(engine.upcoming.first?.id, q4.id, "シャッフル前は再生順どおり 曲4 が次")
         engine.setShuffle(true)
-        try await waitFor { engine.shuffle && engine.upcoming.count == 3 }
-        // 重みが効いていれば、未再生＋お気に入りの ローカルB が大量再生済みの ローカルA・曲4 より先頭寄りになる
-        XCTAssertEqual(engine.upcoming.first?.id, b.id)
+        try await waitFor { engine.shuffle && engine.upcoming.first?.id == b.id }
     }
 }
