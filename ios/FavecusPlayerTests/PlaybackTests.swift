@@ -487,7 +487,7 @@ final class PlaybackTests: XCTestCase {
 
         // リピートなしで最後まで再生停止 → 再開時は先頭へ戻る
         await engine.goNext()
-        XCTAssertEqual(engine.current?.id, b.id)
+        XCTAssertEqual(engine.current?.entryId, b.id)
         backend.position = 10
         backend.simulateEnd()
         try await waitFor { !engine.isPlaying }
@@ -514,9 +514,11 @@ final class PlaybackTests: XCTestCase {
         let counts = PlayCountStore(core: try SharedCore(bundle: Bundle(for: SharedCore.self)), directory: countDir, defaults: UserDefaults(suiteName: "favecus-counts-\(UUID().uuidString)")!)
         engine.counts = counts
         // 再生可能曲を4曲にし、a と q4 に大量の再生回数・b にお気に入りを付与することで、順番再生→シャッフルON時に b が優先されることを検証する
-        for _ in 0..<50 {
+        let q4Key = (await engine.countKeys(for: [q4])).first ?? nil
+        let q4SyncKey = try XCTUnwrap(q4Key)
+        for _ in 0..<200 {
             await counts.increment(key: "local:" + (a.fileName ?? ""))
-            await counts.increment(key: "bili:BV1bbbbbbbbb:p1")
+            await counts.increment(key: q4SyncKey)
         }
         XCTAssertTrue(engine.favorites.set("local:" + (b.fileName ?? ""), true))
 
