@@ -527,7 +527,7 @@ final class PlaybackTests: XCTestCase {
         await engine.play(entryId: q1.id, scope: scope)
         XCTAssertFalse(engine.shuffle)
         try await waitFor { engine.upcoming.count == 3 }
-        XCTAssertEqual(engine.upcoming.first?.id, q4.id, "シャッフル前は再生順どおり 曲4 が次")
+        XCTAssertEqual(engine.upcoming.first?.id, a.id, "シャッフル前は再生順どおり ローカルA が次")
         engine.setShuffle(true)
         try await waitFor { engine.shuffle && engine.upcoming.first?.id == b.id }
     }
