@@ -260,7 +260,7 @@ final class PlaybackEngine: ObservableObject, PlaybackControls {
     }
 
     /// 再生回数が少ない曲を優先する：曲のID → 重み（1/(1+回数)）。設定がオフ・台帳がないときは nil（均等）。
-    private func shuffleWeights() async -> [String: Double]? {
+    func shuffleWeights() async -> [String: Double]? {
         guard let counts, counts.weighted else { return nil }
         let entries = (store.document?.playlists ?? []).flatMap(\.entries).filter(canPlay)
         var seen = Set<String>(), unique: [EntryItem] = []
