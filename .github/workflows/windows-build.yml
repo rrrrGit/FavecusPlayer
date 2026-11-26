@@ -11,7 +11,7 @@ on:
         default: false
   # このワークフロー自身を変更したときだけ実行（手動実行は、デフォルトブランチにない新しいワークフローではpushからの実行が必要なため）
   push:
-    branches: ["release/v0.7.0", "release/v0.7.1", "release/v0.7.2", "release/v0.7.3", "release/v0.7.4", "release/v0.7.5", "release/v0.7.6"]
+    branches: ["release/v*"]
     paths:
       - ".github/workflows/windows-build.yml"
 

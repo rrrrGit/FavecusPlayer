@@ -224,8 +224,9 @@ final class DownloadService: ObservableObject, MediaProvider {
         }
         for job in transfers.jobs() { await transfers.restartStalled(job.id, idleFor: idleFor) }
         let remaining = Set(transfers.jobs().map(\.recordId))
-        // 失敗・取り消しの処理の最中（記録の更新前）は、途中の記録を触らない
-        for record in records.values where finishing.isEmpty && record.state.inProgress && !remaining.contains(record.id) && running[record.id] == nil {
+        // 失敗・取り消しの処理の最中（記録の更新前）は、該当ジョブの途中の記録だけ触らない
+        let finishingRecords = Set(finishing.compactMap { jobRecords[$0] })
+        for record in records.values where !finishingRecords.contains(record.id) && record.state.inProgress && !remaining.contains(record.id) && running[record.id] == nil {
             var next = record
             next.state = .failed
             next.message = "中断されました。もう一度保存してください。"
@@ -445,7 +446,8 @@ final class DownloadService: ObservableObject, MediaProvider {
         let previous = chain
         let task = Task { [weak self] in
             await previous?.value
-            guard let self, let key = await self.key(for: entry) else { return }
+            guard let self, !self.removingAll, !Task.isCancelled, let key = await self.key(for: entry) else { return }
+            guard !self.removingAll else { return }
             if let existing = self.record(key: key, kind: kind), existing.state.inProgress || (existing.state == .completed && self.savedFile(key: key, kind: kind) != nil) { return }
             let task = Task { await self.begin(key: key, kind: kind, url: url, title: entry.title, height: height) }
             self.running["\(key)|\(kind)"] = task
@@ -489,10 +491,16 @@ final class DownloadService: ObservableObject, MediaProvider {
         batch = nil
         let targets = batchTargets
         batchTargets = []
-        // 始めたときの対象・形式で取り消す（画面の選択が変わっていても、別の曲・別の形式を取り消さない）
+        // 始めたときの対象・形式で取り消す（entryKeys 未計算だった曲は進行中の全同形式レコードも確認）
         for entry in targets where entry.type == "bilibili" {
-            guard let key = entryKeys[entry.id], record(key: key, kind: batchKind)?.state.inProgress == true else { continue }
-            cancel(key: key, kind: batchKind)
+            if let key = entryKeys[entry.id] {
+                if record(key: key, kind: batchKind)?.state.inProgress == true || running["\(key)|\(batchKind)"] != nil {
+                    cancel(key: key, kind: batchKind)
+                }
+            }
+        }
+        for (id, task) in running where id.hasSuffix("|\(batchKind)") {
+            task.cancel()
         }
     }
 
@@ -744,14 +752,18 @@ final class DownloadService: ObservableObject, MediaProvider {
         guard let first = files.first else { throw DownloadError.message("配信先から取得できません。") }
         let output = staging.appendingPathComponent(name)
         _ = try await MediaProcessor.finalizeAudio(input: first, output: output, expectedDuration: media.duration)
-        // 再生中のファイルを置き換えない：再生に渡している最中のものは、新しい名前で置く代わりに、そのまま使う
+        // 再生中のファイルを置き換えない：再生に渡している最中の名前とぶつかる場合は別名へ移して壊れたキャッシュを返さない
+        var destination = cached
         if FileManager.default.fileExists(atPath: cached.path) {
-            if served.contains(cached) { return cached }
-            try? FileManager.default.removeItem(at: cached)
+            if served.contains(cached) {
+                destination = cacheDirectory.appendingPathComponent(key.replacingOccurrences(of: ":", with: "_") + "-\(UUID().uuidString.prefix(8)).m4a")
+            } else {
+                try? FileManager.default.removeItem(at: cached)
+            }
         }
-        try FileManager.default.moveItem(at: output, to: cached)
-        trimCache(keeping: [cached] + served)
-        return cached
+        try FileManager.default.moveItem(at: output, to: destination)
+        trimCache(keeping: [destination] + served)
+        return destination
     }
 
     /// 一時ファイルが上限を超えたら、古いものから消す（いま取得したもの・直近に再生へ渡したものは消さない。自分のキャッシュだけ）。

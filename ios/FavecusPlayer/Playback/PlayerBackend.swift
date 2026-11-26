@@ -99,12 +99,13 @@ final class AVPlayerBackend: PlayerBackend {
         removeItemObservers()
         player.replaceCurrentItem(with: nil) // 古い曲を、この再生から外す（1つの曲を、2つの再生に結びつけない）
         let outgoing = AVPlayer(playerItem: old)
+        outgoing.defaultRate = speed
         outgoing.volume = fade * outgoingGain
         ghost = outgoing
-        outgoing.seek(to: time) { [weak self, weak outgoing] _ in
+        outgoing.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self, weak outgoing] _ in
             Task { @MainActor in
                 guard let self, let outgoing, self.ghost === outgoing, self.fadeTask != nil else { return }
-                outgoing.play()
+                outgoing.playImmediately(atRate: self.speed)
             }
         }
         mix = 0
@@ -152,7 +153,7 @@ final class AVPlayerBackend: PlayerBackend {
         return seconds.isFinite && seconds > 0 ? seconds : 0
     }
 
-    var isPlaying: Bool { player.rate > 0 }
+    var isPlaying: Bool { player.timeControlStatus != .paused || player.rate > 0 }
 
     func load(url: URL) {
         startCrossfade()

@@ -42,7 +42,14 @@ class LoudnessStore {
   constructor(file, executable, options = {}) {
     this.file = file; this.executable = executable; this.options = options; this.pending = new Map(); this.records = {};
     const data = ReadJson(file);
-    if (data?.version === 1 && data.records && typeof data.records === 'object') this.records = data.records;
+    if (data?.version === 1 && data.records && typeof data.records === 'object' && !Array.isArray(data.records)) {
+      for (const [key, value] of Object.entries(data.records)) {
+        if (value && typeof value === 'object' && Number.isFinite(value.meanDb)) {
+          this.records[key] = { meanDb: value.meanDb, at: Number.isFinite(value.at) ? value.at : 0 };
+        }
+      }
+      this.Prune();
+    }
   }
   Save() { return WriteJsonAtomic(this.file, { version: 1, records: this.records }); }
   // ファイルの識別（パス・大きさ・更新時刻）。変わったら、測り直す。
@@ -78,7 +85,7 @@ class LoudnessStore {
   Prune() {
     const keys = Object.keys(this.records);
     if (keys.length <= 2000) return;
-    for (const key of keys.sort((a, b) => (this.records[a].at || 0) - (this.records[b].at || 0)).slice(0, keys.length - 2000)) delete this.records[key];
+    for (const key of keys.sort((a, b) => (this.records[a]?.at || 0) - (this.records[b]?.at || 0)).slice(0, keys.length - 2000)) delete this.records[key];
   }
 }
 

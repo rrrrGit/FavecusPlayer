@@ -130,7 +130,7 @@ final class FavoritesStore: ObservableObject {
                 applyDocument(document)
             } catch {
                 // 壊れた保存は、消さずに別名で残す
-                try? FileManager.default.moveItem(at: fileURL, to: fileURL.deletingLastPathComponent().appendingPathComponent("favorites.broken-\(Int(Date().timeIntervalSince1970)).json"))
+                try? FileManager.default.moveItem(at: fileURL, to: fileURL.deletingLastPathComponent().appendingPathComponent("favorites.broken-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(8)).json"))
             }
             return
         }

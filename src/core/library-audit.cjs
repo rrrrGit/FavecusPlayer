@@ -17,7 +17,7 @@ function Audit(library, existingFiles = []) {
       if (!entry || typeof entry.id !== 'string') continue;
       checked++;
       let key = ''; try { key = keyOf(entry) || ''; } catch { key = ''; }
-      if (key) groups.set(key, [...(groups.get(key) || []), entry]);
+      if (key) { let group = groups.get(key); if (!group) { group = []; groups.set(key, group); } group.push(entry); }
       if (entry.type === 'local' && typeof entry.fileName === 'string' && !files.has(entry.fileName)) missing.push({ playlistId: list.id, playlistName: list.name, entryId: entry.id, title: entry.title || entry.fileName, fileName: entry.fileName });
     }
     for (const group of groups.values()) {

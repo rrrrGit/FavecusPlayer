@@ -109,7 +109,7 @@ class Thumbnails {
       return null;
     }
     if (entry.type !== 'bilibili' || !this.account?.Details || !this.account?.Request || !this.crop) return null;
-    const details = await this.account.Details(entry.videoId), page = details.pages?.[Math.max(0, (Number(entry.part) || 1) - 1)];
+    const details = await this.account.Details(entry.videoId), part = Number(entry.part) || 1, page = details.pages?.find(p => Number(p.page) === part) || details.pages?.[Math.max(0, part - 1)];
     if (!page?.cid || !details.bvid) return null;
     const shot = await this.account.Request('/x/player/videoshot', { bvid: details.bvid, cid: page.cid, index: 1 });
     const times = Array.isArray(shot?.index) ? shot.index : [], images = Array.isArray(shot?.image) ? shot.image : [];

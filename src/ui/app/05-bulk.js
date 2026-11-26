@@ -50,13 +50,14 @@ function UpdateBulkBar() {
     const actions = [['bulk-all', 'すべて選ぶ', () => BulkSelectAll()], ['bulk-none', '選びなおす', () => { selectedEntries.clear(); UpdateBulkBar(); RenderEntries(); }],
       ['bulk-move', '移動', () => BulkTransfer('move')], ['bulk-copy', '追加', () => BulkTransfer('copy')], ['bulk-like', '♡ お気に入り', () => BulkFavorite(true)], ['bulk-unlike', '♥ 外す', () => BulkFavorite(false)],
       ['bulk-save', '保存', () => BulkSave()], ['bulk-remove', 'リストから外す', () => BulkRemove()]];
-    bar.append(Element('span', 'bulk-count', ''));
+    const countEl = Element('span', 'bulk-count', ''); countEl.setAttribute('aria-live', 'polite');
+    bar.append(countEl);
     for (const [id, label, run] of actions) { const b = Button(label, `button secondary${id === 'bulk-remove' ? ' danger' : ''}`, () => Run(run)); b.id = id; bar.append(b); }
     $('entries').before?.(bar);
   }
-  // 無くなった曲（外した・移した）は、選びから外す
-  const existing = new Set(state.playlists.flatMap(p => p.entries.map(e => e.id)));
-  for (const id of [...selectedEntries.keys()]) if (!existing.has(id)) selectedEntries.delete(id);
+  // 無くなった曲・表示外になった曲は、選びから外す
+  const visibleIds = new Set(DisplayedEntries().map(e => e.id));
+  for (const id of [...selectedEntries.keys()]) if (!visibleIds.has(id)) selectedEntries.delete(id);
   const count = selectedEntries.size;
   bar.classList.toggle('hidden', !selectionMode);
   bar.querySelector('.bulk-count').textContent = `${count}曲を選択中`;
@@ -84,7 +85,9 @@ function BulkTransfer(mode) {
 
 async function BulkFavorite(value) {
   const refs = SelectedRefs(); if (!refs.length) return;
-  favoriteIds = new Set(await api.favoriteMany(refs, value)); RenderFavorite(); listViewStats.clear();
+  favoriteIds = new Set(await api.favoriteMany(refs, value)); RenderFavorite();
+  if (typeof ClearListViewStats === 'function') ClearListViewStats(); else listViewStats.clear();
+  RenderEntries();
   Toast(value ? `${refs.length}曲をお気に入りにしました。` : `${refs.length}曲をお気に入りから外しました。`);
 }
 
@@ -104,7 +107,9 @@ async function BulkRemove() {
   if (!confirm(`選んだ${refs.length}曲を、リストから外します。「最近削除」から、30日間、元に戻せます。`)) return;
   const byList = new Map();
   for (const ref of refs) byList.set(ref.playlistId, [...(byList.get(ref.playlistId) || []), ref.entryId]);
-  for (const [playlistId, entryIds] of byList) await Action({ type: 'remove-many', playlistId, entryIds });
-  selectedEntries.clear(); UpdateBulkBar(); RenderEntries();
-  Toast(`${refs.length}曲をリストから外しました。`);
+  try {
+    for (const [playlistId, entryIds] of byList) await Action({ type: 'remove-many', playlistId, entryIds });
+    selectedEntries.clear();
+    Toast(`${refs.length}曲をリストから外しました。`);
+  } finally { UpdateBulkBar(); RenderEntries(); }
 }

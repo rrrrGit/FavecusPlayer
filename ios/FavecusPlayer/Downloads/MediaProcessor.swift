@@ -36,7 +36,17 @@ enum MediaProcessor {
         guard let session = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else { throw DownloadError.message("結合できません。") }
         session.outputURL = output
         session.outputFileType = .mp4
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in session.exportAsynchronously { continuation.resume() } }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                session.exportAsynchronously { continuation.resume() }
+            }
+        } onCancel: {
+            session.cancelExport()
+        }
+        if Task.isCancelled {
+            try? manager.removeItem(at: output)
+            throw CancellationError()
+        }
         guard session.status == .completed else {
             try? manager.removeItem(at: output)
             throw DownloadError.message("結合に失敗しました：\(session.error.map { ErrorText.safe($0) } ?? "不明なエラー")")

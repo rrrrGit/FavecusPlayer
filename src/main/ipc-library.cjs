@@ -102,7 +102,7 @@ module.exports = function RegisterLibrary(ctx) {
   });
   Handle('library:import', async () => {
     const result = await dialog.showOpenDialog(S.win, { title: 'プレイリストのJSON・ZIPを選択', properties: ['openFile'], filters: [{ name: 'Favecus Playerのプレイリスト', extensions: ['zip', 'json'] }] });
-    return result.canceled ? null : S.archive.Prepare(result.filePaths[0]);
+    return result.canceled || !result.filePaths?.[0] ? null : S.archive.Prepare(result.filePaths[0]);
   });
   Handle('library:import-commit', async (id, ids, options) => { const result = await S.archive.Commit(id, ids, options); SyncPlayingQueue(false); Emit('state', result.state); if (S.favorites) Emit('favorites', FavoriteIds()); return result; });
   Handle('library:import-cancel', id => S.archive.Cancel(id));
@@ -110,7 +110,11 @@ module.exports = function RegisterLibrary(ctx) {
     const entry = S.store.Entry(playlistId, entryId); if (entry.duration) return entry.duration;
     const value = S.offline.Find(entry)?.duration || (entry.type === 'bilibili' ? (await S.biliAccount.Resolve(entry.url)).video?.duration : await LocalDuration(S.ffmpeg, path.join(S.store.media, entry.fileName)));
     const actual = S.store.data.playlists.find(p => p.id === playlistId)?.entries.find(e => e.id === entryId);
-    if (actual && value > 0) { actual.duration = value; S.store.Save(); }
+    if (actual && value > 0) {
+      const prev = actual.duration;
+      actual.duration = value;
+      try { S.store.Save(); } catch (error) { actual.duration = prev; throw error; }
+    }
     return value || null;
   });
 };

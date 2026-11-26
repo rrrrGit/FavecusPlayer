@@ -67,7 +67,7 @@ final class TrashStore: ObservableObject {
     private func save() -> Bool {
         let objects = items.compactMap { try? JSONSerialization.jsonObject(with: Data($0.json.utf8)) }
         guard let data = try? JSONSerialization.data(withJSONObject: ["version": 1, "items": objects]) else { return false }
-        do { try data.write(to: file, options: .atomic); return true } catch { return false }
+        do { try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]); return true } catch { return false }
     }
 
     /// 削除の保存に成功したあとに呼ぶ（共通JSが作った項目のJSON）。形が正しくなければ入れない。

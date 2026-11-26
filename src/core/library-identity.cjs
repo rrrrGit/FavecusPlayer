@@ -33,7 +33,7 @@ function LibraryMediaKey(values = []) {
 // 端末間の同一性に使う同期用メディアキー（SyncMediaKey）。保存形式は変更しない純粋な派生値。
 // 形式：確認済みBVがあれば bili:<BV>:p<パート>、avのみなら bili-av:<aid>:p<パート>。ローカル曲はnull（ファイル名を同期の識別に使わない）。
 // 曲名・所属リスト・登録曲id・mediaId・端末のパスには依存しない。検証済みの videoId / part があればURLを再解析しない。
-const SYNC_KEY = /^(bili:BV[a-zA-Z0-9]{10}|bili-av:[1-9]\d{0,17}):p[1-9]\d{0,4}$/;
+const SYNC_KEY = /^(bili:BV[a-zA-Z0-9]{10}|bili-av:[1-9]\d{0,17}):p[1-9]\d{0,5}$/;
 // 保存済みの videoId / part は、URLが同じ値から作られた正規の形（検証時にParseBilibiliが作る形）と完全に一致するときだけ使う。
 // 食い違い・不正な値・未検証の項目は、URLを解析して求める（URLを正とし、保存値を無条件に信頼しない）。
 function SyncKeyParts(entry) {

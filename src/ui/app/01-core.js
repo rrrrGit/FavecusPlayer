@@ -19,7 +19,11 @@ function SetTransportMenu(open) {
   button?.setAttribute('aria-expanded', String(next));
   if (typeof SendBounds === 'function') SendBounds();
 }
-function CloseTransportMenu() { SetTransportMenu(false); }
+function CloseTransportMenu(restoreFocus = false) {
+  const wasOpen = transportMenuOpen;
+  SetTransportMenu(false);
+  if (restoreFocus && wasOpen) $('transport-more')?.focus();
+}
 function UpdateTransportMoreIndicator() {
   const button = $('transport-more'); if (!button) return;
   const sleepOn = sleepState?.mode === 'minutes' || sleepState?.mode === 'song', speedOn = playbackSpeed !== 1;
@@ -218,6 +222,7 @@ function OpenModal(title, content, submit, submitLabel = '保存', back = null) 
   $('modal-submit').textContent = submitLabel; $('modal-submit').classList.toggle('hidden', !submit);
   $('modal-back').classList.toggle('hidden', !back); $('modal-back').disabled = false; $('modal-back').onclick = back ? () => PerformModal(back, false) : null;
   submitModal = submit; if (!$('modal').open) $('modal').showModal(); $('modal').scrollTop = 0; BackgroundInteractive(false); SendBounds();
+  if (typeof $('modal').contains === 'function' && !$('modal').contains(document.activeElement)) { $('modal-title').tabIndex = -1; $('modal-title').focus?.({ preventScroll: true }); }
 }
 function CancelModalTask() { const cancel = cancelModal; cancelModal = null; if (cancel) void cancel().catch(() => {}); }
 function CloseModal() { $('modal').close(); FinishModalClose(); }

@@ -120,7 +120,7 @@ function KeySettings() {
   const paint = () => { for (const [action, input] of inputs) input.value = keys.Display(draft[action]); };
   for (const [action, title] of Object.entries(keys.Labels)) {
     const label = Element('label', 'keybinding-row', title), input = Element('input'); input.type = 'text'; input.readOnly = true; input.setAttribute('aria-label', title);
-    input.onkeydown = event => { event.preventDefault(); event.stopPropagation(); if (event.isComposing) return; const value = keys.Stroke(event); if (!value) return; draft[action] = ['Backspace', 'Delete'].includes(value) ? '' : value; paint(); };
+    input.onkeydown = event => { if (event.key === 'Tab' || event.key === 'Escape') return; event.preventDefault(); event.stopPropagation(); if (event.isComposing) return; const value = keys.Stroke(event); if (!value) return; draft[action] = ['Backspace', 'Delete'].includes(value) ? '' : value; paint(); };
     label.append(input); $('keybinding-fields').append(label); inputs.set(action, input);
   }
   $('keybinding-reset').onclick = () => { Object.assign(draft, keys.Defaults); paint(); }; paint();
@@ -235,7 +235,8 @@ function PlaybackSettings() {
   $('playback-source').value = downloadInfo.preferSaved === false ? 'online' : 'saved';
   $('volume-leveling').checked = s.volumeLeveling !== false;
   $('sidebar-width').value = s.sidebarWidth; $('sidebar-width-value').textContent = `${s.sidebarWidth}px`;
-  $('sidebar-width').oninput = () => { const width = Number($('sidebar-width').value); $('sidebar-width-value').textContent = `${width}px`; document.body.style.setProperty('--sidebar-width', `${width}px`); Run(() => Action({ type: 'settings', settings: { sidebarWidth: width } })); };
+  $('sidebar-width').oninput = () => { const width = Number($('sidebar-width').value); $('sidebar-width-value').textContent = `${width}px`; document.body.style.setProperty('--sidebar-width', `${width}px`); };
+  $('sidebar-width').onchange = () => { const width = Number($('sidebar-width').value); Run(() => Action({ type: 'settings', settings: { sidebarWidth: width } })); };
   $('auto-thumbnail').checked = s.autoThumbnailEnabled; $('auto-thumbnail-minutes').value = s.autoThumbnailMinutes;
 }
 function Favorites() {

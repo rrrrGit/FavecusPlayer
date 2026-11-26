@@ -26,7 +26,14 @@ struct AlarmSongCatalog {
         return result
     }
 
-    func file(forKey key: String) -> URL? { songs().first { $0.key == key }?.file }
+    func file(forKey key: String) -> URL? {
+        if key.hasPrefix("local:") {
+            let name = String(key.dropFirst(6))
+            guard store.mediaFiles.contains(name) else { return nil }
+            return store.mediaDirectory.appendingPathComponent(name)
+        }
+        return downloads?.savedFile(key: key) ?? downloads?.savedFile(key: key, kind: "video")
+    }
 
     /// ライブラリ全曲のメディアキー → 曲名（一覧の表示用。保存済みでなくても名前が引ける）。
     func titlesByKey() -> [String: String] {
@@ -185,6 +192,9 @@ struct AlarmRangeEditor: View {
 
     private func preview() {
         stopPreview()
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .default)
+        try? session.setActive(true)
         guard let next = try? AVAudioPlayer(contentsOf: song.file) else { failed = true; return }
         next.currentTime = start
         next.play()

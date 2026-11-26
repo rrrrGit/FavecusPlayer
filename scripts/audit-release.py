@@ -38,7 +38,7 @@ def main():
     checked = 0
     for source in ROOT.rglob('*'):
         if not source.is_file() or {'dist','node_modules','release-validation','.git','__pycache__'}.intersection(source.relative_to(ROOT).parts): continue
-        assert source.suffix.lower() not in {'.dmp','.jsonl','.pem','.p12'} and source.name not in {'.env','Cookies','playlists.json','download-settings.json','play-counts.json'}, source
+        assert source.suffix.lower() not in {'.dmp','.jsonl','.pem','.p12'} and source.name not in {'.env','Cookies','playlists.json','download-settings.json','play-counts.json','library.json','library.json.bak','play-ledger.json','favorites.json','play-history.json','play-time.json','song-notes.json','playback-resume.json','trash.json','list-views.json','loudness.json','output-device.json','playback-speed.json','auto-list-settings.json','session.bin','config.json','state.json'}, source
         if source.suffix.lower() in {'.js','.cjs','.py','.ps1','.c','.h','.md','.html','.json','.txt','.yml','.yaml'}:
             assert not secret.search(source.read_text(encoding='utf-8')), f'secret-shaped content: {source.relative_to(ROOT)}'
         checked += 1

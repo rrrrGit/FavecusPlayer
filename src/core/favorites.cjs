@@ -71,7 +71,7 @@ class FavoriteStore {
       if (!this.Save()) {
         this.doc.states = prevStates; this.doc.keys = prevKeys; this.doc.syncCursor = prevCursor;
         this.keys = new Set(prevKeys);
-        return 0;
+        throw new Error('お気に入りを保存できませんでした。');
       }
       this.keys = new Set(this.doc.keys);
       this.migrated = false;

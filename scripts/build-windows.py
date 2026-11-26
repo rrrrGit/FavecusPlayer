@@ -94,7 +94,7 @@ ExitProcess: .quad 0
 .section .data,"aw"
 .quad Entry
 ''')
-    (work/'resource.s').write_text('.section .rsrc,"a"\n.incbin "'+str(work/'resource.bin')+'"\n')
+    (work/'resource.s').write_text('.section .rsrc,"a"\n.incbin "'+(work/'resource.bin').as_posix()+'"\n')
     flags=['-mabi=ms','-mno-red-zone','-fshort-wchar','-fpie','-ffreestanding','-fno-builtin','-fno-ident','-fno-stack-protector','-fno-asynchronous-unwind-tables','-fno-unwind-tables','-O2','-Wall','-Wextra','-Wno-unused-function','-Wno-unused-variable','-Wno-misleading-indentation']
     defines=[f'-DMODE={mode}']
     if electron_folder:defines.append(f'-DELECTRON_FOLDER=L"{electron_folder}"')

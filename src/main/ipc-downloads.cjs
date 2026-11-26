@@ -29,6 +29,6 @@ module.exports = function RegisterDownloads(ctx) {
   Handle('downloads:start', options => { const target = downloadTarget(options); return S.offline.Start(target.entries, target.options); });
   Handle('downloads:cancel', () => S.offline.Cancel());
   Handle('downloads:prefer', value => S.offline.PreferSaved(value));
-  Handle('downloads:directory', async () => { if (S.offline.controller) throw new Error('保存中は保存先を変更できません。'); const result = await dialog.showOpenDialog(S.win, { title: '動画・音声の保存先', defaultPath: S.offline.directory, properties: ['openDirectory', 'createDirectory'] }); return result.canceled ? S.offline.Snapshot() : S.offline.SetDirectory(result.filePaths[0]); });
+  Handle('downloads:directory', async () => { if (S.offline.controller) throw new Error('保存中は保存先を変更できません。'); const result = await dialog.showOpenDialog(S.win, { title: '動画・音声の保存先', defaultPath: S.offline.directory, properties: ['openDirectory', 'createDirectory'] }); return result.canceled || !result.filePaths?.[0] ? S.offline.Snapshot() : S.offline.SetDirectory(result.filePaths[0]); });
   Handle('downloads:open', async () => { fs.mkdirSync(S.offline.directory, { recursive: true }); if (await shell.openPath(S.offline.directory)) throw new Error('保存先を開けませんでした。'); return true; });
 };

@@ -9,7 +9,7 @@ const RecordSame = (a, b) => Same(Saved(a), Saved(b));
 function Write(file, value) {
   const temp = `${file}.${randomUUID()}.tmp`;
   try { fs.writeFileSync(temp, JSON.stringify(value, null, 2), { flag: 'wx' }); fs.renameSync(temp, file); }
-  finally { fs.rmSync(temp, { force: true }); }
+  finally { try { fs.rmSync(temp, { force: true }); } catch {} }
 }
 function SafeFile(library, name) {
   const file = library.ResolvePath(name);

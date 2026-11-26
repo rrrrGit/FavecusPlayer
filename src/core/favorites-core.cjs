@@ -50,12 +50,14 @@ function Clean(raw) {
     return { doc, migrated };
   }
   if (Array.isArray(raw.keys)) {
+    let favCount = 0;
     for (const key of raw.keys) {
       if (!ValidKey(key) || doc.states[key]) continue;
-      if (Object.keys(doc.states).length >= MAX_KEYS) break;
+      if (favCount >= MAX_KEYS) break;
       doc.states[key] = { fav: true, at: 1 };
+      favCount++;
     }
-    migrated = Object.keys(doc.states).length > 0;
+    migrated = favCount > 0;
     DeriveKeys(doc);
   }
   return { doc, migrated };

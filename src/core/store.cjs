@@ -92,7 +92,7 @@ class Store {
         if (error.identityDataInvalid || error.playlistLimitExceeded) throw error;
         if (error.migrationBackupFailed) throw new Error('更新前のバックアップを保存できません。空き容量とデータフォルダーの書き込み権限を確認してください。保存データは変更していません。');
         this.warning = '保存ファイルを読み込めませんでした。元のファイルは damaged として残しています。';
-        fs.copyFileSync(candidate, `${candidate}.damaged-${Date.now()}`);
+        try { fs.copyFileSync(candidate, `${candidate}.damaged-${Date.now()}`); } catch {}
       }
     }
     return Defaults();
@@ -104,13 +104,20 @@ class Store {
     const assignments = PlanMediaIds(this.data.playlists, randomUUID, LibraryMediaKey(videoAliases));
     const next = { ...this.data, identityVersion: IDENTITY_SCHEMA_VERSION, videoAliases, playlists: this.data.playlists.map(p => ({ ...p, entries: p.entries.map(e => ({ ...e, mediaId: assignments.get(e) })) })) };
     const encoded = JSON.stringify(next, null, 2);
-    const temp = `${this.file}.${randomUUID()}.tmp`;
+    if (Buffer.byteLength(encoded, 'utf8') > MAX_JSON) throw new Error('保存データの上限（32MB）を超えました。プレイリスト画像や登録数を減らしてください。');
+    const temp = `${this.file}.${randomUUID()}.tmp`, bakTemp = `${this.file}.bak.${randomUUID()}.tmp`;
     try {
       fs.writeFileSync(temp, encoded, { mode: 0o600, flag: 'wx' });
-      // 置換前の正常な内容を保持し、途中終了で本体が空になることを防ぐ。
-      if (fs.existsSync(this.file) && (!this.warning || this.recovered)) fs.copyFileSync(this.file, `${this.file}.bak`);
+      // 置換前の正常な内容を保持し、途中終了で本体・バックアップが空になることを防ぐ。
+      if (fs.existsSync(this.file) && (!this.warning || this.recovered)) {
+        fs.copyFileSync(this.file, bakTemp);
+        fs.renameSync(bakTemp, `${this.file}.bak`);
+      }
       fs.renameSync(temp, this.file);
-    } finally { try { fs.rmSync(temp, { force: true }); } catch {} }
+    } finally {
+      try { fs.rmSync(temp, { force: true }); } catch {}
+      try { fs.rmSync(bakTemp, { force: true }); } catch {}
+    }
     this.data.identityVersion = IDENTITY_SCHEMA_VERSION;
     this.data.videoAliases = videoAliases;
     for (const [entry, mediaId] of assignments) entry.mediaId = mediaId;
@@ -227,15 +234,13 @@ class Store {
       // 「再生回数が少ない曲を優先する」を利用者が変えたときは、変更時刻を付ける（別の端末との同期で、新しい変更が勝つ。同期から反映するときは、action.settings に時刻が含まれる）
       const stamped = Object.hasOwn(action.settings || {}, 'weightedShuffle') && !Object.hasOwn(action.settings, 'weightedShuffleAt') && action.settings.weightedShuffle !== this.data.settings.weightedShuffle
         ? { ...action.settings, weightedShuffleAt: Date.now() } : action.settings;
-      const settings = ValidateSettings({ ...this.data.settings, ...stamped }), before = structuredClone(this.data);
-      try {
-        this.data.settings = settings;
-        if (Object.hasOwn(action.settings || {}, 'titleCleanupWords')) {
-          const cleanTitle = TitleCleaner(settings.titleCleanupWords);
-          for (const list of this.data.playlists) for (const entry of list.entries) entry.title = cleanTitle(entry.title);
-        }
-        this.Save();
-      } catch (error) { this.data = before; throw error; }
+      const settings = ValidateSettings({ ...this.data.settings, ...stamped });
+      this.data.settings = settings;
+      if (Object.hasOwn(action.settings || {}, 'titleCleanupWords')) {
+        const cleanTitle = TitleCleaner(settings.titleCleanupWords);
+        for (const list of this.data.playlists) for (const entry of list.entries) entry.title = cleanTitle(entry.title);
+      }
+      this.Save();
       return this.Snapshot();
     }
     else throw new Error('対応していない操作です。');

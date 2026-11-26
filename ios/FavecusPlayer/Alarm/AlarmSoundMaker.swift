@@ -89,35 +89,46 @@ enum AlarmSoundMaker {
         guard reader.startReading() else { throw AlarmError.sound("音声を読み込めません") }
         guard writer.startWriting() else { throw AlarmError.sound("音声を書き出せません") }
         writer.startSession(atSourceTime: CMTime(seconds: from, preferredTimescale: 600))
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let complete: @Sendable () -> Void = {
-                guard !level.finished else { return }
-                level.finished = true
-                input.markAsFinished()
-                continuation.resume()
-            }
-            input.requestMediaDataWhenReady(on: DispatchQueue(label: "favecus.alarm.sound")) {
-                if level.finished { return }
-                while input.isReadyForMoreMediaData {
-                    guard writer.status == .writing, reader.status == .reading || reader.status == .completed else {
-                        complete()
-                        return
-                    }
-                    if let buffer = readerOutput.copyNextSampleBuffer() {
-                        scale(buffer, gain: gain, fadeFrames: fadeFrames, state: level)
-                        if !input.append(buffer) {
+        try Task.checkCancellation()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                let complete: @Sendable () -> Void = {
+                    guard !level.finished else { return }
+                    level.finished = true
+                    input.markAsFinished()
+                    continuation.resume()
+                }
+                input.requestMediaDataWhenReady(on: DispatchQueue(label: "favecus.alarm.sound")) {
+                    if level.finished { return }
+                    while input.isReadyForMoreMediaData {
+                        guard !Task.isCancelled, writer.status == .writing, reader.status == .reading || reader.status == .completed else {
                             complete()
                             return
                         }
-                    } else {
+                        if let buffer = readerOutput.copyNextSampleBuffer() {
+                            scale(buffer, gain: gain, fadeFrames: fadeFrames, state: level)
+                            if !input.append(buffer) {
+                                complete()
+                                return
+                            }
+                        } else {
+                            complete()
+                            return
+                        }
+                    }
+                    if writer.status != .writing || reader.status == .failed || reader.status == .cancelled {
                         complete()
-                        return
                     }
                 }
-                if writer.status != .writing || reader.status == .failed || reader.status == .cancelled {
-                    complete()
-                }
             }
+        } onCancel: {
+            reader.cancelReading()
+            writer.cancelWriting()
+        }
+        if Task.isCancelled {
+            reader.cancelReading()
+            writer.cancelWriting()
+            throw CancellationError()
         }
         await writer.finishWriting()
         guard reader.status == .completed, writer.status == .completed else { throw AlarmError.sound("音声の書き出しに失敗しました") }

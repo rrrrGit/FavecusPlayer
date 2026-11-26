@@ -104,6 +104,15 @@ private struct DownloadsList: View {
                 }
                 Toggle("Wi-Fi接続時のみ保存", isOn: $wifiOnly)
             }
+            if let message = downloads.message, !message.isEmpty {
+                Section {
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(message).font(.footnote).foregroundStyle(Theme.warning)
+                        Spacer(minLength: 4)
+                        Button("閉じる") { downloads.message = nil }.font(.caption)
+                    }
+                }
+            }
             if !active.isEmpty {
                 Section { ForEach(active) { row($0) } } header: { SectionLabel(text: "保存中") }
             }

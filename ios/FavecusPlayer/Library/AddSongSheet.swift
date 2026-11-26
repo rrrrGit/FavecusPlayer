@@ -99,15 +99,19 @@ struct AddSongSheet: View {
             let before = store.document?.playlist(playlistId)?.entries.count ?? 0
             store.perform(["type": "add-video", "playlistId": playlistId, "url": text, "title": title, "duration": duration])
             await store.waitUntilIdle()
-            // 追加できたときだけ（重複などで追加されなかったときは、別の曲に画像を付けない）、いま追加した曲のサムネイルを取得する
-            if let list = store.document?.playlist(playlistId), list.entries.count > before, let added = list.entries.last?.url {
+            let added = (store.document?.playlist(playlistId)?.entries.count ?? 0) > before
+            if added, let list = store.document?.playlist(playlistId), let lastURL = list.entries.last?.url {
                 // 取得した情報は、いま追加した動画のもの（別の端末の同期で末尾が入れ替わっていないこと）を確かめてから使う
                 if let note { store.notice = note }
-                if Self.videoId(of: text).map { added.contains($0) } == true { await downloads?.fetchThumbnail(forVideoURL: added, thumbnailURL: thumbnail) }
+                if Self.videoId(of: text).map { lastURL.contains($0) } == true { await downloads?.fetchThumbnail(forVideoURL: lastURL, thumbnailURL: thumbnail) }
             }
             await downloads?.refreshKeys(entries: store.document?.playlists.flatMap(\.entries) ?? [])
             working = false
-            isPresented = false
+            if added {
+                isPresented = false
+            } else {
+                message = store.notice ?? note ?? "追加できませんでした。"
+            }
         }
     }
 }

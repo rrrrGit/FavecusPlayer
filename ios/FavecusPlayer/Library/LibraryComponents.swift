@@ -79,16 +79,16 @@ struct ClearDrag: DropDelegate {
 struct SwipeBackEnabler: UIViewControllerRepresentable {
     /// 戻るスワイプを始めてよいのは、ページが2枚以上あるときだけ（ホームで始めると、画面が固まるため）。
     final class PopDelegate: NSObject, UIGestureRecognizerDelegate {
-        static let shared = PopDelegate()
         weak var navigationController: UINavigationController?
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool { (navigationController?.viewControllers.count ?? 0) > 1 }
     }
 
     final class Holder: UIViewController {
+        let popDelegate = PopDelegate()
         override func viewDidAppear(_ animated: Bool) {
             super.viewDidAppear(animated)
-            PopDelegate.shared.navigationController = navigationController
-            navigationController?.interactivePopGestureRecognizer?.delegate = PopDelegate.shared
+            popDelegate.navigationController = navigationController
+            navigationController?.interactivePopGestureRecognizer?.delegate = popDelegate
             navigationController?.interactivePopGestureRecognizer?.isEnabled = true
         }
     }

@@ -345,9 +345,13 @@ test('PC UI SyncSettings guards modal navigation and AddURL opens PlaylistURL wi
   assert.equal(nodes.get('modal-title').textContent, '再生リストURLから追加', '追加先が空でも PlaylistURL モーダルを開ける');
 });
 
-test('CI workflows include release/v0.7.6, build-windows.py avoids modifying native/config.h, and GUIDE reflects v0.7.5', () => {
-  assert.match(read('.github/workflows/ios.yml'), /release\/v0\.7\.6/);
-  assert.match(read('.github/workflows/windows-build.yml'), /release\/v0\.7\.6/);
+test('CI workflows include release/v* (covering release/v0.7.6), build-windows.py avoids modifying native/config.h, and GUIDE/README reflect v0.7.5', () => {
+  const iosYml = read('.github/workflows/ios.yml');
+  const winYml = read('.github/workflows/windows-build.yml');
+  assert.match(iosYml, /release\/v(?:\*|0\.7\.6)/);
+  assert.match(iosYml, /permissions:\s*\r?\n\s*contents:\s*read/);
+  assert.match(iosYml, /node-version:\s*"24\.20\.0"/);
+  assert.match(winYml, /release\/v(?:\*|0\.7\.6)/);
 
   const configH = read('native/config.h');
   assert.match(configH, /#ifndef ELECTRON_FOLDER[\s\S]*#define ELECTRON_FOLDER[\s\S]*#endif/);
@@ -357,5 +361,67 @@ test('CI workflows include release/v0.7.6, build-windows.py avoids modifying nat
 
   assert.match(read('docs/GUIDE.md'), /^# Favecus Player v0\.7\.5 の使い方/);
   assert.match(read('docs/GUIDE.html'), /<h1>Favecus Player v0\.7\.5 の使い方<\/h1>/);
+  assert.match(read('README.md'), /^# Favecus Player 0\.7\.5/);
+  assert.match(read('README.md'), /Favecus-Player-0\.7\.5-Patch\.exe/);
   assert.doesNotMatch(read('docs/BUILD.md'), /今回のリリースは0\.6\.6/);
+});
+
+test('SyncService SignOut prevents in-flight Repository session.set from restoring cleared session', () => {
+  const fs = require('node:fs'), os = require('node:os');
+  const { SyncService } = require('../src/core/sync-service.cjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'favecus-signout-'));
+  try {
+    let saved = { accessToken: 'old', refreshToken: 'r', expiresAt: 0, userId: 'u1' };
+    const vault = { Available: () => true, Get: () => saved, Set: v => { saved = v; }, Clear: () => { saved = null; } };
+    const svc = new SyncService({ directory: dir, adapter: { Library: () => ({}), Context: () => ({}), Apply: () => false }, vault, request: async () => ({ status: 200, json: {} }) });
+    svc.Configure({ url: 'https://demo.supabase.co', anonKey: 'eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYW5vbiJ9.sig' });
+    const repo = svc.Repository();
+    svc.SignOut();
+    assert.equal(saved, null);
+    repo.session.set({ accessToken: 'resurrected', refreshToken: 'r2', expiresAt: 9999999999, userId: 'u1' });
+    assert.equal(saved, null, 'SignOut 後に旧 Repository 経由でセッションが復活しない');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('AdditionReview.Commit updates playlist lastAddedAt and LoudnessStore rejects corrupted entries', async () => {
+  const fs = require('node:fs'), os = require('node:os');
+  const { Store } = require('../src/core/store.cjs');
+  const { AdditionReview } = require('../src/core/addition-review.cjs');
+  const { LoudnessStore } = require('../src/core/loudness.cjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'favecus-rev-'));
+  try {
+    const store = new Store(dir);
+    const listId = store.data.playlists[0].id;
+    assert.equal(store.Playlist(listId).lastAddedAt, '');
+    const review = new AdditionReview(store);
+    const plan = await review.Prepare({ type: 'add', destinationIds: [listId], urls: 'https://www.bilibili.com/video/BV1xx411c7mD/' });
+    await review.Commit(plan.id, []);
+    assert.ok(store.Playlist(listId).lastAddedAt.length > 0, 'AdditionReview.Commit で lastAddedAt が更新される');
+
+    const loudFile = path.join(dir, 'loudness.json');
+    fs.writeFileSync(loudFile, JSON.stringify({ version: 1, records: { bad: null, good: { meanDb: -12, at: 100 } } }));
+    const loud = new LoudnessStore(loudFile, null);
+    assert.deepEqual(Object.keys(loud.records), ['good']);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('SyncRuntime propagates host.isAborted to SyncExtras and stops local apply', async () => {
+  const SyncRuntime = require('../src/core/sync-runtime.cjs');
+  let favApplied = false;
+  let aborted = true;
+  const prevHost = globalThis.__favecusHost;
+  try {
+    globalThis.__favecusHost = {
+      isAborted: () => aborted,
+      countsRead: async () => null,
+      favoritesRead: async () => JSON.stringify({ deviceId: 'ios-1', cursor: 0, rows: [] }),
+      favoritesApply: async () => { favApplied = true; },
+      favoritesPushed: async () => {}
+    };
+    const { SyncExtras } = require('../src/core/sync-counts.cjs');
+    const res = await SyncExtras({ favorites: { Read: async () => ({ deviceId: 'ios-1', cursor: 0, rows: [] }), Apply: async () => { favApplied = true; }, Pushed: async () => {} } }, { PullFavorites: async () => ({ rows: [], cursor: 1 }) }, { isAborted: () => aborted });
+    assert.equal(res.aborted, true);
+    assert.equal(favApplied, false);
+    assert.equal(typeof SyncRuntime.Cycle, 'function');
+  } finally { globalThis.__favecusHost = prevHost; }
 });

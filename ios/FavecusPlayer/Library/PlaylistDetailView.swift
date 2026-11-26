@@ -417,8 +417,8 @@ struct PlaylistDetail: View {
                 Button(selection.count == shown.count ? "選びなおす" : "すべて選ぶ") { selection = selection.count == shown.count ? [] : Set(shown.map(\.id)) }.font(.system(size: 13))
             }
             HStack(spacing: 0) {
-                barButton("arrow.right.circle", "移動") { transfer = TransferRequest(entryIds: Array(selection), mode: "move") }
-                barButton("plus.circle", "追加") { transfer = TransferRequest(entryIds: Array(selection), mode: "copy") }
+                barButton("arrow.right.circle", "移動") { transfer = TransferRequest(entryIds: selectedEntries.map(\.id), mode: "move") }
+                barButton("plus.circle", "追加") { transfer = TransferRequest(entryIds: selectedEntries.map(\.id), mode: "copy") }
                 barButton("heart", "お気に入り") { let items = selectedEntries; Task { await services.player?.setFavorites(entries: items, true) } }
                 barButton("heart.slash", "外す") { let items = selectedEntries; Task { await services.player?.setFavorites(entries: items, false) } }
                 if services.downloads != nil { barButton("arrow.down.circle", "保存") { services.downloads?.saveAll(entries: selectedEntries.filter { $0.type == "bilibili" }, kind: "audio") } }

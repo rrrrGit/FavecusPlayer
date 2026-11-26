@@ -109,7 +109,8 @@ class ZipReader {
     const check = new Transform({ transform(chunk, _encoding, done) { size += chunk.length; if (size > item.bytes || size > limit) return done(new Error('展開サイズが一致しません。')); crc = CRC(chunk, crc); done(null, chunk); }, flush(done) { done(size === item.bytes && ((crc ^ 0xffffffff) >>> 0) === item.crc ? null : new Error('ZIPのデータが破損しています。')); } });
     const source = item.packed ? fs.createReadStream(this.file, { fd: this.handle.fd, autoClose: false, start: item.start, end: item.start + item.packed - 1 }) : Readable.from([]);
     const sink = destination ? fs.createWriteStream(destination, { flags: 'wx' }) : new Transform({ transform(chunk, _encoding, done) { chunks.push(chunk); done(); } });
-    await pipeline(source, ...(item.method === 8 ? [createInflateRaw()] : []), check, sink);
+    try { await pipeline(source, ...(item.method === 8 ? [createInflateRaw()] : []), check, sink); }
+    catch (error) { if (destination) await fs.promises.rm(destination, { force: true }).catch(() => {}); throw error; }
     return destination || Buffer.concat(chunks);
   }
   async Close() { if (this.handle) { await this.handle.close(); this.handle = null; } }

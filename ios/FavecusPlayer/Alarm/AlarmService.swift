@@ -139,15 +139,23 @@ final class AlarmService: ObservableObject {
     private func performResync() async {
         guard let live = await scheduler.scheduledIDs() else { return }
         let ready = isLibraryReady()
+        let pending = pendingPlayAlarmId?() ?? AlarmPlayRequest.peek()
         for item in alarms where item.enabled && !live.contains(item.id) {
             if item.weekdays.isEmpty {
                 var done = item
                 done.enabled = false
                 var next = alarms
                 if let index = next.firstIndex(where: { $0.id == item.id }) { next[index] = done }
-                try? store.save(next)
-                alarms = next
+                do {
+                    try store.save(next)
+                    alarms = next
+                    if let url = soundURL(id: item.id) { try? FileManager.default.removeItem(at: url) }
+                } catch {
+                    notice = "アラームの状態を保存できませんでした：\(error.localizedDescription)"
+                }
             } else {
+                // ランダム期限切れは直後の再抽選＋再予約へ1回で任せる（二重生成を避ける）
+                if ready && item.randomSound && (item.rolledFor ?? .distantPast) <= now() && item.id.uuidString != pending { continue }
                 var soundName = soundFileIfReady(item)
                 if soundName == nil, item.sound != nil {
                     guard ready else { continue }
@@ -158,9 +166,19 @@ final class AlarmService: ObservableObject {
         }
         guard ready else { return }
         // 「ランダム」：鳴る時刻を過ぎていたら、次の1回の曲を抽選し直す（「曲を再生」で開かれる途中の曲は、変えない）
-        let pending = pendingPlayAlarmId?() ?? AlarmPlayRequest.peek()
         for item in alarms where item.enabled && item.randomSound && (item.rolledFor ?? .distantPast) <= now() && item.id.uuidString != pending {
             await performSave(item, rollRandom: true, clearNotice: false)
+        }
+        cleanupOrphanSounds()
+    }
+
+    private func cleanupOrphanSounds() {
+        guard let dir = soundsDirectory, let files = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return }
+        let activeNames = Set(alarms.filter(\.enabled).compactMap { soundURL(id: $0.id)?.lastPathComponent })
+        for name in files where (name.hasPrefix("alarm-") || name.hasPrefix(".tmp-")) && name.hasSuffix(".caf") {
+            if !activeNames.contains(name) {
+                try? FileManager.default.removeItem(at: dir.appendingPathComponent(name))
+            }
         }
     }
 }

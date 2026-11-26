@@ -142,7 +142,7 @@ function EntryMenu(entry, draft = undefined) {
     const b = Button(label, 'button secondary', async () => { await Action({ type: 'move', playlistId: p.id, entryId: entry.id, direction }); CloseModal(); });
     b.disabled = direction === -1 ? index === 0 : index === p.entries.length - 1; $('entry-actions').append(b);
   }
-  $('entry-actions').append(Button('曲の情報（アーティスト・タグ・メモ・チャプター）', 'button secondary', () => { CloseModal(); void SongInfoDialog(p.id, entry); }));
+  $('entry-actions').append(Button('曲の情報（アーティスト・タグ・メモ・チャプター）', 'button secondary', () => { void SongInfoDialog(p.id, entry); }));
   const favorite = IsFavorite(entry.id);
   $('entry-actions').append(Button(favorite ? '♥ お気に入りから外す' : '♡ お気に入りにする', 'button secondary', async () => { await SetFavorite(p.id, entry.id, !favorite); CloseModal(); Toast(favorite ? 'お気に入りから外しました。' : 'お気に入りにしました。シャッフル再生で、少しだけ選ばれやすくなります。'); }));
   for (const [label, where, done] of [['次に再生', 'next', '次に再生します。'], ['キューの最後に追加', 'end', 'キューの最後に追加しました。']]) {

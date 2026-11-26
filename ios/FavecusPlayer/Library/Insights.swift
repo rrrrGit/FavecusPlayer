@@ -92,12 +92,17 @@ final class PlayHistoryStore: ObservableObject {
         return (created["text"] as? String) ?? "{\"version\":1,\"items\":[],\"clearedAt\":0,\"syncCursor\":0}"
     }
 
-    private func persist() {
-        guard !text.isEmpty else { return }
+    @discardableResult
+    private func persist(_ candidate: String? = nil) -> Bool {
+        let value = candidate ?? text
+        guard !value.isEmpty else { return false }
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Data(text.utf8).write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        } catch {}
+            try Data(value.utf8).write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func enqueue(_ work: @escaping @MainActor () async -> Void) {
@@ -123,8 +128,8 @@ final class PlayHistoryStore: ObservableObject {
         await serialized { [self] in
             guard let reply = try? await core.callAsync("HistoryAddState", Self.json(["text": text, "key": key, "at": Self.nowMs()])),
                   let object = try? Self.object(reply), let next = object["text"] as? String else { return }
+            guard persist(next) else { return }
             text = next
-            persist()
             revision += 1
             if object["syncable"] as? Bool == true {
                 dirty.insert(key)

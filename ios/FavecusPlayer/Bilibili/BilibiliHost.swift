@@ -17,8 +17,9 @@ final class BiliCore: @unchecked Sendable {
         context = created
         context.exceptionHandler = { [weak self] _, exception in self?.errors.append(exception?.toString() ?? "unknown") }
         let object = JSValue(newObjectIn: context)
-        let request: @convention(block) (String, String, String) -> JSValue = { [unowned self] method, url, json in
-            JSValue(newPromiseIn: context) { [queue] resolve, reject in
+        let request: @convention(block) (String, String, String) -> JSValue = { [weak self] method, url, json in
+            guard let self else { return JSValue(undefinedIn: created) }
+            return JSValue(newPromiseIn: self.context) { [queue = self.queue] resolve, reject in
                 Task {
                     do {
                         let value = try await host.request(method: method, url: url, json: json)
@@ -43,23 +44,58 @@ final class BiliCore: @unchecked Sendable {
 
     /// FavecusCore.<function>(argument)（Promiseの解決を待つ）。JSON文字列を返す。
     func call(_ function: String, _ argument: String = "{}") async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
-            queue.async {
-                self.errors.removeAll()
-                guard let core = self.context.objectForKeyedSubscript("FavecusCore"), let target = core.objectForKeyedSubscript(function), !target.isUndefined else {
-                    continuation.resume(throwing: SharedCoreError.missingResource("FavecusCore.\(function)"))
-                    return
+        let gate = CallGate()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                gate.bind(continuation)
+                queue.async {
+                    if gate.isFinished { return }
+                    self.errors.removeAll()
+                    guard let core = self.context.objectForKeyedSubscript("FavecusCore"), let target = core.objectForKeyedSubscript(function), !target.isUndefined else {
+                        gate.finish(throwing: SharedCoreError.missingResource("FavecusCore.\(function)"))
+                        return
+                    }
+                    let result = target.call(withArguments: [argument])
+                    if !self.errors.isEmpty { gate.finish(throwing: SharedCoreError.script(self.errors.joined(separator: " / "))); return }
+                    guard let result, result.isObject, result.hasProperty("then") else { gate.finish(throwing: SharedCoreError.invalidResult(function)); return }
+                    let fulfilled: @convention(block) (JSValue) -> Void = { value in
+                        if value.isString, let text = value.toString() { gate.finish(returning: text) }
+                        else { gate.finish(throwing: SharedCoreError.invalidResult(function)) }
+                    }
+                    let rejected: @convention(block) (JSValue) -> Void = { error in gate.finish(throwing: SharedCoreError.script(error.toString() ?? "rejected")) }
+                    result.invokeMethod("then", withArguments: [fulfilled, rejected])
                 }
-                let result = target.call(withArguments: [argument])
-                if !self.errors.isEmpty { continuation.resume(throwing: SharedCoreError.script(self.errors.joined(separator: " / "))); return }
-                guard let result, result.isObject, result.hasProperty("then") else { continuation.resume(throwing: SharedCoreError.invalidResult(function)); return }
-                let fulfilled: @convention(block) (JSValue) -> Void = { value in
-                    if value.isString, let text = value.toString() { continuation.resume(returning: text) }
-                    else { continuation.resume(throwing: SharedCoreError.invalidResult(function)) }
-                }
-                let rejected: @convention(block) (JSValue) -> Void = { error in continuation.resume(throwing: SharedCoreError.script(error.toString() ?? "rejected")) }
-                result.invokeMethod("then", withArguments: [fulfilled, rejected])
             }
+        } onCancel: {
+            gate.finish(throwing: CancellationError())
+        }
+    }
+
+    private final class CallGate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<String, Error>?
+        private var pendingResult: Result<String, Error>?
+        private var finished = false
+        var isFinished: Bool { lock.withLock { finished } }
+        func bind(_ c: CheckedContinuation<String, Error>) {
+            let early: Result<String, Error>? = lock.withLock {
+                if let r = pendingResult { pendingResult = nil; return r }
+                continuation = c
+                return nil
+            }
+            if let early { c.resume(with: early) }
+        }
+        func finish(returning value: String) { finish(with: .success(value)) }
+        func finish(throwing error: Error) { finish(with: .failure(error)) }
+        private func finish(with result: Result<String, Error>) {
+            let c: CheckedContinuation<String, Error>? = lock.withLock {
+                guard !finished else { return nil }
+                finished = true
+                if let current = continuation { continuation = nil; return current }
+                pendingResult = result
+                return nil
+            }
+            c?.resume(with: result)
         }
     }
 }
@@ -114,6 +150,7 @@ final class BilibiliCookieVault: @unchecked Sendable {
     static let allowed: Set<String> = ["SESSDATA", "bili_jct", "DedeUserID", "DedeUserID__ckMd5", "sid"]
 
     private let vault: SessionVault
+    private let lock = NSLock()
 
     init(vault: SessionVault = KeychainVault(service: "dev.favecus.player.bilibili", account: "cookies")) { self.vault = vault }
 
@@ -121,7 +158,7 @@ final class BilibiliCookieVault: @unchecked Sendable {
 
     /// "name=value; name=value"。Cookieがなければnil。値に制御文字・区切りが含まれるものは使わない。
     func header() -> String? {
-        guard let text = vault.get(), let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: String] else { return nil }
+        guard let text = lock.withLock({ vault.get() }), let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: String] else { return nil }
         let parts = object.sorted { $0.key < $1.key }.filter { Self.allowed.contains($0.key) && !$0.value.contains(where: { $0 == ";" || $0 == "\r" || $0 == "\n" }) }.map { "\($0.key)=\($0.value)" }
         return object["SESSDATA"] == nil || parts.isEmpty ? nil : parts.joined(separator: "; ")
     }
@@ -129,8 +166,9 @@ final class BilibiliCookieVault: @unchecked Sendable {
     func store(_ cookies: [String: String]) throws {
         let filtered = cookies.filter { Self.allowed.contains($0.key) }
         guard filtered["SESSDATA"] != nil else { throw TransferError.message("ログイン情報を取得できませんでした。") }
-        try vault.set(String(decoding: try JSONSerialization.data(withJSONObject: filtered), as: UTF8.self))
+        let encoded = String(decoding: try JSONSerialization.data(withJSONObject: filtered), as: UTF8.self)
+        try lock.withLock { try vault.set(encoded) }
     }
 
-    func clear() { vault.clear() }
+    func clear() { lock.withLock { vault.clear() } }
 }

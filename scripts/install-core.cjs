@@ -120,7 +120,13 @@ async function ReplaceDirectory(from, to, stage) {
   const backup = path.join(stage, `old-${randomUUID()}`), existed = fs.existsSync(to);
   if (existed) await fsp.rename(to, backup);
   try { await fsp.rename(from, to); }
-  catch (error) { if (existed) await fsp.rename(backup, to); throw error; }
+  catch (error) {
+    if (existed) {
+      try { await fsp.rename(backup, to); }
+      catch (rollbackError) { error.keepStage = true; error.message = `${error.message}（退避先 ${backup} の復元にも失敗しました: ${rollbackError.message}）`; }
+    }
+    throw error;
+  }
 }
 async function EnsureFFmpeg(root, stage, progress, deps) {
   const target = path.join(root, 'runtime', 'ffmpeg'); await NoLink(target);

@@ -17,7 +17,7 @@ const { MigrateShared } = require('./offline-migration.cjs');
 const { OfflineCleanup, ValidateCleanup } = require('./offline-cleanup.cjs');
 const Token = /^[a-f0-9]{64}\.(mp4|m4a)$/;
 const Key = (url, kind) => createHash('sha256').update(DownloadIdentity(url, kind).key).digest('hex');
-function AtomicJSON(file, value) { const tmp = `${file}.${randomUUID()}.tmp`; try { fs.writeFileSync(tmp, JSON.stringify(value, null, 2), { flag: 'wx' }); fs.renameSync(tmp, file); } finally { fs.rmSync(tmp, { force: true }); } }
+function AtomicJSON(file, value) { const tmp = `${file}.${randomUUID()}.tmp`; try { fs.writeFileSync(tmp, JSON.stringify(value, null, 2), { flag: 'wx' }); fs.renameSync(tmp, file); } finally { try { fs.rmSync(tmp, { force: true }); } catch {} } }
 function ReadJSON(file, fallback) { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { if (e.code === 'ENOENT') return fallback; throw e; } }
 class OfflineLibrary {
   constructor({ directory, previousDirectories = [], settingsFile, fetch, ffmpeg, changed = () => {}, diagnostic = () => {}, libraryData = () => null, identify = () => {}, referenceData, resolve, cover, thumbnail = RemoteImage, assemble = Assemble, transfer = DownloadStream }) {
@@ -290,7 +290,14 @@ class OfflineLibrary {
       if (plan.thumbnailURL) {
         task.phase = 'サムネイルを保存中'; task.stage = 'cover'; this.Notify();
         try { record = await this.SaveCover(record, plan.thumbnailURL, signal); coverFile = this.ResolvePath(record.thumbnail.file); }
-        catch (error) { if (signal.aborted) throw error; this.CoverWarning(entry, error); }
+        catch (error) {
+          if (signal.aborted) throw error;
+          this.CoverWarning(entry, error);
+          const prev = this.records.get(token);
+          if (prev?.thumbnail && path.posix.dirname(prev.file) === path.posix.dirname(record.file) && this.Cover(prev.token)) {
+            record = { ...record, thumbnailURL: prev.thumbnailURL || record.thumbnailURL, thumbnail: prev.thumbnail };
+          }
+        }
       }
       signal.throwIfAborted(); const previous = this.records.get(token); this.CommitRecord(record); committed = true; await this.CleanupRecord(previous, record);
       this.liveEstimate?.Completed(entry, record.bytes, !!record.thumbnail);

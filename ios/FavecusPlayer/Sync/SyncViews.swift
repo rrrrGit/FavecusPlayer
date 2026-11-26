@@ -81,7 +81,7 @@ struct SyncSheet: View {
                         }
                         action("今すぐ同期", style: .secondary, disabled: !status.enabled) { _ = await sync.syncNow() }
                         action("同期を止める", style: .secondary, disabled: !status.enabled) { sync.disable(); report("同期を止めました。") }
-                        action("接続を初期化", style: .secondary, disabled: status.enabled) { ask("接続を初期化しますか？", "保存した接続先と同期の状態を消します。プレイリストや、サーバーのデータは消えません。") { sync.resetLink(); report("接続を初期化しました。") } }
+                        action("接続を初期化", style: .secondary, disabled: status.enabled) { ask("接続を初期化しますか？", "同期の状態（紐付け）を初期化します。保存した接続先・プレイリスト・サーバーのデータは消えません。") { sync.resetLink(); report("接続を初期化しました。") } }
                         if status.canUnblock {
                             action("サーバーの内容で復元", style: .primary) { ask("サーバーの内容で復元しますか？", "この端末のプレイリストを、サーバーの内容に置き換えます（置き換える前のバックアップを残します）。") { perform { try await sync.unblock(mode: "restore"); report("同期した内容で復元しました。") } } }
                             action("この端末の内容を正とする", style: .secondary) { ask("この端末の内容を正としますか？", "サーバーと他の端末にある、この端末にない内容を削除します。") { perform { try await sync.unblock(mode: "keep"); report("同期しました。") } } }
@@ -192,7 +192,7 @@ struct SyncSheet: View {
     }
 
     private func ensureConnection() async throws {
-        if !status.configured || !key.isEmpty { try await saveConnection() }
+        if !status.configured || !key.isEmpty || url.trimmingCharacters(in: .whitespaces) != status.url { try await saveConnection() }
     }
 
     private func report(_ text: String) { message = text; failed = false }

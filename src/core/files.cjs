@@ -22,7 +22,7 @@ async function MediaResponse(request, file, release = () => {}) {
     let range;
     try { range = ParseRange(request.headers.get('range'), stat.size); }
     catch { return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${stat.size}` } }); }
-    const headers = { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Accept-Ranges': 'bytes', 'Content-Length': String(range ? range.end - range.start + 1 : stat.size) };
+    const headers = { 'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream', 'Accept-Ranges': 'bytes', 'Content-Length': String(range ? range.end - range.start + 1 : stat.size) };
     if (range) headers['Content-Range'] = `bytes ${range.start}-${range.end}/${stat.size}`;
     let body = null;
     if (request.method !== 'HEAD' && stat.size) {

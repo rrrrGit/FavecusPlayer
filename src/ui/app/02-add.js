@@ -32,6 +32,7 @@ function AddDestinations({ exclude = [], initialIds = null } = {}) {
   return get;
 }
 function CreateNestedPlaylist(onCreated, excludeId = null) {
+  const parentEpoch = modalEpoch;
   const dialog = Element('dialog', 'create-playlist-dialog'), form = Element('form');
   const nameLabel = Element('label', 'field', '名前'), name = Element('input'); name.name = 'playlistName'; name.maxLength = 60; name.required = true; nameLabel.append(name);
   const parents = Element('div'), notice = Element('p', 'status-detail'), footer = Element('div', 'modal-footer'); notice.setAttribute('role', 'status');
@@ -47,7 +48,7 @@ function CreateNestedPlaylist(onCreated, excludeId = null) {
     const previous = new Set(state.playlists.map(p => p.id));
     try {
       await Action({ type: 'create', name: name.value, parentId: picker.get(), select: false });
-      const created = state.playlists.find(p => !previous.has(p.id)); close(); if (created) await onCreated(created.id);
+      const created = state.playlists.find(p => !previous.has(p.id)); close(); if (created && parentEpoch === modalEpoch) await onCreated(created.id);
     } catch (error) { notice.textContent = error.message; submit.disabled = false; }
   };
   dialog.showModal(); name.focus();
@@ -167,8 +168,7 @@ function ExistingTracks() {
   let visible = [];
   const updateCount = () => { destinations.refresh(); $('existing-count').textContent = `${selected.size}曲を選択中`; $('modal-submit').disabled = !selected.size; if ($('existing-move')) $('existing-move').disabled = !selected.size; };
   const render = () => {
-    const filter = $('existing-filter').value.trim().toLowerCase(), source = sourcePicker?.get(), seen = new Set(); visible = [];
-    $('existing-tracks').replaceChildren();
+    const filter = $('existing-filter').value.trim().toLowerCase(), source = sourcePicker?.get(), seen = new Set(), nodes = []; visible = [];
     for (const p of state.playlists) if (!source || source === p.id) for (const entry of p.entries) {
       const key = `${p.id}:${entry.id}`;
       if (seen.has(key) || !`${EntryTitle(entry)} ${entry.videoId || ''}`.toLowerCase().includes(filter)) continue;
@@ -176,9 +176,10 @@ function ExistingTracks() {
       const label = Element('label', 'favorite-row'), input = Element('input'); input.type = 'checkbox'; input.checked = selected.has(key);
       input.onchange = () => { input.checked ? selected.set(key, ref) : selected.delete(key); updateCount(); };
       const title = Element('span', '', EntryTitle(entry)); title.append(Element('small', '', `${p.name} · ${entry.type === 'local' ? 'ローカルファイル' : entry.videoId}${entry.part > 1 ? ` · パート ${entry.part}` : ''}`));
-      label.append(input, title); $('existing-tracks').append(label);
+      label.append(input, title); nodes.push(label);
     }
-    if (!visible.length) $('existing-tracks').append(Element('p', 'form-note', '追加できる曲がありません。追加元や検索条件を変更してください。'));
+    if (!visible.length) nodes.push(Element('p', 'form-note', '追加できる曲がありません。追加元や検索条件を変更してください。'));
+    $('existing-tracks').replaceChildren(...nodes);
     updateCount();
   };
   sourcePicker = window.FavecusParentPicker($('existing-source'), state, { selected: state.playlists.find(p => p.id !== List().id && p.entries.length)?.id || null, rootLabel: 'ライブラリ全体', label: '追加元のプレイリストを検索', onChange: render });
@@ -193,13 +194,19 @@ function NewList(parentId = null) {
   }, '作成する'); picker = window.FavecusParentPicker($('new-parent'), state, { selected: parentId }); $('name-input').focus();
 }
 let existingPopup = null;
-function CloseExistingPopup() { if (existingPopup) { existingPopup.remove(); existingPopup = null; } }
+function CloseExistingPopup(restoreFocus = false) {
+  if (!existingPopup) return;
+  existingPopup.remove(); existingPopup = null;
+  if (typeof SendBounds === 'function') SendBounds();
+  if (restoreFocus) $('add-existing')?.focus();
+}
 function ExistingMenu() {
-  if (existingPopup) { CloseExistingPopup(); return; }
+  if (existingPopup) { CloseExistingPopup(true); return; }
   existingPopup = Element('div', 'existing-popup'); existingPopup.setAttribute('role', 'menu');
   existingPopup.append(Button('既存のプレイリストから楽曲を追加', 'popup-item', () => { CloseExistingPopup(); ExistingTracks(); }), Button('プレイリスト単位で取り込む', 'popup-item', () => { CloseExistingPopup(); AttachPlaylists(); }));
   $('add-existing').parentElement.append(existingPopup); const bounds = $('add-existing').getBoundingClientRect();
   existingPopup.style.top = `${bounds.bottom + 6}px`; existingPopup.style.left = `${Math.max(8, Math.min(bounds.left, window.innerWidth - 300))}px`;
+  if (typeof SendBounds === 'function') SendBounds();
 }
 function AttachPlaylists() {
   const parent = List(), expanded = new Set(); tree.ExpandTo(state, parent.id, expanded); let picker;

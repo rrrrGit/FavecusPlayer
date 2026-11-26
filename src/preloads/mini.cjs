@@ -5,6 +5,6 @@ const invoke = channel => (...args) => ipcRenderer.invoke(channel, ...args).then
 });
 contextBridge.exposeInMainWorld('favecusMini', {
   state: invoke('mini:state'), command: invoke('mini:command'), volume: invoke('mini:volume'), restore: invoke('mini:restore'), expand: invoke('mini:expand'),
-  onState: callback => ipcRenderer.on('mini:state', (_event, state) => callback(state)),
-  onCollapse: callback => ipcRenderer.on('mini:collapsed', () => callback())
+  onState: callback => { const handler = (_event, state) => callback(state); ipcRenderer.on('mini:state', handler); return () => ipcRenderer.removeListener('mini:state', handler); },
+  onCollapse: callback => { const handler = () => callback(); ipcRenderer.on('mini:collapsed', handler); return () => ipcRenderer.removeListener('mini:collapsed', handler); }
 });

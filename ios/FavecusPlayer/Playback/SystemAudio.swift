@@ -28,6 +28,7 @@ final class SystemAudio: SystemAudioHooks {
     private weak var controls: PlaybackControls?
     private var resumeAfterInterruption = false
     private var observers: [NSObjectProtocol] = []
+    private nonisolated(unsafe) var commandTargets: [(MPRemoteCommand, Any)] = []
     private var configured = false
 
     init(controls: PlaybackControls) {
@@ -53,6 +54,7 @@ final class SystemAudio: SystemAudioHooks {
 
     deinit {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        for (command, target) in commandTargets { command.removeTarget(target) }
     }
 
     func activate() {
@@ -84,16 +86,18 @@ final class SystemAudio: SystemAudioHooks {
         guard !configured else { return }
         configured = true
         let commands = MPRemoteCommandCenter.shared()
-        commands.playCommand.addTarget { [weak self] _ in self.map { $0.run { $0.resume() } } ?? .commandFailed }
-        commands.pauseCommand.addTarget { [weak self] _ in self.map { $0.run { $0.pause() } } ?? .commandFailed }
-        commands.togglePlayPauseCommand.addTarget { [weak self] _ in self.map { $0.run { $0.toggle() } } ?? .commandFailed }
-        commands.nextTrackCommand.addTarget { [weak self] _ in self.map { $0.run { $0.next() } } ?? .commandFailed }
-        commands.previousTrackCommand.addTarget { [weak self] _ in self.map { $0.run { $0.previous() } } ?? .commandFailed }
-        commands.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let self, let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            let position = event.positionTime
-            return self.run { $0.seek(to: position) }
-        }
+        commandTargets = [
+            (commands.playCommand, commands.playCommand.addTarget { [weak self] _ in self.map { $0.run { $0.resume() } } ?? .commandFailed }),
+            (commands.pauseCommand, commands.pauseCommand.addTarget { [weak self] _ in self.map { $0.run { $0.pause() } } ?? .commandFailed }),
+            (commands.togglePlayPauseCommand, commands.togglePlayPauseCommand.addTarget { [weak self] _ in self.map { $0.run { $0.toggle() } } ?? .commandFailed }),
+            (commands.nextTrackCommand, commands.nextTrackCommand.addTarget { [weak self] _ in self.map { $0.run { $0.next() } } ?? .commandFailed }),
+            (commands.previousTrackCommand, commands.previousTrackCommand.addTarget { [weak self] _ in self.map { $0.run { $0.previous() } } ?? .commandFailed }),
+            (commands.changePlaybackPositionCommand, commands.changePlaybackPositionCommand.addTarget { [weak self] event in
+                guard let self, let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+                let position = event.positionTime
+                return self.run { $0.seek(to: position) }
+            })
+        ]
     }
 
     /// リモートコマンドはメインスレッドで呼ばれる前提（MPRemoteCommandCenterの既定）。メインアクター上の操作へ橋渡しする。

@@ -61,7 +61,7 @@ function Open(options) {
 // 編集操作を1つ適用する。失敗したときは { error } を返し、元のライブラリは変えない（呼び出し側は保存しない）。
 function Apply(options) {
   try {
-    const library = JSON.parse(options.text), ctx = Context(options), before = JSON.parse(options.text);
+    const library = JSON.parse(options.text), ctx = Context(options), before = options.keepTrash === true ? JSON.parse(options.text) : null;
     if (!Actions.Apply(library, options.action, ctx)) throw new Error('対応していない操作です。');
     Tree.ValidateGraph(library.playlists, library.rootPlaylistIds);
     if (!library.playlists.some(p => p.id === library.activePlaylistId)) library.activePlaylistId = library.rootPlaylistIds[0] || library.playlists[0].id;

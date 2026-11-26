@@ -98,6 +98,7 @@ struct VideoSurface: UIViewRepresentable {
     let player: AVPlayer?
 
     final class LayerView: UIView {
+        weak var currentPlayer: AVPlayer?
         var observers: [NSObjectProtocol] = []
         deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
         override class var layerClass: AnyClass { AVPlayerLayer.self }
@@ -108,17 +109,19 @@ struct VideoSurface: UIViewRepresentable {
         let view = LayerView()
         view.backgroundColor = .black
         view.playerLayer.videoGravity = .resizeAspect
+        view.currentPlayer = player
         view.playerLayer.player = player
         // 画面が見えなくなる間（ロック・ホームへ戻る）は、映像の層をプレイヤーから外す。つないだままだと、iOSが映像の再生を止めるため。
         let center = NotificationCenter.default
         view.observers = [
             center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak view] _ in view?.playerLayer.player = nil },
-            center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak view] _ in view?.playerLayer.player = player }
+            center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak view] _ in view?.playerLayer.player = view?.currentPlayer }
         ]
         return view
     }
 
     func updateUIView(_ view: LayerView, context: Context) {
+        view.currentPlayer = player
         if view.playerLayer.player !== player { view.playerLayer.player = player }
     }
 }

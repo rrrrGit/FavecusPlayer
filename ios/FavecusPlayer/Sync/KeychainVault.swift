@@ -20,6 +20,7 @@ enum KeychainError: Error, CustomStringConvertible {
 final class KeychainVault: SessionVault, @unchecked Sendable {
     private let service: String
     private let account: String
+    private let lock = NSLock()
 
     init(service: String = "dev.favecus.player.sync", account: String = "supabase-session") {
         self.service = service
@@ -31,28 +32,35 @@ final class KeychainVault: SessionVault, @unchecked Sendable {
     }
 
     func get() -> String? {
-        var request = query
-        request[kSecReturnData as String] = true
-        request[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        guard SecItemCopyMatching(request as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+        lock.withLock {
+            var request = query
+            request[kSecReturnData as String] = true
+            request[kSecMatchLimit as String] = kSecMatchLimitOne
+            var result: CFTypeRef?
+            guard SecItemCopyMatching(request as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
     }
 
     func set(_ json: String) throws {
-        let data = Data(json.utf8)
-        let update = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if update == errSecSuccess { return }
-        guard update == errSecItemNotFound else { throw KeychainError.status(update) }
-        var add = query
-        add[kSecValueData as String] = data
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(add as CFDictionary, nil)
-        guard status == errSecSuccess else { throw KeychainError.status(status) }
+        try lock.withLock {
+            let data = Data(json.utf8)
+            let attrs: [String: Any] = [kSecValueData as String: data, kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
+            let update = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)
+            if update == errSecSuccess { return }
+            guard update == errSecItemNotFound else { throw KeychainError.status(update) }
+            var add = query
+            add[kSecValueData as String] = data
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            let status = SecItemAdd(add as CFDictionary, nil)
+            guard status == errSecSuccess else { throw KeychainError.status(status) }
+        }
     }
 
     func clear() {
-        SecItemDelete(query as CFDictionary)
+        lock.withLock {
+            _ = SecItemDelete(query as CFDictionary)
+        }
     }
 }
 

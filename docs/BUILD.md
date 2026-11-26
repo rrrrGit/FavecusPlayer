@@ -72,7 +72,7 @@ python3 scripts/test-windows-startup.py dist/windows
 
 ## バージョンの更新
 
-各リリースの版は `package.json` で管理します。更新時は `package.json`、`package-lock.json` のルートと `packages[""].version`、`src/ui/index.html` の初期表示、`ios/project.yml` の `MARKETING_VERSION`、`docs/CHANGELOG.md`、配布ファイル名を同じ番号にそろえます。EXEのバージョン情報は `package.json` から自動生成されます。
+各リリースの版は `package.json` で管理します。更新時は `package.json`、`package-lock.json` のルートと `packages[""].version`、`src/ui/index.html` の初期表示、`ios/project.yml` の `MARKETING_VERSION`、`ios/FavecusPlayer/AppInfo.swift` の `stage`、`README.md`、`docs/GUIDE.md`・`docs/GUIDE.html`、`docs/CHANGELOG.md`、配布ファイル名を同じ番号にそろえます。EXEのバージョン情報は `package.json` から自動生成されます。
 
 ## 説明書HTMLの再生成
 

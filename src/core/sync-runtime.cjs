@@ -95,18 +95,19 @@ async function Enable(options) {
 async function Cycle(options) {
   try {
     if (!runtime || !runtime.session.ready) throw new Error('同期が有効になっていません。');
-    const result = await runtime.session.Cycle(options || {});
+    const host = Host();
+    const isAborted = typeof host.isAborted === 'function' ? () => !!host.isAborted() : null;
+    const result = await runtime.session.Cycle({ ...(options || {}), ...(isAborted ? { isAborted } : {}) });
     // 再生回数・お気に入り・再生履歴の同期（ライブラリの同期が成功したあと。失敗・SQL未実行でも、ライブラリの同期には影響しない）
     let extras = null;
-    const host = Host();
     const hasCounts = typeof host.countsRead === 'function';
     const hasFavorites = typeof host.favoritesRead === 'function';
     const hasHistory = typeof host.historyRead === 'function';
-    if (result.ok && (hasCounts || hasFavorites || hasHistory)) {
+    if (result.ok && !isAborted?.() && (hasCounts || hasFavorites || hasHistory)) {
       const adapter = hasCounts ? CountsAdapter(host) : {};
       if (hasFavorites) adapter.favorites = FavoritesAdapter(host);
       if (hasHistory) adapter.history = HistoryAdapter(host);
-      extras = await SyncExtras(adapter, runtime.session.makeRepository());
+      extras = await SyncExtras(adapter, runtime.session.makeRepository(), isAborted ? { isAborted } : {});
     }
     return { ...result, ...(extras ? { extras } : {}), ...Status() };
   } catch (error) { return Fail(error); }

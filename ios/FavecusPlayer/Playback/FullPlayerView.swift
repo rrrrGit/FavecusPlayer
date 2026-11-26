@@ -36,7 +36,8 @@ struct FullPlayerView: View {
     }
 
     var body: some View {
-        let width = UIScreen.main.bounds.width
+        GeometryReader { geo in
+        let width = geo.size.width
         VStack(spacing: 0) {
             topBar
             if queueOpen {
@@ -96,6 +97,7 @@ struct FullPlayerView: View {
             Button("閉じる", role: .cancel) { player.message = nil }
         } message: {
             Text(player.message ?? "")
+        }
         }
     }
 
@@ -223,7 +225,9 @@ struct FullPlayerView: View {
         ZStack {
             Color.black
             if player.videoMode {
-                VideoSurface(player: player.videoPlayer)
+                if !maximized {
+                    VideoSurface(player: player.videoPlayer)
+                }
                 VStack {
                     Spacer()
                     HStack {

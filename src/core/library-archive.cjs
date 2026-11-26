@@ -134,7 +134,7 @@ class LibraryArchive {
           if (plan.share.locals.get(original) === false) { if (plan.share.mode === 'information') omitted++; else missing++; entry.fileName = name; continue; }
           localStage ||= await fs.promises.mkdtemp(path.join(this.store.media, '.import-'));
           const staged = path.join(localStage, name); let available = false;
-          if (plan.zip?.entries.has(`media/${original}`)) { await plan.zip.Content(`media/${original}`, staged, 0xffffff00); available = true; }
+          if (plan.zip?.entries.has(`media/${original}`)) { await plan.zip.Content(`media/${original}`, staged, Number.MAX_SAFE_INTEGER); available = true; }
           else if (!plan.zip) {
             const source = path.join(path.dirname(plan.file), 'media', original), stat = await fs.promises.lstat(source).catch(() => null), dir = await fs.promises.lstat(path.dirname(source)).catch(() => null);
             if (stat?.isFile() && !stat.isSymbolicLink() && dir?.isDirectory() && !dir.isSymbolicLink()) { await fs.promises.copyFile(source, staged, fs.constants.COPYFILE_EXCL); available = true; } else missing++;

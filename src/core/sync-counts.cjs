@@ -59,10 +59,13 @@ async function SyncHistoryBlock(histAdapter, repository, isAborted) {
   if (!local || isAborted?.()) return null;
   const remoteState = await repository.GetHistoryState();
   if (isAborted?.()) return null;
-  const remoteCleared = remoteState ? remoteState.clearedAt : 0;
-  const clearedAt = Math.max(local.clearedAt || 0, remoteCleared);
+  let remoteCleared = remoteState ? remoteState.clearedAt : 0;
   const pulled = await repository.PullHistory(local.cursor);
   if (isAborted?.()) return null;
+  const afterState = await repository.GetHistoryState();
+  if (isAborted?.()) return null;
+  if (afterState && afterState.clearedAt > remoteCleared) remoteCleared = afterState.clearedAt;
+  const clearedAt = Math.max(local.clearedAt || 0, remoteCleared);
   await histAdapter.Apply({ rows: pulled.rows, clearedAt, cursor: pulled.cursor });
   if (isAborted?.()) return null;
   const pulledMap = new Map();

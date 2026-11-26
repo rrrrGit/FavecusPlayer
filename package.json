@@ -9,7 +9,7 @@
   "main": "src/main.cjs",
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/*.test.cjs",
+    "test": "node --test --test-isolation=none test/*.test.cjs",
     "check": "node scripts/check.cjs",
     "build:mac": "electron-builder --mac dmg --publish never",
     "build:linux": "electron-builder --linux AppImage --publish never",

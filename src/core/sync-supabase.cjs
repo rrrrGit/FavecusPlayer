@@ -109,13 +109,14 @@ class SupabaseSyncRepository {
   }
   // seqより後の行を、seq順にすべて読む。連番はコミット順（schema.sql）なので、読み取り済みの位置より前に後からコミットされる行はない。
   async Rows(after) {
-    const rows = []; let last = after;
+    const rows = []; let last = after, done = false;
     for (let page = 0; page < 10000; page++) {
       const got = await this.Call('GET', `sync_changes?select=seq,record_id,f&seq=gt.${last}&order=seq.asc&limit=${this.pageSize}`);
       if (!Array.isArray(got)) throw new SyncError('bad', FRIENDLY.bad);
       for (const row of got) { if (!Number.isInteger(row.seq) || row.seq <= last || typeof row.record_id !== 'string' || row.f === null || typeof row.f !== 'object') throw new SyncError('bad', FRIENDLY.bad); last = row.seq; rows.push(row); }
-      if (got.length === 0) break; // 件数ではなく「空」で終える（サーバー側の最大件数が小さくても取りこぼさない）
+      if (got.length === 0) { done = true; break; } // 件数ではなく「空」で終える（サーバー側の最大件数が小さくても取りこぼさない）
     }
+    if (!done) throw new SyncError('bad', FRIENDLY.bad);
     return { rows, last };
   }
   async Pull(cursor) {
@@ -159,17 +160,18 @@ class SupabaseSyncRepository {
   }
   // cursorより後に変わった行（自分の端末の行は除く）。戻り値：{ rows: [{ device, epoch, month, key, n }], cursor }
   async PullCounts(cursor, ownDeviceId) {
-    const rows = []; let last = Number.isInteger(cursor) && cursor >= 0 ? cursor : 0;
+    const rows = []; let last = Number.isInteger(cursor) && cursor >= 0 ? cursor : 0, done = false;
     for (let page = 0; page < 10000; page++) {
       const got = await this.Extra('GET', `sync_counts?select=seq,device_id,epoch,month,media_key,n&seq=gt.${last}&order=seq.asc&limit=${this.pageSize}`);
       if (!Array.isArray(got)) throw new SyncError('bad', FRIENDLY.bad);
-      if (got.length === 0) break;
+      if (got.length === 0) { done = true; break; }
       for (const row of got) {
         if (!Number.isInteger(row.seq) || row.seq <= last) throw new SyncError('bad', FRIENDLY.bad);
         last = row.seq;
         if (row.device_id !== ownDeviceId) rows.push({ device: row.device_id, epoch: row.epoch, month: row.month, key: row.media_key, n: Number(row.n) });
       }
     }
+    if (!done) throw new SyncError('bad', FRIENDLY.bad);
     return { rows, cursor: last };
   }
   async GetPrefs() {
@@ -197,17 +199,18 @@ class SupabaseSyncRepository {
   }
   // 共有行のため device_id フィルタはしない（初期化・破損後の自己復旧を可能にするため）。
   async PullFavorites(cursor) {
-    const rows = []; let last = Number.isInteger(cursor) && cursor >= 0 ? cursor : 0;
+    const rows = []; let last = Number.isInteger(cursor) && cursor >= 0 ? cursor : 0, done = false;
     for (let page = 0; page < 10000; page++) {
       const got = await this.Extra('GET', `sync_favorites?select=seq,media_key,fav,updated_at&seq=gt.${last}&order=seq.asc&limit=${this.pageSize}`);
       if (!Array.isArray(got)) throw new SyncError('bad', FRIENDLY.bad);
-      if (got.length === 0) break;
+      if (got.length === 0) { done = true; break; }
       for (const row of got) {
         if (!Number.isInteger(row.seq) || row.seq <= last) throw new SyncError('bad', FRIENDLY.bad);
         last = row.seq;
         rows.push({ key: row.media_key, fav: row.fav === true, at: Number(row.updated_at) });
       }
     }
+    if (!done) throw new SyncError('bad', FRIENDLY.bad);
     return { rows, cursor: last };
   }
   // 再生履歴（v0.7.5）：曲ごとに最新の再生時刻を保持。送信前に一意化・ソートする。
@@ -225,17 +228,18 @@ class SupabaseSyncRepository {
     }
   }
   async PullHistory(cursor) {
-    const rows = []; let last = Number.isInteger(cursor) && cursor >= 0 ? cursor : 0;
+    const rows = []; let last = Number.isInteger(cursor) && cursor >= 0 ? cursor : 0, done = false;
     for (let page = 0; page < 10000; page++) {
       const got = await this.Extra('GET', `sync_history?select=seq,media_key,played_at&seq=gt.${last}&order=seq.asc&limit=${this.pageSize}`);
       if (!Array.isArray(got)) throw new SyncError('bad', FRIENDLY.bad);
-      if (got.length === 0) break;
+      if (got.length === 0) { done = true; break; }
       for (const row of got) {
         if (!Number.isInteger(row.seq) || row.seq <= last) throw new SyncError('bad', FRIENDLY.bad);
         last = row.seq;
         rows.push({ key: row.media_key, at: Number(row.played_at) });
       }
     }
+    if (!done) throw new SyncError('bad', FRIENDLY.bad);
     return { rows, cursor: last };
   }
   async GetHistoryState() {
@@ -252,7 +256,8 @@ class SupabaseSyncRepository {
   async Compact(now = this.now(), retentionMs = RETENTION_MS) {
     const all = await this.Rows(0), state = S.Merge(S.NewState(), all.rows.map(row => ({ id: row.record_id, f: row.f }))).state;
     const kept = S.Compact(state, now, retentionMs).state, ids = Object.keys(state.records).filter(id => !kept.records[id]);
-    for (let i = 0; i < ids.length; i += 200) await this.Call('POST', 'rpc/sync_compact', { body: { p_ids: ids.slice(i, i + 200), p_upto: all.last } });
+    // 1回のトランザクションで整理し、バッチ間で watermark が同値のまま途中スナップショットが読まれる競合を防ぐ。
+    if (ids.length) await this.Call('POST', 'rpc/sync_compact', { body: { p_ids: ids, p_upto: all.last } });
     return ids.length;
   }
 }

@@ -368,9 +368,18 @@ enum OpenPlayer {
 
 /// プレイリストの画像（PC版で設定した、PNGのdata URL）。形式が正しくなければ使わない（nil）。
 enum PlaylistIcon {
+    private static let cache: NSCache<NSString, UIImage> = {
+        let c = NSCache<NSString, UIImage>()
+        c.countLimit = 64
+        return c
+    }()
+
     static func image(from value: String?) -> UIImage? {
-        guard let value, value.hasPrefix("data:image/png;base64,"), value.count <= 180_000,
-              let data = Data(base64Encoded: String(value.dropFirst("data:image/png;base64,".count))), let image = UIImage(data: data) else { return nil }
+        guard let value, value.hasPrefix("data:image/png;base64,"), value.count <= 180_000 else { return nil }
+        let key = value as NSString
+        if let cached = cache.object(forKey: key) { return cached }
+        guard let data = Data(base64Encoded: String(value.dropFirst("data:image/png;base64,".count))), let image = UIImage(data: data) else { return nil }
+        cache.setObject(image, forKey: key)
         return image
     }
 }

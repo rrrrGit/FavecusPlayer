@@ -21,6 +21,12 @@
     });
     return { path: trail.map(p => ({ id: p.id, name: p.name })), page, pages, total: ids.length, cards };
   }
+  function Cleanup(box) {
+    if (!box) return;
+    const doc = box.ownerDocument || document;
+    if (box.__homeMenuClose) { doc.removeEventListener?.('pointerdown', box.__homeMenuClose, true); box.__homeMenuClose = null; }
+    if (box.__homeMenuKey) { doc.removeEventListener?.('keydown', box.__homeMenuKey, true); box.__homeMenuKey = null; }
+  }
   function Render(box, data, options) {
     const view = Page(data, options), path = view.path.map(p => p.id), doc = box.ownerDocument || document;
     const el = (tag, cls, text) => { const n = doc.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; };
@@ -48,7 +54,7 @@
     header.append(copy, tools); box.append(nav, header);
     const grid = el('div', 'home-grid'); grid.setAttribute('aria-label', 'プレイリストのカード');
     // 三点メニューは同時に1つだけ。外側のクリックとEscで閉じる（再描画のたびに登録し直す）。
-    if (box.__homeMenuClose) { doc.removeEventListener?.('pointerdown', box.__homeMenuClose, true); doc.removeEventListener?.('keydown', box.__homeMenuKey, true); }
+    Cleanup(box);
     let openMenu = null;
     const closeMenu = (restoreFocus = false) => {
       if (!openMenu) return;
@@ -56,7 +62,7 @@
       if (restoreFocus) trigger.focus?.();
     };
     box.__homeMenuClose = event => { if (openMenu && !openMenu.menu.contains(event.target) && event.target !== openMenu.trigger) closeMenu(); };
-    box.__homeMenuKey = event => { if (event.key === 'Escape' && openMenu) { event.preventDefault?.(); closeMenu(true); } };
+    box.__homeMenuKey = event => { if (event.key === 'Escape' && openMenu && !doc.getElementById?.('modal')?.open) { event.preventDefault?.(); closeMenu(true); } };
     doc.addEventListener?.('pointerdown', box.__homeMenuClose, true); doc.addEventListener?.('keydown', box.__homeMenuKey, true);
     for (const card of view.cards) {
       const article = el('article', 'home-card'); article.dataset.playlistId = card.id;
@@ -101,7 +107,7 @@
     status.setAttribute('role', 'status'); pager.append(previous, status, next); box.append(grid, pager);
     return view;
   }
-  const api = { PAGE_SIZE, Page, Render };
+  const api = { PAGE_SIZE, Page, Render, Cleanup };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.FavecusHome = api;
 })(globalThis);

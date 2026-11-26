@@ -30,11 +30,12 @@ const NewLedger = deviceId => {
 function Clean(raw) {
   if (!raw || typeof raw !== 'object' || raw.version !== 1 || !DEVICE.test(String(raw.deviceId)) || !Number.isSafeInteger(raw.epoch) || raw.epoch < 0 || !raw.rows || typeof raw.rows !== 'object' || Array.isArray(raw.rows)) throw new Error('再生回数の形式が正しくありません。');
   const ledger = { version: 1, deviceId: raw.deviceId, epoch: raw.epoch, legacyImported: raw.legacyImported === true, syncCursor: Number.isSafeInteger(raw.syncCursor) && raw.syncCursor >= 0 ? raw.syncCursor : 0, rows: {} };
-  let dropped = 0;
+  let dropped = 0, rowCount = 0;
   for (const [id, n] of Object.entries(raw.rows)) {
     const parsed = ParseRowId(id);
-    if (!parsed || !Number.isSafeInteger(n) || n < 1 || Object.keys(ledger.rows).length >= MAX_ROWS) { dropped++; continue; }
+    if (!parsed || !Number.isSafeInteger(n) || n < 1 || rowCount >= MAX_ROWS) { dropped++; continue; }
     ledger.rows[id] = n;
+    rowCount++;
   }
   return { ledger, dropped };
 }
@@ -87,13 +88,18 @@ function Increment(ledger, key, nowMs, month = null) {
 }
 // 他の端末から受け取った行を取り込む（行ごとに大きい方）。不正な行は無視する。戻り値：変わった行の数。
 function MergeRows(ledger, rows) {
-  let changed = 0;
+  let changed = 0, rowCount = Object.keys(ledger.rows).length;
   for (const row of rows || []) {
     if (!row || !Number.isSafeInteger(row.n) || row.n < 1) continue;
     const id = RowId(row.device, row.epoch, row.month, row.key);
     if (!ParseRowId(id)) continue;
-    if (!(id in ledger.rows) && Object.keys(ledger.rows).length >= MAX_ROWS) continue;
-    if ((ledger.rows[id] || 0) < row.n) { ledger.rows[id] = row.n; changed++; }
+    const exists = Object.hasOwn(ledger.rows, id);
+    if (!exists && rowCount >= MAX_ROWS) continue;
+    if ((ledger.rows[id] || 0) < row.n) {
+      if (!exists) rowCount++;
+      ledger.rows[id] = row.n;
+      changed++;
+    }
   }
   return changed;
 }

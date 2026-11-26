@@ -12,6 +12,7 @@ protocol SyncHost: AnyObject, Sendable {
     func recovered() async -> Bool
     func request(method: String, url: String, json: String) async throws -> String
     func saveSession(_ json: String)
+    func isAborted() -> Bool
     /// 再生回数・設定・お気に入り・再生履歴の同期（対応していないhostは nil / 何もしない）。
     func countsRead() async -> String?
     func countsApply(_ json: String) async
@@ -25,6 +26,7 @@ protocol SyncHost: AnyObject, Sendable {
 }
 
 extension SyncHost {
+    func isAborted() -> Bool { false }
     func countsRead() async -> String? { nil }
     func countsApply(_ json: String) async {}
     func countsPushed() async {}
@@ -73,23 +75,25 @@ final class SyncCore: @unchecked Sendable {
 
     private func installHost(_ host: SyncHost) {
         let object = JSValue(newObjectIn: context)
-        let library: @convention(block) () -> JSValue = { [unowned self] in promise { await host.library() } }
-        let write: @convention(block) (String) -> JSValue = { [unowned self] json in promise { try await host.write(json); return nil } }
-        let persist: @convention(block) (String) -> JSValue = { [unowned self] text in promise { try await host.persist(text); return nil } }
-        let backup: @convention(block) () -> JSValue = { [unowned self] in promise { try await host.backup() } }
-        let recovered: @convention(block) () -> JSValue = { [unowned self] in promise { await host.recovered() } }
-        let request: @convention(block) (String, String, String) -> JSValue = { [unowned self] method, url, json in promise { try await host.request(method: method, url: url, json: json) } }
-        let saveSession: @convention(block) (String) -> JSValue = { [unowned self] json in host.saveSession(json); return promise { nil } }
-        let countsRead: @convention(block) () -> JSValue = { [unowned self] in promise { await host.countsRead() } }
-        let countsApply: @convention(block) (String) -> JSValue = { [unowned self] json in promise { await host.countsApply(json); return nil } }
-        let countsPushed: @convention(block) () -> JSValue = { [unowned self] in promise { await host.countsPushed(); return nil } }
-        let favoritesRead: @convention(block) () -> JSValue = { [unowned self] in promise { await host.favoritesRead() } }
-        let favoritesApply: @convention(block) (String) -> JSValue = { [unowned self] json in promise { await host.favoritesApply(json); return nil } }
-        let favoritesPushed: @convention(block) () -> JSValue = { [unowned self] in promise { await host.favoritesPushed(); return nil } }
-        let historyRead: @convention(block) () -> JSValue = { [unowned self] in promise { await host.historyRead() } }
-        let historyApply: @convention(block) (String) -> JSValue = { [unowned self] json in promise { await host.historyApply(json); return nil } }
-        let historyPushed: @convention(block) () -> JSValue = { [unowned self] in promise { await host.historyPushed(); return nil } }
-        for (name, block) in [("library", library as Any), ("write", write), ("persist", persist), ("backup", backup), ("recovered", recovered), ("request", request), ("saveSession", saveSession),
+        let ctx = context
+        let library: @convention(block) () -> JSValue = { [weak self] in self?.promise { await host.library() } ?? JSValue(undefinedIn: ctx) }
+        let write: @convention(block) (String) -> JSValue = { [weak self] json in self?.promise { try await host.write(json); return nil } ?? JSValue(undefinedIn: ctx) }
+        let persist: @convention(block) (String) -> JSValue = { [weak self] text in self?.promise { try await host.persist(text); return nil } ?? JSValue(undefinedIn: ctx) }
+        let backup: @convention(block) () -> JSValue = { [weak self] in self?.promise { try await host.backup() } ?? JSValue(undefinedIn: ctx) }
+        let recovered: @convention(block) () -> JSValue = { [weak self] in self?.promise { await host.recovered() } ?? JSValue(undefinedIn: ctx) }
+        let request: @convention(block) (String, String, String) -> JSValue = { [weak self] method, url, json in self?.promise { try await host.request(method: method, url: url, json: json) } ?? JSValue(undefinedIn: ctx) }
+        let saveSession: @convention(block) (String) -> JSValue = { [weak self] json in host.saveSession(json); return self?.promise { nil } ?? JSValue(undefinedIn: ctx) }
+        let isAborted: @convention(block) () -> Bool = { host.isAborted() }
+        let countsRead: @convention(block) () -> JSValue = { [weak self] in self?.promise { await host.countsRead() } ?? JSValue(undefinedIn: ctx) }
+        let countsApply: @convention(block) (String) -> JSValue = { [weak self] json in self?.promise { await host.countsApply(json); return nil } ?? JSValue(undefinedIn: ctx) }
+        let countsPushed: @convention(block) () -> JSValue = { [weak self] in self?.promise { await host.countsPushed(); return nil } ?? JSValue(undefinedIn: ctx) }
+        let favoritesRead: @convention(block) () -> JSValue = { [weak self] in self?.promise { await host.favoritesRead() } ?? JSValue(undefinedIn: ctx) }
+        let favoritesApply: @convention(block) (String) -> JSValue = { [weak self] json in self?.promise { await host.favoritesApply(json); return nil } ?? JSValue(undefinedIn: ctx) }
+        let favoritesPushed: @convention(block) () -> JSValue = { [weak self] in self?.promise { await host.favoritesPushed(); return nil } ?? JSValue(undefinedIn: ctx) }
+        let historyRead: @convention(block) () -> JSValue = { [weak self] in self?.promise { await host.historyRead() } ?? JSValue(undefinedIn: ctx) }
+        let historyApply: @convention(block) (String) -> JSValue = { [weak self] json in self?.promise { await host.historyApply(json); return nil } ?? JSValue(undefinedIn: ctx) }
+        let historyPushed: @convention(block) () -> JSValue = { [weak self] in self?.promise { await host.historyPushed(); return nil } ?? JSValue(undefinedIn: ctx) }
+        for (name, block) in [("library", library as Any), ("write", write), ("persist", persist), ("backup", backup), ("recovered", recovered), ("request", request), ("saveSession", saveSession), ("isAborted", isAborted),
                               ("countsRead", countsRead), ("countsApply", countsApply), ("countsPushed", countsPushed),
                               ("favoritesRead", favoritesRead), ("favoritesApply", favoritesApply), ("favoritesPushed", favoritesPushed),
                               ("historyRead", historyRead), ("historyApply", historyApply), ("historyPushed", historyPushed)] {

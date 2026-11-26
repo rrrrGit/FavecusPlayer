@@ -68,11 +68,11 @@ struct LibraryRootView: View {
         .task {
             await store.load()
             player?.restoreLast() // 前回の曲を、一時停止の状態で表示する（鳴らさない）
-            await sync?.start() // 同期が有効なら、状態を読み込んで同期を始める
-            await downloads?.start() // 保存の記録を読み込み、前回から続いている取得を引き継ぐ
+            await downloads?.start() // 保存の記録を先に読み込み、アラーム再生やオフライン再生を待たせない
             await downloads?.refreshKeys(entries: store.document?.playlists.flatMap(\.entries) ?? [])
             downloads?.ensureLocalFrames(entries: store.document?.playlists.flatMap(\.entries) ?? [], mediaDirectory: store.mediaDirectory)
             await onLibraryLoaded()
+            await sync?.start() // 同期が有効なら、状態を読み込んで同期を始める
             // 画面確認用（シミュレーターのスクリーンショット）：起動引数で、タブ・階層・再生画面を指定する。通常の起動では何もしない。
             let defaults = UserDefaults.standard
             if let raw = defaults.string(forKey: "FavecusDemoPath"), path.isEmpty {

@@ -125,6 +125,12 @@ final class StoreSyncHost: SyncHost, @unchecked Sendable {
         try? vault.set(json)
     }
 
+    func isAborted() -> Bool {
+        sessionLock.withLock {
+            activeSaveRevision == nil || activeSaveRevision != sessionRevision
+        }
+    }
+
     // MARK: 再生回数・設定・お気に入り・再生履歴（共通JSの sync-counts.cjs が、これらを呼ぶ）
 
     private func sharedDeviceId() async -> String {

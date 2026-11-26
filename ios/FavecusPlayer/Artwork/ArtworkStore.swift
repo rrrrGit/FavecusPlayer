@@ -28,6 +28,7 @@ final class ArtworkStore: ObservableObject {
         copy.urlCache = nil
         copy.timeoutIntervalForRequest = 15
         self.configuration = copy
+        cache.countLimit = 120
     }
 
     /// 配信先（サムネイル）として許可するURL。
@@ -179,14 +180,15 @@ final class ArtworkStore: ObservableObject {
         } catch {}
     }
 
-    /// メインスレッドの外で読み込む。大きすぎるものは、全部を読み込まずに打ち切って通信も止める。
+    /// メインスレッドの外で読み込む。大きすぎるものはファイルサイズで弾いてメモリを圧迫しない。
     nonisolated private static func download(_ request: URLRequest, configuration: URLSessionConfiguration, limit: Int) async -> Data? {
         let session = URLSession(configuration: configuration, delegate: RefuseOtherHosts(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
-        guard let (bytes, response) = try? await session.bytes(for: request), let http = response as? HTTPURLResponse, http.statusCode == 200, http.expectedContentLength <= Int64(limit) else { return nil }
-        var data = Data()
-        do { for try await byte in bytes { data.append(byte); if data.count > limit { return nil } } } catch { return nil }
-        return data.isEmpty ? nil : data
+        guard let (fileURL, response) = try? await session.download(for: request), let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let size = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber)?.int64Value ?? -1
+        guard size > 0, size <= Int64(limit), let data = try? Data(contentsOf: fileURL), !data.isEmpty else { return nil }
+        return data
     }
 
     private static func shrink(_ image: UIImage, side: CGFloat) -> UIImage {

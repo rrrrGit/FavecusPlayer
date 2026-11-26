@@ -71,6 +71,10 @@ final class LoudnessCache {
         defaults.removeObject(forKey: "loudnessCache") // 以前の版の記録（パスつきの識別）
         if let document = AtomicJsonFile.readOptional(Document.self, from: fileURL), document.version == 1 {
             records = document.records
+            if records.count > Self.limit {
+                let oldest = records.sorted { $0.value.at < $1.value.at }.prefix(records.count - Self.limit).map(\.key)
+                for key in oldest { records[key] = nil }
+            }
         }
     }
 

@@ -100,6 +100,21 @@ function Report(force = false) {
     duration: Number.isFinite(element.duration) ? element.duration : 0,
     playbackRate: element.playbackRate, paused: element.paused, ended, url: location.href });
 }
+let initTimer = null;
+function NeedsInitTick() {
+  return startPending || !!pendingRestore || qualityPending || (officialPlayer && !document.getElementById('favecus-player-fit'));
+}
+function EnsureInitTimer() {
+  if (initTimer || !NeedsInitTick()) return;
+  initTimer = setInterval(() => {
+    const media = FindMedia();
+    if (startPending) StartAtZero(media);
+    RestorePlayback(media);
+    DefaultQuality();
+    FitOfficialPlayer();
+    if (!NeedsInitTick()) { if (typeof clearInterval === 'function') clearInterval(initTimer); initTimer = null; }
+  }, 100);
+}
 window.addEventListener('DOMContentLoaded', () => {
   qualityUntil = Date.now() + 20000; DefaultQuality(); FitOfficialPlayer();
   for (const event of ['play', 'playing', 'pause', 'ended', 'seeking', 'seeked', 'loadedmetadata', 'canplay', 'ratechange']) document.addEventListener(event, e => {
@@ -109,7 +124,7 @@ window.addEventListener('DOMContentLoaded', () => {
   }, true);
   for (const event of ['pointerdown', 'keydown']) document.addEventListener(event, e => { if (startUntil !== null) startPending = false;
     if (e.isTrusted && e.target?.closest?.('.bpx-player-ctrl-quality, .bilibili-player-video-btn-quality')) qualityPending = false; }, true);
-  setInterval(() => { if (startPending) StartAtZero(FindMedia()); RestorePlayback(FindMedia()); DefaultQuality(); FitOfficialPlayer(); }, 100);
+  EnsureInitTimer();
   document.addEventListener('volumechange', ApplyVolume, true);
   // 再生中の位置の更新。timeupdate（約4回/秒）を0.45秒に間引いて送る。イベントが来ない場合に備えた2秒ごとの報告も残す。
   document.addEventListener('timeupdate', () => { if (Date.now() - lastSend >= 450) Report(); }, true); // 間引き前の計算を避ける
@@ -118,7 +133,7 @@ window.addEventListener('DOMContentLoaded', () => {
 ipcRenderer.on('media:command', (_event, command) => {
   if (typeof command === 'string') command = { type: command };
   if (!command || typeof command !== 'object') return;
-  if (command.type === 'restore' && Number.isFinite(command.position)) { startPending = false; pendingRestore = { position: command.position, paused: command.paused === true }; RestorePlayback(FindMedia()); return; }
+  if (command.type === 'restore' && Number.isFinite(command.position)) { startPending = false; pendingRestore = { position: command.position, paused: command.paused === true }; RestorePlayback(FindMedia()); EnsureInitTimer(); return; }
   if (command.type === 'refresh-display') { Report(true); return; }
   if (command.type === 'sink') {
     if (typeof command.label === 'string') { masterSink = command.label.slice(0, 200); void ApplySink(); }

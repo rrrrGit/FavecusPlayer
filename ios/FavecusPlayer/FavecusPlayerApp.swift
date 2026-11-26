@@ -100,7 +100,7 @@ final class AppEnvironment: ObservableObject {
         let catalog = AlarmSongCatalog(store: store, downloads: downloads)
         var refreshedKeys = false
         for _ in 0..<50 {
-            if case .ready = store.state {
+            if case .ready = store.state, libraryReady || downloads == nil {
                 if let entryId = catalog.entryId(forKey: sound.mediaKey), let player {
                     pendingAlarmId = nil
                     OpenPlayer.request()

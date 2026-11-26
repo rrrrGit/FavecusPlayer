@@ -42,7 +42,7 @@ class HistoryStore {
     const prev = this.state, res = History.MergeState(this.state, { rows, clearedAt, cursor }, this.now());
     if (res.changed || res.moved) {
       this.state = res.state;
-      if (!WriteJsonAtomic(this.file, this.state)) { this.state = prev; return 0; }
+      if (!WriteJsonAtomic(this.file, this.state)) { this.state = prev; throw new Error('再生履歴を保存できませんでした。'); }
     }
     return res.changed ? 1 : 0;
   }

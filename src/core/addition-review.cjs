@@ -94,7 +94,12 @@ class AdditionReview {
         } else await fs.promises.copyFile(item.sourceFile, destination);
       }
       this.Fresh(plan); before = structuredClone(this.store.data);
-      for (const op of selected) this.store.Playlist(op.playlistId).entries.push({ ...structuredClone(plan.items[op.itemIndex].entry), id: randomUUID(), addedAt: new Date().toISOString() });
+      const nowIso = new Date().toISOString();
+      for (const op of selected) {
+        const list = this.store.Playlist(op.playlistId);
+        list.entries.push({ ...structuredClone(plan.items[op.itemIndex].entry), id: randomUUID(), addedAt: nowIso });
+        list.lastAddedAt = nowIso;
+      }
       if (selected.length) this.store.Save();
       this.plans.delete(id);
       return { state: this.store.Snapshot(), added: selected.length, skipped: plan.operations.length - selected.length };

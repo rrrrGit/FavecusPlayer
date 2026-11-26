@@ -17,6 +17,7 @@ final class BilibiliAccount: ObservableObject {
 
     let cookies: BilibiliCookieVault
     private let core: BiliCore
+    private var authGeneration = 0
 
     init(cookies: BilibiliCookieVault, core: BiliCore) {
         self.cookies = cookies
@@ -27,10 +28,12 @@ final class BilibiliAccount: ObservableObject {
     /// ログイン状態をBilibiliに確認する（Cookieが期限切れなら、ログアウト扱いにして知らせる）。
     func refresh() async {
         guard cookies.isLoggedIn else { profile = Profile(); return }
+        let gen = authGeneration
         checking = true
         defer { checking = false }
         do {
             let text = try await core.call("BiliProfile")
+            guard gen == authGeneration else { return }
             let object = (try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]) ?? [:]
             if let error = object["error"] as? String { message = error; return }
             if object["loggedIn"] as? Bool == true {
@@ -42,6 +45,7 @@ final class BilibiliAccount: ObservableObject {
                 message = "ログインの有効期限が切れました。もう一度ログインしてください。"
             }
         } catch {
+            guard gen == authGeneration else { return }
             message = "ログイン状態を確認できません：\(ErrorText.safe(error))"
         }
     }
@@ -54,6 +58,7 @@ final class BilibiliAccount: ObservableObject {
         guard picked["SESSDATA"] != nil else { return false }
         do {
             try cookies.store(picked)
+            authGeneration += 1
             profile.loggedIn = true
             message = ""
             return true
@@ -65,6 +70,7 @@ final class BilibiliAccount: ObservableObject {
 
     /// ログアウト：Keychainのログイン情報と、WKWebViewに残ったBilibiliのサイトデータの両方を消す。
     func signOut() async {
+        authGeneration += 1
         cookies.clear()
         profile = Profile()
         let store = WKWebsiteDataStore.default()

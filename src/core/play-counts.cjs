@@ -13,7 +13,7 @@ class PlayCounts {
   // options.legacyFile：旧形式のファイル（あれば1回だけ引き継ぐ）／options.aliases：確認済みのav/BV対応を返す関数（同じ動画を同じキーにするため）
   constructor(file, warn = () => {}, options = {}) {
     this.file = file; this.warn = warn; this.now = () => Date.now(); this.tracker = new Ledger.PlayTracker();
-    this.aliases = options.aliases || (() => []); this.onChange = null; this.totals = null;
+    this.aliases = options.aliases || (() => []); this.onChange = null; this.totals = null; this._aliasCache = null;
     this.dirty = new Set(); this.pushedOnce = false; // 変わった行の印（起動後の最初の同期では、すべての行を送る）
     this.inFlight = new Set(); this.touched = new Set(); // 今回の同期で送る行の印と、読み取り後にさらに変わった行（その印は、送信後も残す）
     this.ledger = this.Load(file) || Ledger.NewLedger(randomBytes(8).toString('hex'));
@@ -43,12 +43,19 @@ class PlayCounts {
       this.totals = null; this.Persist();
     } catch { this.warn('以前の再生回数を引き継げませんでした（元のファイルは変更していません）。'); }
   }
+  _AliasHelpers() {
+    const list = this.aliases();
+    const len = Array.isArray(list) ? list.length : 0;
+    if (this._aliasCache && this._aliasCache.list === list && this._aliasCache.len === len) return this._aliasCache;
+    this._aliasCache = { list, len, syncKey: LibrarySyncKey(list), canonical: CanonicalMediaKey(list) };
+    return this._aliasCache;
+  }
   KeyOf(entry) {
-    if (entry?.type === 'bilibili') { try { return LibrarySyncKey(this.aliases())({ ...ParseBilibili(entry.url), ...entry }) || ''; } catch { return ''; } }
+    if (entry?.type === 'bilibili') { try { return this._AliasHelpers().syncKey({ ...ParseBilibili(entry.url), ...entry }) || ''; } catch { return ''; } }
     return entry?.type === 'local' && /^[A-Za-z0-9._-]{1,200}$/.test(String(entry.fileName || '')) ? `local:${entry.fileName}` : '';
   }
-  Canonical() { return CanonicalMediaKey(this.aliases()); }
-  InvalidateCache() { this.totals = null; }
+  Canonical() { return this._AliasHelpers().canonical; }
+  InvalidateCache() { this.totals = null; this._aliasCache = null; }
   Count(entry) { const key = this.KeyOf(entry); if (!key) return 0; const canonical = this.Canonical(); this.totals ||= Ledger.Totals(this.ledger, canonical); return this.totals.get(canonical(key)) || 0; }
   // 再生の統計（月ごとの回数・回数の多い曲。規則は play-ledger.cjs の Stats）。
   Stats(options) { return Ledger.Stats(this.ledger, { ...options, canonical: this.Canonical() }); }

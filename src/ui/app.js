@@ -4,7 +4,7 @@ function HasView() { return HasPlayback(current); }
 function SendBounds() {
   if (!api?.bounds) return;
   const b = $('player-slot').getBoundingClientRect();
-  api.bounds({ x: b.x, y: b.y, width: b.width, height: b.height, modalOpen: !!$('modal').open, visible: !allListsView && HasView() && !state?.settings.thumbnailMode && !$('modal').open && !transportMenuOpen });
+  api.bounds({ x: b.x, y: b.y, width: b.width, height: b.height, modalOpen: !!$('modal').open, visible: !allListsView && HasView() && !state?.settings.thumbnailMode && !$('modal').open && !transportMenuOpen && !(typeof existingPopup !== 'undefined' && existingPopup) });
 }
 async function SelectDisplayMode(mode) {
   if (!['song', 'video'].includes(mode) || !state) return;
@@ -20,7 +20,8 @@ function RenderPlayer() {
   $('thumbnail-panel').classList.toggle('hidden', !fixed);
   $('mode-song').setAttribute('aria-pressed', String(fixed));
   $('mode-video').setAttribute('aria-pressed', String(!fixed));
-  const image = thumbnail?.image || 'music.png';
+  const rawImage = thumbnail?.image;
+  const image = typeof rawImage === 'string' && rawImage.length <= 4 * 1024 * 1024 && /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(rawImage) ? rawImage : 'music.png';
   if ($('thumbnail-image').getAttribute('src') !== image) $('thumbnail-image').src = image;
   $('thumbnail-title').textContent = current?.entry ? EntryTitle(current.entry) : '';
   $('thumbnail-note').textContent = current?.offline ? '保存済みのファイルから再生しています' : thumbnail?.pending ? 'サムネイルを取得しています…' : thumbnail?.image ? '音声はそのまま再生できます' : 'サムネイルを取得できないため音楽アイコンを表示しています';
@@ -109,7 +110,7 @@ document.addEventListener('pointerdown', event => {
   if (existingPopup && !existingPopup.contains(event.target) && event.target !== $('add-existing')) CloseExistingPopup();
   if (transportMenuOpen && !$('transport-menu')?.contains(event.target) && !$('transport-more')?.contains(event.target)) CloseTransportMenu();
 });
-document.addEventListener('keydown', event => { if (event.key === 'Escape') { queueDrag?.Cancel(); CloseExistingPopup(); CloseTransportMenu(); } });
+document.addEventListener('keydown', event => { if (event.key === 'Escape') { queueDrag?.Cancel(); CloseExistingPopup(true); CloseTransportMenu(true); } });
 window.addEventListener?.('blur', () => { CloseTransportMenu(); queueDrag?.Cancel(); queueFollower?.Release(); BackgroundInteractive(false); });
 window.addEventListener?.('focus', () => { if (!$('modal').open) BackgroundInteractive(true); });
 $('modal-form').addEventListener('submit', event => {
@@ -129,6 +130,7 @@ $('up-next-toggle').onclick = () => { timelineOpen = !timelineOpen; timelineManu
 document.addEventListener('keydown', event => {
   const keys = window.FavecusKeys;
   if (!keys || event.isComposing || !foreground || $('modal').open || dragged || playlistDrag.value || event.defaultPrevented || event.isTrusted === false || keys.Editing(event.target)) return;
+  if ((event.code === 'Space' || event.code === 'Enter') && event.target?.closest?.('button, [role="button"], [role="menuitem"], a[href], summary')) return;
   const registered = keys.Action(state?.settings.keybindings, { ...event, code: event.code, ctrlKey: event.ctrlKey, altKey: event.altKey, shiftKey: event.shiftKey, metaKey: event.metaKey, repeat: false }); if (!registered) return;
   event.preventDefault(); event.stopPropagation();
   const action = keys.Action(state?.settings.keybindings, event); if (!action) return;
@@ -155,7 +157,7 @@ $('add-files').onclick = AddLocalFiles;
 $('mini-player').onclick = () => Run(() => api.mini());
 $('transport-volume').oninput = () => VolumeInput($('transport-volume'));
 $('mute').onclick = () => Run(() => api.volume(state.settings.volume > 0 ? 0 : lastVolume));
-$('filter').addEventListener('input', () => { queueFollower?.Interact(); RenderEntries(); });
+$('filter').addEventListener('input', () => { queueFollower?.Interact(); RenderEntries(); if (selectionMode) UpdateBulkBar(); });
 $('entries').addEventListener('wheel', event => { queueFollower?.Interact(); queueDrag?.Wheel(event); }, { passive: false });
 $('entries').addEventListener('touchmove', () => queueFollower?.Interact(), { passive: true });
 $('entries').addEventListener('keydown', event => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) queueFollower?.Interact(); });
@@ -186,7 +188,7 @@ $('mode-song').onclick = () => Run(() => SelectDisplayMode('song'));
 $('mode-video').onclick = () => Run(() => SelectDisplayMode('video'));
 if (api) {
   api.onEvent(event => {
-    if (event.type === 'state') { state = event.value; listViewStats.clear(); Render(); if (downloadSingle && (!DownloadEntry(downloadSingle) || !downloadTargetCount)) void refreshDownloadEstimate?.(); }
+    if (event.type === 'state') { state = event.value; ClearListViewStats(); Render(); if (downloadSingle && (!DownloadEntry(downloadSingle) || !downloadTargetCount)) void refreshDownloadEstimate?.(); }
     else if (event.type === 'current') { current = event.value; void RefreshChapters(); loaded = false; playback = null; thumbnail = null; seeking = false; UpdateCurrentRows(); queueFollower?.Request(); RenderPlayer(); RenderNext(); }
     else if (event.type === 'current-update') { current = event.value; Render(); }
     else if (event.type === 'downloads') UpdateDownloads(event.value);
@@ -197,16 +199,16 @@ if (api) {
     else if (event.type === 'volume') SyncVolume(event.value);
     else if (event.type === 'notes') { void RefreshChapters(); }
     else if (event.type === 'favorites') {
-      favoriteIds = new Set(event.value || []); listViewStats.clear(); RenderFavorite(); RefreshAutoLists?.();
+      favoriteIds = new Set(event.value || []); ClearListViewStats(); RenderFavorite(); RefreshAutoLists?.();
       const view = !allListsView && ListView(ViewScope());
       if (view && (view.favorite !== 'any' || view.sort === 'favorite-first')) RenderEntries();
     }
     else if (event.type === 'extras-updated') {
-      listViewStats.clear(); RefreshAutoLists?.();
+      ClearListViewStats(); RefreshAutoLists?.();
       const view = !allListsView && ListView(ViewScope());
       if (view && (view.played !== 'any' || view.sort === 'count-desc' || view.sort === 'count-asc')) RenderEntries();
     }
-    else if (event.type === 'list-views') { listViews = event.value || {}; listViewStats.clear(); RenderViewButton(); RenderEntries(); }
+    else if (event.type === 'list-views') { listViews = event.value || {}; ClearListViewStats(); RenderViewButton(); RenderEntries(); }
     else if (event.type === 'resume') { resumeOffer = event.value || null; RenderResume(); }
     else if (event.type === 'speed') { playbackSpeed = Number(event.value) || 1; RenderSpeed(); }
     else if (event.type === 'sleep') { sleepState = event.value || { mode: 'off' }; RenderSleep(); }

@@ -67,7 +67,7 @@ final class PlayCountStore: ObservableObject {
         }
         if stored != nil {
             // 読めない台帳は、上書きせず別名で残して、0から数え直す
-            let aside = file.deletingLastPathComponent().appendingPathComponent("play-ledger.damaged-\(Int(Date().timeIntervalSince1970)).json")
+            let aside = file.deletingLastPathComponent().appendingPathComponent("play-ledger.damaged-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(8)).json")
             try? FileManager.default.moveItem(at: file, to: aside)
             notice = "再生回数を読み込めませんでした。元の記録は残し、回数を0から記録します。"
         }
@@ -75,12 +75,18 @@ final class PlayCountStore: ObservableObject {
         return (created["text"] as? String) ?? ""
     }
 
-    private func persist() {
-        guard !text.isEmpty else { return }
+    @discardableResult
+    private func persist(_ candidate: String? = nil) -> Bool {
+        let value = candidate ?? text
+        guard !value.isEmpty else { return false }
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Data(text.utf8).write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        } catch {}
+            try Data(value.utf8).write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            return true
+        } catch {
+            notice = "再生回数を保存できませんでした。"
+            return false
+        }
     }
 
     private func currentAliases() -> [[String: String]] { aliasesProvider?() ?? [] }
@@ -175,8 +181,8 @@ final class PlayCountStore: ObservableObject {
         await serialized { [self] in
             guard !text.isEmpty, let result = try? await call("LedgerIncrement", ["text": text, "key": key, "now": Self.nowMs()]),
                   let next = result["text"] as? String else { return }
+            guard persist(next) else { return }
             text = next
-            persist()
             revision += 1
             onCounted?(key)
             if let row = result["row"] as? [String: Any], let id = row["id"] as? String, key.hasPrefix("bili") {
@@ -189,12 +195,15 @@ final class PlayCountStore: ObservableObject {
 
     /// リセット：世代を1つ上げる（古い世代の行は、履歴として残る）。他の端末へは、次の同期で届く。
     func reset() async {
+        var saved = false
         await serialized { [self] in
             guard !text.isEmpty, let result = try? await call("LedgerReset", ["text": text]), let next = result["text"] as? String else { return }
+            guard persist(next) else { return }
             text = next
-            persist()
             revision += 1
+            saved = true
         }
+        guard saved else { return }
         await stop()
         onChange?()
     }
@@ -224,9 +233,10 @@ final class PlayCountStore: ObservableObject {
             var request: [String: Any] = ["text": text, "rows": value["rows"] ?? [], "cursor": value["cursor"] ?? 0]
             if let epoch = value["epoch"] { request["epoch"] = epoch }
             if let merged = try? await call("LedgerMerge", request), let next = merged["text"] as? String, merged["changed"] as? Bool == true {
-                text = next
-                persist()
-                didChange = true
+                if persist(next) {
+                    text = next
+                    didChange = true
+                }
             }
         }
         if let prefs = value["prefs"] as? [String: Any], let weighted = prefs["weighted"] as? Bool, let at = prefs["at"] as? Double {

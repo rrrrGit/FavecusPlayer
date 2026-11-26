@@ -148,7 +148,7 @@ final class SyncCoordinator: ObservableObject {
         if config.enabled {
             disable()
         } else {
-            publish(state: status.state == .syncing ? .off : status.state, message: status.message)
+            publish(state: (status.state == .syncing || status.state == .error) ? .off : status.state, message: "")
         }
     }
 
@@ -205,20 +205,33 @@ final class SyncCoordinator: ObservableObject {
     func enable() async throws {
         let previous = chain
         let reset = pendingReset
-        await previous?.value
-        await reset?.value
-        guard let current = session() else { throw TransferError.message("先にサインインしてください。") }
-        guard await open() else { throw TransferError.message(status.message.isEmpty ? "同期を開始できません。" : status.message) }
-        let result = try await call("SyncEnable", ["origin": ["url": config.url, "userId": current.userId]])
-        if let error = result["error"] as? String { throw TransferError.message(error) }
-        config.enabled = true
-        try writeConfig()
-        publish(state: .idle, summary: result)
-        _ = await syncNow()
+        var enableError: Error?
+        let task = Task<Bool, Never> {
+            await previous?.value
+            await reset?.value
+            do {
+                guard let current = session() else { throw TransferError.message("先にサインインしてください。") }
+                guard await open() else { throw TransferError.message(status.message.isEmpty ? "同期を開始できません。" : status.message) }
+                let result = try await call("SyncEnable", ["origin": ["url": config.url, "userId": current.userId]])
+                if let error = result["error"] as? String { throw TransferError.message(error) }
+                config.enabled = true
+                try writeConfig()
+                publish(state: .idle, summary: result)
+                return true
+            } catch {
+                enableError = error
+                return false
+            }
+        }
+        chain = task
+        let ok = await task.value
+        if let enableError { throw enableError }
+        if ok { _ = await syncNow() }
     }
 
     func disable() {
         config.enabled = false
+        host.invalidateSession()
         try? writeConfig()
         debounce?.cancel()
         publish(state: .off)
@@ -229,15 +242,27 @@ final class SyncCoordinator: ObservableObject {
     func unblock(mode: String) async throws {
         let previous = chain
         let reset = pendingReset
-        await previous?.value
-        await reset?.value
-        guard await open() else { throw TransferError.message("同期を開始できません。") }
-        let result = try await call("SyncUnblock", ["mode": mode])
-        if let error = result["error"] as? String { throw TransferError.message(error) }
-        blockedReason = ""
-        unblockable = false
-        publish(state: .idle, summary: result)
-        _ = await syncNow()
+        var unblockError: Error?
+        let task = Task<Bool, Never> {
+            await previous?.value
+            await reset?.value
+            do {
+                guard await open() else { throw TransferError.message("同期を開始できません。") }
+                let result = try await call("SyncUnblock", ["mode": mode])
+                if let error = result["error"] as? String { throw TransferError.message(error) }
+                blockedReason = ""
+                unblockable = false
+                publish(state: .idle, summary: result)
+                return true
+            } catch {
+                unblockError = error
+                return false
+            }
+        }
+        chain = task
+        let ok = await task.value
+        if let unblockError { throw unblockError }
+        if ok { _ = await syncNow() }
     }
 
     func resetLink() {
@@ -265,7 +290,11 @@ final class SyncCoordinator: ObservableObject {
     // MARK: 同期
 
     private func storeChanged(bySync: Bool) {
-        Task { _ = try? await call("SyncChanged", [:]) }
+        let reset = pendingReset
+        Task { [weak self] in
+            await reset?.value
+            _ = try? await self?.call("SyncChanged", [:])
+        }
         guard config.enabled, !bySync, blockedReason.isEmpty else { return }
         debounce?.cancel()
         debounce = Task { [weak self] in

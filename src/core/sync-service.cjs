@@ -55,7 +55,7 @@ class SyncService {
     this.config = Storage.ReadConfig(this.dir); this.blocked = ''; this.error = ''; this.state = 'off';
     this.session = new SyncSession({ adapter: this.adapter, repository: () => this.Repository(), persist: session => Storage.WriteState(this.dir, session.device, session.Extra()), now: this.now, onApplied: () => this.onApplied(), deviceId: () => `win-${randomUUID().slice(0, 8)}` });
     this.chain = Promise.resolve(); this.debounce = null; this.interval = null; this.disposed = false;
-    this.pendingCode = null; this.loaded = false; this.suppressChanged = false; this.resetGen = 0; this.cycling = false; this.pendingReset = false;
+    this.pendingCode = null; this.loaded = false; this.suppressChanged = false; this.resetGen = 0; this.signOutGen = 0; this.cycling = false; this.pendingReset = false;
   }
   get device() { return this.session.device; }
   get lastSyncAt() { return this.session.lastSyncAt; }
@@ -67,13 +67,14 @@ class SyncService {
   Session() { return this.vault.Get(); }
   Repository() {
     const config = X.SupabaseConfig({ url: this.config.url, anonKey: this.config.anonKey });
-    return new X.SupabaseSyncRepository({ config, request: this.request, now: this.now, session: { get: () => this.vault.Get(), set: session => this.vault.Set(session) } });
+    const authGen = this.signOutGen;
+    return new X.SupabaseSyncRepository({ config, request: this.request, now: this.now, session: { get: () => this.vault.Get(), set: session => { if (this.signOutGen === authGen) this.vault.Set(session); } } });
   }
   // ---- 設定とサインイン（利用者の操作）
   Configure({ url, anonKey }) {
     const config = X.SupabaseConfig({ url, anonKey });
     if (this.config.enabled) throw new Error('同期を止めてから接続先を変更してください。');
-    if (config.url !== this.config.url) this.vault.Clear(); // 別の接続先へ古いトークンを送らない
+    if (config.url !== this.config.url) { this.signOutGen++; this.vault.Clear(); } // 別の接続先へ古いトークンを送らない
     this.config = { ...this.config, url: config.url, anonKey: config.anonKey }; Storage.WriteConfig(this.dir, this.config); this.Emit(this.state, this.error);
   }
   async SendCode(email) {
@@ -86,7 +87,7 @@ class SyncService {
     const session = await X.VerifyCode(config, this.request, email, code, this.now);
     this.vault.Set(session); this.config = { ...this.config, email: String(email).trim() }; Storage.WriteConfig(this.dir, this.config); this.Emit(this.state, '');
   }
-  SignOut() { this.vault.Clear(); this.Emit(this.state, ''); }
+  SignOut() { this.signOutGen++; this.vault.Clear(); this.Emit(this.state, ''); }
   // ---- 開始・有効化・停止
   Load() {
     if (this.loaded) return; this.loaded = true;

@@ -85,8 +85,11 @@ class SyncSession {
     if (!['restore', 'keep'].includes(mode)) throw new Error('操作が正しくありません。');
     if (mode === 'restore') {
       E.Refresh(this.device, await this.adapter.Context());
-      await this.adapter.Apply(this.device.view);
-      this.base = Snapshot(this.device);
+      this.applying = true;
+      try {
+        await this.adapter.Apply(this.device.view);
+        this.base = Snapshot(this.device);
+      } finally { this.applying = false; }
     } else this.skipEmptyCheck = true;
     this.recoveredAck = true; this.blocked = '';
     await this.persist(this);

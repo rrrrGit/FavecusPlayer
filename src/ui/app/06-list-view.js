@@ -65,11 +65,20 @@ function RenderTimeline(focusNext = false) {
 function ClearDropMarks() { for (const e of document.querySelectorAll('.drop-before, .drop-after, .playlist-entry.drop-child')) e.classList.remove('drop-before', 'drop-after', 'drop-child'); }
 // 曲の並べ替え・絞り込み（リストごと。規則は ui/entry-view.js。材料は main の list:stats）。選んでいる間は、手動の並べ替え（ドラッグ）は使えない。
 const listViewStats = new Map();
+let listViewStatsGen = 0;
+function ClearListViewStats() { listViewStatsGen++; listViewStats.clear(); }
 const ListView = playlistId => (window.FavecusEntryView && listViews[playlistId]) || null;
 function ViewStatsFor(playlistId) {
   if (listViewStats.has(playlistId)) return listViewStats.get(playlistId);
+  const gen = listViewStatsGen;
   listViewStats.set(playlistId, null); // 取得中
-  api.listStats?.(playlistId).then(value => { listViewStats.set(playlistId, value || {}); RenderEntries(); }).catch(() => listViewStats.set(playlistId, {}));
+  api.listStats?.(playlistId).then(value => {
+    if (gen !== listViewStatsGen) return;
+    listViewStats.set(playlistId, value || {}); RenderEntries();
+  }).catch(() => {
+    if (gen !== listViewStatsGen) return;
+    listViewStats.set(playlistId, {}); RenderEntries();
+  });
   return null;
 }
 function ArrangeRows(playlist, rows) {
@@ -99,7 +108,7 @@ function ViewSettings() {
     const view = {}; for (const select of $('modal-body').querySelectorAll('select[data-view]')) view[select.dataset.view] = select.value;
     listViews = { ...listViews }; const saved = await api.listViewSet(playlistId, view);
     if (saved) listViews[playlistId] = saved; else delete listViews[playlistId];
-    listViewStats.clear(); RenderViewButton(); RenderEntries();
+    ClearListViewStats(); RenderViewButton(); RenderEntries();
   }, '決定');
   const reset = Button('元に戻す', 'button secondary', () => { for (const select of $('modal-body').querySelectorAll('select[data-view]')) select.value = EV.DEFAULT[select.dataset.view]; }); $('modal-body').append(reset);
 }
@@ -146,9 +155,10 @@ function RenderEntries() {
   if (!items.length) {
     const empty = Element('div', 'empty-list'); empty.append(Element('strong', '', '＋'), Element('span', '', filter ? '一致する動画がありません。' : '動画を追加すると、ここに再生リストが表示されます。')); list.append(empty);
   }
+  const nodes = [];
   let lazyCount = 0;
   for (const item of items) {
-    if (item.playlist) { list.append(MakePlaylistRow(item)); continue; }
+    if (item.playlist) { nodes.push(MakePlaylistRow(item)); continue; }
     const { entry, index } = item, ownerId = entry.playlistId;
     const row = Element('div', `entry ${entry.type}${entry.missing ? ' missing' : ''}`);
     if (selectionMode) row.classList.add('selecting');
@@ -159,7 +169,15 @@ function RenderEntries() {
       const handle = Button(String(index + 1).padStart(2, '0'), 'entry-number', () => {}, canReorder ? 'ドラッグで並べ替え（Alt＋↑/↓でも移動）' : '並び順');
       handle.disabled = !canReorder;
       if (canReorder) {
-        handle.addEventListener('keydown', event => { if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) { event.preventDefault(); Run(() => Action({ type: 'move', playlistId: ownerId, entryId: entry.id, direction: event.key === 'ArrowUp' ? -1 : 1 })); } });
+        handle.addEventListener('keydown', event => {
+          if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
+            event.preventDefault();
+            Run(async () => {
+              await Action({ type: 'move', playlistId: ownerId, entryId: entry.id, direction: event.key === 'ArrowUp' ? -1 : 1 });
+              entryRows.get(entry.id)?.querySelector('.entry-number')?.focus?.({ preventScroll: true });
+            });
+          }
+        });
         queueDrag?.Bind(handle, row, { playlistId: ownerId, entryId: entry.id }, true); // 並べ替え・絞り込みの間は、ドラッグでの手動の並べ替えは使わない
       }
       row.append(handle);
@@ -176,9 +194,11 @@ function RenderEntries() {
     };
     if (!entry.duration) { row.durationEntry = entry; durationObserver?.observe(row); }
     if (fillObserver && lazyCount++ >= EAGER_ROWS) { row.classList.add('pending'); pendingRows.set(row, build); fillObserver.observe(row); } else build();
-    list.append(row);
+    nodes.push(row);
   }
-  if (items.length) { const tail = Element('div', 'queue-tail'); tail.setAttribute('aria-hidden', 'true'); list.append(tail); UpdateQueueTail(); }
+  if (items.length) { const tail = Element('div', 'queue-tail'); tail.setAttribute('aria-hidden', 'true'); nodes.push(tail); }
+  if (nodes.length) list.append(...nodes);
+  if (items.length) UpdateQueueTail();
   list.scrollTop = scrollTop;
   UpdateCurrentRows(); RenderViewButton();
   $('play-all').disabled = PlaybackEntries().length === 0;
@@ -189,11 +209,11 @@ async function OpenPlaylist(id) {
 }
 function RenderHome() {
   searchArtwork?.Reset(); searchArtwork?.SetEnabled(false); homeArtwork?.Reset(); homeArtwork?.SetEnabled(false); homeSearchBadges.clear();
-  if (!allListsView) return;
+  if (!allListsView) { window.FavecusHome?.Cleanup?.($('home')); return; }
   const searching = !!$('home-query').value.trim(); $('home-search-clear').disabled = !$('home-query').value;
   if (searching && !homeSearchActive) homeScrollTop = $('home').scrollTop;
   const restore = homeSearchActive && !searching; homeSearchActive = searching;
-  if (searching) { RenderHomeSearch(); return; }
+  if (searching) { window.FavecusHome?.Cleanup?.($('home')); RenderHomeSearch(); return; }
   const view = window.FavecusHome.Render($('home'), state, {
     path: homePath, page: homePage,
     onNavigate: (path, page) => { homePath = path; homePage = page; RenderHome(); $('home').scrollTop = 0; $('home').querySelector('h1')?.focus(); },

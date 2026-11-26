@@ -7,6 +7,7 @@
     function button(label, cls, click) { const b = node('button', cls, label); b.type = 'button'; b.onclick = click; return b; }
     function capture() { for (const input of container.querySelectorAll('input')) input.checked && !input.disabled ? selected.add(input.value) : selected.delete(input.value); }
     function render() {
+      const scrollTop = container.scrollTop;
       capture(); for (const id of selected) if (options.disabled?.(id)) selected.delete(id);
       container.replaceChildren(); visible = []; arrows = new Map();
       function visit(id, parentId, depth, path, ancestors = new Set()) {
@@ -65,6 +66,7 @@
         if (open) for (const child of children) visit(child, id, depth + 1, `${path}/${child}`, lineage);
       }
       for (const id of tree.Ordered(data, tree.Roots(data))) visit(id, null, 0, id);
+      container.scrollTop = scrollTop;
     }
     function clearMarks() { for (const row of container.querySelectorAll('.tree-row')) row.classList.remove('drop-before', 'drop-after', 'drop-child', 'dragging'); }
     render();

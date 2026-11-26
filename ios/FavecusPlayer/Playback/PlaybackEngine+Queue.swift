@@ -21,12 +21,15 @@ extension PlaybackEngine {
         guard shuffle != on else { return }
         shuffle = on
         let mine = generation
+        queueSyncSerial += 1
+        let serial = queueSyncSerial
         guard syncRequest() != nil else { return }
         Task {
             let weights: [String: Double]? = on ? await shuffleWeights() : nil
-            guard self.shuffle == on, mine == self.generation, var request = syncRequest() else { return }
+            guard self.shuffle == on, mine == self.generation, serial == self.queueSyncSerial, var request = syncRequest() else { return }
             if let weights { request["weights"] = weights } else { request["weights"] = NSNull() }
             _ = await queue("QueueSync", request)
+            guard self.shuffle == on, mine == self.generation, serial == self.queueSyncSerial else { return }
             await refreshQueue()
         }
     }
@@ -52,10 +55,8 @@ extension PlaybackEngine {
         guard Crossfade.shouldStart(seconds: seconds, position: position, duration: duration, isPlaying: isPlaying, repeatOne: repeatMode == .one, nextIsReady: ready, alreadyStarted: crossfadeStartedFor == current.entryId) else { return }
         crossfadeStartedFor = current.entryId
         crossfadePending = true
-        let mine = generation
         Task {
             await advance(direction: 1, automatic: true)
-            if self.generation == mine { crossfadePending = false } // 失敗・中断のときも、印を戻す（次の手動の曲選びで、重ならないように）
         }
     }
 
