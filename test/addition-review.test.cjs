@@ -62,7 +62,9 @@ test('unrelated volume and display updates do not invalidate the review, and sav
   const before = store.Snapshot(), bytes = fs.readFileSync(store.file), save = store.Save;
   store.Save = () => { throw new Error('disk full'); }; await assert.rejects(() => review.Commit(plan.id), /disk full/); store.Save = save;
   assert.deepEqual(store.Snapshot(), before); assert.deepEqual(fs.readFileSync(store.file), bytes);
+  assert.equal(store.Playlist(a).lastAddedAt, '');
   assert.equal((await review.Commit(plan.id)).added, 1); assert.equal(store.data.settings.volume, .5);
+  assert.ok(store.Playlist(a).lastAddedAt.length > 0, 'AdditionReview.Commit で lastAddedAt が更新される');
 });
 test('file review does not copy until confirmed, shares bytes between destinations and cleans cancelled conversion', async t => {
   const { root, store, a, b, review } = Setup(t), file = path.join(root, 'ナツノヒ.mp3'); fs.writeFileSync(file, 'original');

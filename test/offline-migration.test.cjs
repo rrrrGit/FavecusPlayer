@@ -49,6 +49,7 @@ test('confirmed aliases use one folder while parts remain separate and existing 
 test('failed catalog commit keeps originals, index and completed copies for restart without recopying', async t => {
   const h = Fixture(t), old = h.add(), index = fs.readFileSync(h.disk('index.json'));
   h.library.CommitRecord = () => { throw new Error('index failure'); }; await h.library.Organize();
+  assert.match(h.library.warning, /FP-DOWNLOAD-LAYOUT/); assert.ok(h.library.Cover(old.token));
   assert.deepEqual(fs.readFileSync(h.disk('index.json')), index); assert.ok(fs.existsSync(h.disk(old.file))); const plan = h.journal();
   const copies = plan.files.map(f => [f.to, fs.statSync(h.disk(f.to)).mtimeMs]); const restarted = new OfflineLibrary(h.options); await restarted.Organize();
   for (const [name, time] of copies) assert.equal(fs.statSync(h.disk(name)).mtimeMs, time);

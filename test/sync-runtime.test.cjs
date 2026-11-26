@@ -195,3 +195,129 @@ test('a changed connection or account stops the cycle before any network request
   assert.equal(r.mismatch, true); assert.equal(server.requests.length, before);
   r = await Runtime.Cycle({ origin: { url: URL_, userId: ios.session.userId } }); assert.equal(r.ok, true);
 });
+
+test('iPhone runtime syncs play counts, preference, favorites, and play history both ways with Windows', async t => {
+  const App = require('../src/core/library-app.cjs');
+  const { PlayCounts } = require('../src/core/play-counts.cjs');
+  const { FavoriteStore } = require('../src/core/favorites.cjs');
+  const { HistoryStore } = require('../src/core/play-history-store.cjs');
+  const { ParseBilibili } = require('../src/core/urls.cjs');
+  const { SyncExtras } = require('../src/core/sync-counts.cjs');
+  const X = require('../src/core/sync-supabase.cjs');
+  const { CONFIG } = require('./fake-supabase.cjs');
+
+  const server = FakeServer({ now: Date.now() });
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'favecus-rtc-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const song = ParseBilibili('https://www.bilibili.com/video/BV1aaaaaaaaa/');
+  const keyA = 'bili:BV1aaaaaaaaa:p1', keyB = 'bili:BV1bbbbbbbbb:p1';
+
+  const pc = new PlayCounts(path.join(root, 'pc.json'));
+  const pcFavs = new FavoriteStore(path.join(root, 'pc-favs.json'));
+  const pcHist = new HistoryStore(path.join(root, 'pc-hist.json'));
+  let now = 1000;
+  pc.now = () => now;
+  for (let r = 0; r < 3; r++) { pc.Begin(song); for (let i = 0; i < 6; i++) { now += 1000; pc.Observe({ position: i, duration: 200, paused: false }); } }
+  pcFavs.Set(keyA, true);
+  pcHist.Add(keyA, Date.now());
+  const pcAdapter = {
+    Read: async () => pc.SyncRead({ weighted: false, at: 500 }),
+    Apply: async ({ rows, epoch, cursor }) => { pc.SyncApply({ rows, epoch, cursor }); },
+    Pushed: async () => pc.SyncPushed(),
+    favorites: { Read: async () => pcFavs.SyncRead(pc.ledger.deviceId), Apply: async v => pcFavs.SyncApply(v), Pushed: async () => pcFavs.SyncPushed() },
+    history: { Read: async () => pcHist.SyncRead(pc.ledger.deviceId), Apply: async v => pcHist.SyncApply(v), Pushed: async () => pcHist.SyncPushed() },
+  };
+  await X.SendCode(CONFIG, server.request, 'me@example.com');
+  let pcSession = await X.VerifyCode(CONFIG, server.request, 'me@example.com', '123456', () => server.now);
+  const pcRepo = new X.SupabaseSyncRepository({ config: CONFIG, request: server.request, session: { get: () => pcSession, set: v => { pcSession = v; } }, now: () => server.now });
+  assert.equal((await SyncExtras(pcAdapter, pcRepo)).ok, true);
+
+  const phone = {
+    ledger: App.LedgerOpen({ deviceId: 'phone1' }).text, prefs: { weighted: true, at: 0 }, dirty: new Set(), pushedOnce: false, applied: 0, pushed: 0,
+    favText: App.FavoritesOpen({}).text, favDirty: new Set(), favPushedOnce: false,
+    histText: App.HistoryOpen({}).text, histDirty: new Set(), histPushedOnce: false,
+  };
+  let libraryText = Pretty(EmptyLibrary()), session = null;
+  globalThis.__favecusHost = {
+    library: async () => libraryText, write: async json => { libraryText = JSON.parse(json).text; }, persist: async () => {}, backup: async () => 'b', recovered: async () => false,
+    request: async (method, url, init) => { const { headers, body } = JSON.parse(init); return JSON.stringify(await server.request(method, url, { headers, body: body === null ? undefined : body })); },
+    saveSession: async json => { session = JSON.parse(json); },
+    countsRead: async () => {
+      const s = App.LedgerSyncState({ text: phone.ledger });
+      const rows = s.rows.filter(row => !phone.pushedOnce || phone.dirty.has(row.id)).map(({ epoch, month, key, n }) => ({ epoch, month, key, n }));
+      return JSON.stringify({ deviceId: s.deviceId, epoch: s.epoch, cursor: s.cursor, rows, prefs: phone.prefs });
+    },
+    countsApply: async json => {
+      const v = JSON.parse(json), merged = App.LedgerMerge({ text: phone.ledger, rows: v.rows, epoch: v.epoch, cursor: v.cursor });
+      phone.ledger = merged.text; if (v.prefs) phone.prefs = v.prefs; phone.applied++;
+    },
+    countsPushed: async () => { phone.dirty.clear(); phone.pushedOnce = true; phone.pushed++; },
+    favoritesRead: async () => {
+      const s = App.FavoritesSyncState({ text: phone.favText, keys: phone.favPushedOnce ? [...phone.favDirty] : null });
+      return JSON.stringify({ deviceId: 'phone1', cursor: s.cursor, rows: s.rows });
+    },
+    favoritesApply: async json => {
+      const v = JSON.parse(json);
+      phone.favText = App.FavoritesMerge({ text: phone.favText, rows: v.rows, cursor: v.cursor, now: Date.now() }).text;
+    },
+    favoritesPushed: async () => { phone.favDirty.clear(); phone.favPushedOnce = true; },
+    historyRead: async () => {
+      const s = App.HistorySyncState({ text: phone.histText, keys: phone.histPushedOnce ? [...phone.histDirty] : null });
+      return JSON.stringify({ deviceId: 'phone1', cursor: s.cursor, clearedAt: s.clearedAt, rows: s.rows });
+    },
+    historyApply: async json => {
+      const v = JSON.parse(json);
+      phone.histText = App.HistoryMerge({ text: phone.histText, rows: v.rows, clearedAt: v.clearedAt, cursor: v.cursor, now: Date.now() }).text;
+    },
+    historyPushed: async () => { phone.histDirty.clear(); phone.histPushedOnce = true; },
+  };
+  const config = { url: URL_, anonKey: KEY };
+  assert.equal((await Runtime.SendCode({ config, email: 'me@example.com' })).ok, true);
+  session = (await Runtime.VerifyCode({ config, email: 'me@example.com', code: '123456' })).session;
+  assert.equal((await Runtime.Open({ stateText: null, config, session, deviceId: 'ios-test' })).status, 'none');
+  assert.equal((await Runtime.Enable({ origin: { url: URL_, userId: session.userId } })).ok, true);
+  const cycle = await Runtime.Cycle();
+  assert.equal(cycle.ok, true, JSON.stringify(cycle));
+  assert.equal(cycle.extras.ok, true, JSON.stringify(cycle.extras));
+  assert.equal(phone.applied, 1);
+  assert.equal(phone.pushed, 1);
+  assert.equal(App.LedgerCounts({ text: phone.ledger, keys: [keyA] }).counts[keyA], 3);
+  assert.deepEqual(phone.prefs, { weighted: false, at: 500 });
+  assert.deepEqual(JSON.parse(phone.favText).keys, [keyA]);
+  assert.deepEqual(App.HistoryKeys({ items: JSON.parse(phone.histText).items, limit: 10 }).keys, [keyA]);
+
+  phone.ledger = App.LedgerIncrement({ text: phone.ledger, key: keyA, now: Date.now() }).text;
+  phone.dirty.add(App.LedgerSyncState({ text: phone.ledger }).rows.find(r => r.n === 1 && r.id.startsWith('phone1')).id);
+  phone.favText = App.FavoritesSet({ text: phone.favText, key: keyB, value: true, now: Date.now() }).text;
+  phone.favDirty.add(keyB);
+  phone.histText = App.HistoryAddState({ text: phone.histText, key: keyB, at: Date.now() + 5000 }).text;
+  phone.histDirty.add(keyB);
+  assert.equal((await Runtime.Cycle()).extras.ok, true);
+  assert.equal((await SyncExtras(pcAdapter, pcRepo)).ok, true);
+  assert.equal(pc.Count(song), 4);
+  assert.equal(pcFavs.Has(keyB), true);
+  assert.equal(pcHist.Keys(10)[0], keyB);
+});
+
+test('a missing counts table is reported in the cycle result without failing the library sync', async () => {
+  const server = FakeServer({ now: Date.now() });
+  server.countsTable = false;
+  let libraryText = Pretty(EmptyLibrary()), session = null;
+  globalThis.__favecusHost = {
+    library: async () => libraryText, write: async json => { libraryText = JSON.parse(json).text; }, persist: async () => {}, backup: async () => 'b', recovered: async () => false,
+    request: async (method, url, init) => { const { headers, body } = JSON.parse(init); return JSON.stringify(await server.request(method, url, { headers, body: body === null ? undefined : body })); },
+    saveSession: async json => { session = JSON.parse(json); },
+    countsRead: async () => JSON.stringify({ deviceId: 'p', epoch: 0, cursor: 0, rows: [], prefs: { weighted: true, at: 0 } }),
+    countsApply: async () => {},
+    countsPushed: async () => {},
+  };
+  const config = { url: URL_, anonKey: KEY };
+  await Runtime.SendCode({ config, email: 'me@example.com' });
+  session = (await Runtime.VerifyCode({ config, email: 'me@example.com', code: '123456' })).session;
+  await Runtime.Open({ stateText: null, config, session, deviceId: 'ios-test-2' });
+  await Runtime.Enable({ origin: { url: URL_, userId: session.userId } });
+  const cycle = await Runtime.Cycle();
+  assert.equal(cycle.ok, true);
+  assert.equal(cycle.extras.ok, false);
+  assert.equal(cycle.extras.missing, true);
+});

@@ -82,3 +82,23 @@ test('at most two ffmpeg measurements run at the same time, the rest wait in ord
   assert.ok(gains.every(g => g > 0 && g <= 1));
   assert.equal(store.running, 0);
 });
+
+test('PC wiring: volumeLeveling defaults to on, persists, multiplies volume with fade, and skips corrupted records', t => {
+  const { readMain, readApp } = require('./support-source.cjs');
+  const { Store } = require('../src/core/store.cjs');
+  const main = readMain();
+  assert.match(main, /store\.data\.settings\.volume \* factor \* \(store\.data\.settings\.volumeLeveling === false \? 1 : songGain\)/);
+  assert.match(main, /void LevelCurrent\(request, saved \? offline\.ResolvePath\(saved\.file\) : entry\.type === 'local'/);
+  assert.match(readApp(), /volumeLeveling: \$\('volume-leveling'\)\.checked/);
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'favecus-level-store-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = new Store(dir);
+  assert.equal(store.data.settings.volumeLeveling, true);
+  store.Apply({ type: 'settings', settings: { volumeLeveling: false } });
+  assert.equal(new Store(dir).data.settings.volumeLeveling, false);
+
+  const loudFile = path.join(dir, 'loudness.json');
+  fs.writeFileSync(loudFile, JSON.stringify({ version: 1, records: { bad: null, good: { meanDb: -12, at: 100 } } }));
+  assert.deepEqual(Object.keys(new LoudnessStore(loudFile, null).records), ['good']);
+});

@@ -63,3 +63,34 @@ test('PC: the shuffle weight uses the favorite rule, the toggle is on the curren
   assert.match(read('src/ui/index.html'), /id="favorite"/);
   assert.match(readApp(), /お気に入りにする/);
 });
+
+test('FavoriteStore.SetMany validates atomically, rolls back on failure, notifies once, and MigrateAliases merges av to BV', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'favecus-favmany-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'favorites.json');
+  const store = new FavoriteStore(file, { now: () => 1000 });
+  const events = [];
+  store.onChange = info => events.push(info);
+
+  assert.deepEqual(store.SetMany(['bili:BV1aaaaaaaaa:p1', 'bili:BV1bbbbbbbbb:p1', 'local:track.mp3'], true), { fav: true, changed: 3 });
+  assert.equal(events.length, 1);
+  assert.equal(events[0].syncable, true);
+  assert.deepEqual(new FavoriteStore(file).List().sort(), ['bili:BV1aaaaaaaaa:p1', 'bili:BV1bbbbbbbbb:p1', 'local:track.mp3']);
+
+  assert.throws(() => store.SetMany(['bili:BV1ccccccccc:p1', 'invalid key with spaces'], true), /お気に入りにできません/);
+  assert.equal(store.Has('bili:BV1ccccccccc:p1'), false);
+  assert.equal(new FavoriteStore(file).Has('bili:BV1ccccccccc:p1'), false);
+  assert.equal(events.length, 1);
+
+  const origSave = store.Save.bind(store);
+  store.Save = () => false;
+  assert.throws(() => store.SetMany(['bili:BV1ddddddddd:p1'], true), /保存できませんでした/);
+  assert.equal(store.Has('bili:BV1ddddddddd:p1'), false);
+  assert.equal(events.length, 1);
+  store.Save = origSave;
+
+  store.Set('bili-av:123:p1', true);
+  assert.equal(store.MigrateAliases([{ aid: '123', bvid: 'BV1aaaaaaaaa' }]), true);
+  assert.equal(store.Has('bili:BV1aaaaaaaaa:p1'), true);
+  assert.equal(store.Has('bili-av:123:p1'), false);
+});

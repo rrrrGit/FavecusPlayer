@@ -137,3 +137,26 @@ test('the iPhone choices, kinds and wiring match the shared JS', () => {
   assert.match(main, /'auto:history': '最近聴いた曲'/);
   assert.match(read('src/core/play-counts.cjs'), /this\.onCounted\?\.\(key, this\.now\(\)\)/);
 });
+
+test('HistoryStore migrates av aliases and rolls back on save failure', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'favecus-hist-alias-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const histFile = path.join(dir, 'history.json');
+  const hist = new HistoryStore(histFile, { now: () => 500 });
+  hist.Add('bili-av:123:p1', 300);
+  hist.Add('bili:BV1aaaaaaaaa:p1', 450);
+  assert.equal(hist.MigrateAliases([{ aid: '123', bvid: 'BV1aaaaaaaaa' }]), true);
+  assert.deepEqual(hist.Keys(10), ['bili:BV1aaaaaaaaa:p1']);
+  assert.equal(hist.items[0].at, 450);
+
+  fs.rmSync(histFile, { force: true });
+  fs.mkdirSync(histFile);
+  try {
+    assert.throws(() => hist.Add('bili:BV1bbbbbbbbb:p1', 600), /保存できませんでした/);
+    assert.deepEqual(hist.Keys(10), ['bili:BV1aaaaaaaaa:p1']);
+    assert.throws(() => hist.Clear(), /保存できませんでした/);
+    assert.deepEqual(hist.Keys(10), ['bili:BV1aaaaaaaaa:p1']);
+  } finally {
+    fs.rmdirSync(histFile);
+  }
+});

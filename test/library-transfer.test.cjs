@@ -130,3 +130,32 @@ test('SafeName and the inner entry checks reject traversal and unexpected names'
   assert.throws(() => T.CheckInnerNames(['identity.json', 'playlists/..json']), /ファイル構成/);
   assert.deepEqual(T.CheckInnerNames(['identity.json', `playlists/${pid(1)}.json`]), [`playlists/${pid(1)}.json`]);
 });
+
+test('IdenticalIds and Import skipIdentical detect matching structures and skip or duplicate by option', () => {
+  const entry = (n, video) => ({ id: id(2, n), mediaId: id(3, n), type: 'bilibili', title: `曲${n}`, addedAt: '2026-11-13T00:00:00.000Z', videoId: video, part: 1, url: `https://www.bilibili.com/video/${video}/` });
+  const list = (n, name, entries, childIds = []) => ({ id: id(1, n), name, icon: '', entries, childIds, createdAt: '2026-11-01T00:00:00.000Z', lastAddedAt: '', includeInAll: true });
+  const makeLib = () => {
+    const parent = list(1, '親', [entry(1, 'BV1aaaaaaaaa'), entry(2, 'BV1bbbbbbbbb')], [id(1, 2)]), child = list(2, '子', [entry(3, 'BV1ccccccccc')]), other = list(3, '別', [entry(4, 'BV1ddddddddd')]);
+    return { version: 3, identityVersion: 2, videoAliases: [], activePlaylistId: parent.id, rootPlaylistIds: [parent.id, other.id], playlists: [parent, child, other] };
+  };
+  const planOf = lib => {
+    const exported = T.Export({ library: lib, mode: 'information', available: [] });
+    return T.Prepare(T.BuildShareInput(JSON.parse(exported.identity), exported.records.map(r => JSON.parse(r.text)))).plan;
+  };
+  const local = makeLib(), incoming = makeLib();
+  assert.deepEqual(new Set(T.IdenticalIds(local, planOf(incoming))), new Set(incoming.playlists.map(p => p.id)));
+  const changed = makeLib(); changed.playlists[2].entries.reverse(); changed.playlists[0].entries.reverse();
+  const ids = T.IdenticalIds(local, planOf(changed));
+  assert.ok(!ids.includes(id(1, 1))); assert.ok(ids.includes(id(1, 2)));
+  const renamed = makeLib(); renamed.playlists[2].name = '別名';
+  assert.ok(!T.IdenticalIds(local, planOf(renamed)).includes(id(1, 3)));
+
+  const diff = makeLib(); diff.playlists[2].entries.push(entry(5, 'BV1eeeeeeeee'));
+  const result = T.Import({ library: local, plan: planOf(diff), ids: [id(1, 1), id(1, 3)], available: [], createId, skipIdentical: true });
+  assert.equal(result.skippedIdentical, 1); assert.equal(result.imported, 1);
+  assert.equal(result.library.playlists.length, local.playlists.length + 1);
+  assert.throws(() => T.Import({ library: local, plan: planOf(makeLib()), ids: [id(1, 1)], available: [], createId, skipIdentical: true }), /すでに同じ構成/);
+  const duplicated = T.Import({ library: local, plan: planOf(makeLib()), ids: [id(1, 1)], available: [], createId });
+  assert.equal(duplicated.library.playlists.length, local.playlists.length + 2);
+  assert.ok(duplicated.library.playlists.some(p => /取り込み1/.test(p.name)));
+});

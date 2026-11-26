@@ -204,3 +204,32 @@ test('one-page videos stay single unless a collection is attached, including lis
   const list = await single.Resolve('https://www.bilibili.com/list/42?sid=51&business=space_collection&bvid=BV1oo4y1t7GX');
   assert.equal(list.kind, 'playlist'); assert.equal(list.sources[0].id, '51');
 });
+test('app data rename migration preserves exact bytes and refuses destructive merge when both directories exist', t => {
+  const { PrepareDataDirectory } = require('../src/core/data-migration.cjs');
+  const root = Temp(t), old = path.join(root, 'Focus Player'), store = new Store(old);
+  store.Apply({ type: 'add', playlistId: store.data.activePlaylistId, urls: 'av123' });
+  store.data.settings.discordImageKey = 'focus_player_music';
+  store.Save();
+  const bytes = fs.readFileSync(store.file), partition = path.join(old, 'Partitions/focus-bilibili');
+  fs.mkdirSync(partition, { recursive: true });
+  fs.writeFileSync(path.join(partition, 'Cookies'), 'account bytes');
+  const directory = PrepareDataDirectory(root);
+  assert.equal(fs.existsSync(old), false);
+  assert.deepEqual(fs.readFileSync(path.join(directory, 'library.json')), bytes);
+  assert.equal(fs.readFileSync(path.join(directory, 'Partitions/favecus-bilibili/Cookies'), 'utf8'), 'account bytes');
+  const next = new Store(directory);
+  assert.equal(next.data.settings.discordImageKey, 'favecus_player_music');
+  assert.equal(next.data.playlists[0].entries[0].videoId, 'av123');
+  next.Apply({ type: 'settings', settings: { discordImageKey: 'my_custom_image' } });
+  assert.equal(PrepareDataDirectory(root), directory);
+  assert.equal(new Store(directory).data.settings.discordImageKey, 'my_custom_image');
+
+  const conflictRoot = Temp(t);
+  for (const name of ['Focus Player', 'Favecus Player']) {
+    const folder = path.join(conflictRoot, name);
+    fs.mkdirSync(folder);
+    fs.writeFileSync(path.join(folder, 'library.json'), name);
+  }
+  assert.throws(() => PrepareDataDirectory(conflictRoot), /両方/);
+  for (const name of ['Focus Player', 'Favecus Player']) assert.equal(fs.readFileSync(path.join(conflictRoot, name, 'library.json'), 'utf8'), name);
+});

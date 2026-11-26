@@ -58,11 +58,3 @@ test('all-playlists manual order follows the hierarchy and includes excluded, em
   assert.equal(new Set(tree.AllLists(data)).size, data.playlists.length);
   data.settings.playlistSort = 'name'; assert.deepEqual(tree.AllLists(data), tree.Ordered(data, data.playlists.map(p => p.id)));
 });
-test('Discord retains the app icon and emits public thumbnail and selected-part links separately', () => {
-  const media = { source: 'bilibili', title: '曲', paused: false, duration: 100, position: 5, thumbnailURL: 'https://i0.hdslb.com/cover.jpg', videoURL: 'https://www.bilibili.com/video/av123/?p=2&tracking=private' };
-  const result = BuildActivity(media, false, Date.now(), 'original_icon');
-  assert.equal(result.assets.large_image, 'original_icon'); assert.equal(result.assets.small_image, media.thumbnailURL);
-  assert.equal(result.assets.small_url, 'https://www.bilibili.com/video/av123/?p=2');
-  for (const removed of [result.details_url, result.buttons, result.assets.large_url]) assert.equal(removed, undefined);
-  const local = BuildActivity({ ...media, source: 'local', thumbnailURL: 'file:///private/cover.png' }, false); assert.equal(local.buttons, undefined); assert.equal(local.details_url, undefined); assert.equal(local.assets.small_image, undefined);
-});

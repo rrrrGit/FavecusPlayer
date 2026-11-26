@@ -79,3 +79,43 @@ test('the per-list choice is saved atomically, restored, removed at the default,
   assert.deepEqual(new ListViewStore(file).All(), {});
   assert.equal(fs.existsSync(file + '.tmp'), false);
 });
+
+test('tree.Rows arrange hook, App.ArrangeEntries, and PC/iPhone wiring stay consistent', () => {
+  const tree = require('../src/ui/library-tree.js');
+  const App = require('../src/core/library-app.cjs');
+  const { readMain, readApp } = require('./support-source.cjs');
+  const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+  const mk = (id, title) => ({ id, title, type: 'bilibili', videoId: 'BV' + id, url: `https://www.bilibili.com/video/BV${id}/`, part: 1 });
+  const data = {
+    version: 3, activePlaylistId: 'p1', rootPlaylistIds: ['p1'], settings: {},
+    playlists: [{ id: 'p1', name: 'L', icon: '', childIds: ['p2'], includeInAll: true, entries: [mk('a', 'みかん'), mk('b', 'あおぞら'), mk('c', 'Zebra')] },
+      { id: 'p2', name: 'C', icon: '', childIds: [], includeInAll: true, entries: [mk('x', '子の曲')] }]
+  };
+  const rows = tree.Rows(data, 'p1', new Set(), '', (playlist, list) => (playlist.id === 'p1' ? EntryView.Apply(list, { sort: 'title' }, {}, row => row.entry) : list)).filter(row => row.entry);
+  assert.deepEqual(rows.map(row => row.entry.id), ['c', 'b', 'a']);
+  assert.deepEqual(rows.map(row => row.index), [2, 1, 0]);
+  assert.equal(tree.Rows(data, 'p1', new Set(), '', (_p, list) => EntryView.Apply(list, { source: 'local' }, {}, row => row.entry)).filter(row => row.entry).length, 0);
+
+  const items = [
+    { id: 'a', title: 'B', type: 'bilibili', count: 1, favorite: false, saved: true },
+    { id: 'b', title: 'A', type: 'local', count: 5, favorite: true, saved: true },
+    { id: 'c', title: 'C', type: 'bilibili', count: 0, favorite: true, saved: false }
+  ];
+  assert.deepEqual(App.ArrangeEntries({ items, view: { sort: 'title' } }).ids, ['b', 'a', 'c']);
+  assert.deepEqual(App.ArrangeEntries({ items, view: { favorite: 'on', sort: 'count-desc' } }).ids, ['b', 'c']);
+  assert.deepEqual(App.ArrangeEntries({ items, view: { saved: 'unsaved' } }).ids, ['c']);
+  assert.deepEqual(App.ArrangeEntries({ items: 'bad', view: {} }).ids, []);
+
+  const main = readMain(), app = readApp();
+  assert.match(main, /const ArrangedEntries = scope =>/);
+  assert.match(main, /: KeepCurrent\(scope, ArrangedEntries\(scope\)\);/);
+  assert.match(main, /Handle\('list:view-set'/); assert.match(main, /Handle\('list:stats'/);
+  assert.match(read('src/preloads/ui.cjs'), /listViewSet: invoke\('list:view-set'\)/);
+  assert.match(app, /tree\.Rows\(state, ViewScope\(\), expandedEntryLists, filter, ArrangeRows\)/);
+  assert.match(read('src/ui/index.html'), /<script src="entry-view\.js" defer><\/script>/);
+  const swift = read('ios/FavecusPlayer/Library/ListViewStore.swift');
+  for (const sort of EntryView.SORTS) assert.ok(swift.includes(`"${sort}"`));
+  for (const key of ['favorite', 'saved', 'source', 'played']) for (const value of EntryView.FILTERS[key]) assert.ok(swift.includes(`"${value}"`));
+  assert.match(read('ios/FavecusPlayer/Playback/PlaybackEngine.swift'), /scopeArrangedIds\(scope\)/);
+  assert.match(read('ios/FavecusPlayer/Playback/PlaybackEngine+Views.swift'), /listViews\.view\(for: \$0\.id\)/);
+});

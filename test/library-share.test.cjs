@@ -88,6 +88,8 @@ test('media archives exclude device fields and restore video, audio and a shared
   assert.match(v.file, /^media\/av123-p1\//); assert.equal(path.dirname(v.file), path.dirname(a.file)); assert.equal(v.thumbnail.file, a.thumbnail.file);
   assert.deepEqual(h.target.Playlist(h.first).entries.map(e => e.id), h.source.Playlist(h.first).entries.map(e => e.id));
   assert.deepEqual(h.target.Playlist(h.first).childIds, [h.child]); assert.ok(h.targetOffline.Cover(v.token));
+  const restarted = new OfflineLibrary({ directory: path.join(h.target.directory, 'downloads'), settingsFile: path.join(h.target.directory, 'download-settings.json'), ffmpeg: process.execPath, libraryData: () => h.target.data });
+  assert.equal(restarted.Find(ParseBilibili('av123'), 'audio', true).kind, 'audio'); assert.ok(restarted.Cover(v.token));
   const again = await h.importer.Prepare(file); assert.equal((await h.importer.Commit(again.id, [h.first])).downloaded, 0);
 });
 test('known destination aliases reuse existing quality and cover and attach only a missing format to its folder', async t => {

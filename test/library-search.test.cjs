@@ -45,3 +45,15 @@ test('a new snapshot rebuilds membership paths after rename, move and deletion w
   assert.equal(Page(oldIndex, '親A').total, 4);
   data.playlists[2].entries = []; assert.equal(Page(Index(data), 'abc123').total, 0);
 });
+test('App.Search exposes shared search contract, rejects broken JSON, and is wired for iPhone', () => {
+  const fs = require('node:fs'), path = require('node:path');
+  const App = require('../src/core/library-app.cjs');
+  const text = JSON.stringify({ version: 3, playlists: [{ id: 'p1', name: 'お気に入りの歌', childIds: [], entries: [{ id: 'a1', type: 'bilibili', title: 'ＡＢＣのうた', videoId: 'BVa1', url: 'https://www.bilibili.com/video/BVa1', part: 1 }] }], settings: {} });
+  const res = App.Search({ text, query: 'abc 歌' });
+  assert.deepEqual(res.items.map(i => i.entryId), ['a1']);
+  assert.ok(App.Search({ text: '{', query: 'a' }).error);
+  const bundle = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'build-shared-bundle.cjs'), 'utf8');
+  const runner = fs.readFileSync(path.join(__dirname, '..', 'shared', 'runtime', 'fixture-runner.js'), 'utf8');
+  assert.match(bundle, /Search: function \(json\)/);
+  assert.match(runner, /const Search = json =>/);
+});

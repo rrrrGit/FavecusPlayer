@@ -74,3 +74,30 @@ test('PlayTimeStore persists across restarts, ignores corrupt files, and main/UI
   assert.match(app, /月ごとの再生時間（最近12か月）/);
   assert.match(app, /バックグラウンド再生を含みます/);
 });
+
+test('PlayTimeStore.Flush keeps dirty = true when atomic write fails and clears it after recovery', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'favecus-pt-fail-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const target = path.join(dir, 'play-time.json');
+  let nowMs = Date.UTC(2026, 10, 22, 12, 0, 0);
+  const store = new PlayTimeStore(target, () => nowMs);
+  store.Begin();
+  store.Observe({ position: 0, paused: false, playbackRate: 1 });
+  nowMs += 1000;
+  store.Observe({ position: 1, paused: false, playbackRate: 1 });
+  assert.equal(store.dirty, false);
+
+  nowMs += 4000;
+  store.Observe({ position: 5, paused: false, playbackRate: 1 });
+  assert.equal(store.dirty, true);
+
+  fs.rmSync(target, { force: true });
+  fs.mkdirSync(target, { recursive: true });
+  assert.equal(store.Flush(), false);
+  assert.equal(store.dirty, true);
+
+  fs.rmdirSync(target);
+  assert.equal(store.Flush(), true);
+  assert.equal(store.dirty, false);
+  assert.equal(new PlayTimeStore(target, () => nowMs).Stats({ months: 1 }).totalSeconds, 5);
+});

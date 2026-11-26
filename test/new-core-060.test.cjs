@@ -39,5 +39,5 @@ test('Bilibili embedded URL specifies the matching part CID and still defaults t
 test('Discord uses a public thumbnail and part link while retaining the icon fallback and rejecting local or unsafe links',()=>{
  const m={source:'bilibili',title:'刻ト詩',paused:false,position:20,duration:300,thumbnailURL:'http://i0.hdslb.com/a.jpg',videoURL:'https://www.bilibili.com/video/av123/?p=2&tracking=x'};
  const a=BuildActivity(m,false);assert.equal(a.assets.large_image,'favecus_player_music');assert.equal(a.assets.small_image,'https://i0.hdslb.com/a.jpg');assert.equal(a.assets.small_url,'https://www.bilibili.com/video/av123/?p=2');assert.equal(a.buttons,undefined);
- const b=BuildActivity({...m,thumbnailURL:'file:///secret',videoURL:'https://evil.test'},false);assert.equal(b.assets.large_image,'favecus_player_music');assert.equal(b.buttons,undefined);assert.equal(BuildActivity({...m,source:'local'},false).buttons,undefined);
+ const b=BuildActivity({...m,thumbnailURL:'file:///secret',videoURL:'https://evil.test'},false);assert.equal(b.assets.large_image,'favecus_player_music');assert.equal(b.buttons,undefined);const l=BuildActivity({...m,source:'local',thumbnailURL:'file:///private/cover.png'},false);assert.equal(l.buttons,undefined);assert.equal(l.assets.small_image,undefined);
 });

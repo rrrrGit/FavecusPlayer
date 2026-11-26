@@ -199,3 +199,125 @@ test('a recovered library stays blocked after a restart and is lifted only by th
   assert.ok(run.store.data.playlists.some(p => p.name === 'Bの作ったリスト'), '復元された'); assert.equal(run.service.Status().state, 'idle');
   await b.service.SyncNow(); assert.ok(Names(b).includes('Bの作ったリスト'));
 });
+
+test('SyncService SuppressChanged resets, ResetLink aborts active Cycle/Extras cleanly, and SignOut blocks stale session.set', async t => {
+  const S = require('../src/core/sync-state.cjs');
+  const E = require('../src/core/sync-engine.cjs');
+  const { SupabaseSyncRepository, SendCode, VerifyCode } = require('../src/core/sync-supabase.cjs');
+  const { SyncSession } = require('../src/core/sync-session.cjs');
+  const { SyncExtras } = require('../src/core/sync-counts.cjs');
+  const { CONFIG } = require('./fake-supabase.cjs');
+
+  const server = FakeServer({ now: T0 });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'favecus-sync-abort-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const data = path.join(dir, 'data'), syncDir = path.join(data, 'sync');
+  fs.mkdirSync(data, { recursive: true });
+
+  await SendCode(CONFIG, server.request, 'me@example.com');
+  let peerSession = await VerifyCode(CONFIG, server.request, 'me@example.com', '123456', () => server.now);
+  const peerRepo = new SupabaseSyncRepository({
+    config: CONFIG, request: server.request, now: () => server.now,
+    session: { get: () => peerSession, set: v => { peerSession = v; } },
+  });
+
+  let service, resetExtrasCount = 0;
+  const statuses = [];
+  const store = new Store(data, { committed: () => service?.Changed() });
+  const adapter = StoreAdapter(store, { validateLibrary: input => ValidateLibrary(input), mediaKey: LibraryMediaKey });
+  service = new SyncService({
+    directory: syncDir, adapter, vault: new Storage.SessionVault(syncDir, FakeSafe(true)),
+    request: server.request, now: () => server.now, timers: { set: () => ({ unref() {} }), clear() {} },
+    onStatus: s => statuses.push(s.state),
+  });
+  service.onResetExtras = () => { resetExtrasCount++; };
+
+  assert.throws(() => service.SuppressChanged(() => { throw new Error('boom'); }), /boom/);
+  assert.equal(service.suppressChanged, false);
+
+  service.Configure({ url: URL_, anonKey: KEY });
+  await service.SendCode('me@example.com');
+  await service.VerifyCode('me@example.com', '123456');
+  service.Start();
+  assert.equal((await service.Enable()).ok, true);
+
+  const pid9 = '00000001-0000-4000-8000-000000000009', tid9 = '00000002-0000-4000-8000-000000000009';
+  const peer = E.NewDevice('peer-dev');
+  E.Initialize(peer, {
+    version: 3, identityVersion: 2, videoAliases: [], rootPlaylistIds: [pid9],
+    playlists: [{ id: pid9, name: '旧アカウントのリスト', icon: '', childIds: [], createdAt: '2026-11-13T00:00:00.000Z', lastAddedAt: '', includeInAll: true, entries: [{ id: tid9, title: '曲9', addedAt: '2026-11-13T00:00:00.000Z', type: 'bilibili', url: 'https://www.bilibili.com/video/BV1000000009/' }] }],
+  }, T0);
+  assert.equal((await E.Sync(peer, peerRepo, T0)).ok, true);
+  await peerRepo.PushFavorites('peer-dev', [{ key: 'bili:BV1oldaccount:p1', fav: true, at: T0 + 100 }]);
+
+  let appliedFavorites = 0, aborted = false;
+  const extraAborted = await SyncExtras(
+    { favorites: { Read: async () => ({ deviceId: 'dev-local', cursor: 0, rows: [] }), Apply: async () => { appliedFavorites++; }, Pushed: async () => {} } },
+    { ...peerRepo, PullFavorites: async cursor => { aborted = true; return peerRepo.PullFavorites(cursor); } },
+    { isAborted: () => aborted }
+  );
+  assert.equal(extraAborted.aborted, true);
+  assert.equal(appliedFavorites, 0);
+
+  let holdPull, held = false;
+  const pulling = new Promise(resolve => {
+    const orig = server.request;
+    service.request = async (method, url, init) => {
+      if (!held && method === 'GET' && String(url).includes('sync_changes')) {
+        held = true;
+        const res = await orig(method, url, init);
+        resolve();
+        await new Promise(done => { holdPull = done; });
+        return res;
+      }
+      return orig(method, url, init);
+    };
+  });
+  const cyclePromise = service.SyncNow();
+  await pulling;
+  service.ResetLink();
+  assert.equal(resetExtrasCount, 0);
+  assert.equal(service.pendingReset, true);
+  holdPull();
+  const res = await cyclePromise;
+  assert.equal(res.ok, false);
+  assert.match(res.error, /中断/);
+  assert.equal(resetExtrasCount, 1);
+  assert.equal(service.pendingReset, false);
+  assert.equal(service.device, null);
+  assert.equal(statuses.at(-1), 'off');
+  assert.equal(store.data.playlists.some(p => p.name === '旧アカウントのリスト'), false);
+
+  let sessionApplied = false, stopNow = false;
+  const syncSession = new SyncSession({
+    adapter: {
+      Library: async () => ({ version: 3, identityVersion: 2, videoAliases: [], rootPlaylistIds: [], playlists: [] }),
+      Context: async () => ({ aliases: [] }),
+      Apply: async () => { sessionApplied = true; return true; },
+    },
+    repository: () => ({
+      Pull: async () => { stopNow = true; sessionApplied = false; return { changes: [{ id: S.PlaylistId(pid9), f: { name: ['X', 100, 'p', 0] } }], cursor: 1 }; },
+      Push: async () => {},
+      Compact: async () => {},
+    }),
+    persist: async () => {},
+    deviceId: () => 'dev-1',
+    now: () => 200,
+  });
+  await syncSession.Enable({ url: 'u', userId: 'me' });
+  sessionApplied = false;
+  stopNow = false;
+  const sRes = await syncSession.Cycle({ isAborted: () => stopNow });
+  assert.equal(sRes.aborted, true);
+  assert.equal(sessionApplied, false);
+
+  let saved = { accessToken: 'old', refreshToken: 'r', expiresAt: 0, userId: 'u1' };
+  const vault = { Available: () => true, Get: () => saved, Set: v => { saved = v; }, Clear: () => { saved = null; } };
+  const svc2 = new SyncService({ directory: path.join(dir, 'signout'), adapter: { Library: () => ({}), Context: () => ({}), Apply: () => false }, vault, request: async () => ({ status: 200, json: {} }) });
+  svc2.Configure({ url: 'https://demo.supabase.co', anonKey: 'eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYW5vbiJ9.sig' });
+  const repo = svc2.Repository();
+  svc2.SignOut();
+  assert.equal(saved, null);
+  repo.session.set({ accessToken: 'resurrected', refreshToken: 'r2', expiresAt: 9999999999, userId: 'u1' });
+  assert.equal(saved, null);
+});

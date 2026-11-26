@@ -46,14 +46,6 @@ test('whole-download timing uses bytes across tracks and freezes elapsed time af
   const progress = JobTiming(job, 11000); assert.equal(progress.elapsedSeconds, 10); assert.equal(progress.remainingSeconds, 26);
   assert.equal(JobTiming({ ...job, status: 'completed', endedAt: 21000 }, 100000).elapsedSeconds, 20);
 });
-test('new media keeps both formats and covers in a song folder; old layout migration preserves bytes and survives restart', async t => {
-  const root = Temp(t), library = Offline(root); await Save(library, [entry(123)]); await Save(library, [entry(123)], 'test', 'audio');
-  const video = library.Find(entry(123), 'video'), audio = library.Find(entry(123), 'audio'); assert.equal(path.dirname(video.file), path.dirname(audio.file)); assert.equal(video.file.split('/').length, 3); assert.equal(path.dirname(video.thumbnail.file), path.dirname(video.file));
-  const oldFile = 'old/saved-song.mp4', oldCover = 'old/saved-song.thumbnail.png'; fs.mkdirSync(path.join(library.directory, 'old')); fs.copyFileSync(video.path, library.ResolvePath(oldFile)); fs.copyFileSync(library.ResolvePath(video.thumbnail.file), library.ResolvePath(oldCover));
-  library.CommitRecord({ ...video, layout: undefined, file: oldFile, thumbnail: { ...video.thumbnail, file: oldCover } });
-  await library.Organize(); const moved = library.Find(entry(123), 'video'); assert.equal(moved.layout, 4, library.warning); assert.equal(fs.readFileSync(moved.path, 'utf8'), 'playable fixture'); assert.equal(library.Cover(moved.token), PNG); assert.equal(fs.existsSync(library.ResolvePath(oldFile)), false);
-  const restarted = Offline(root); assert.equal(restarted.Find(entry(123)).file, moved.file); const before = fs.readFileSync(path.join(library.directory, 'index.json'), 'utf8'); await restarted.Organize(); assert.equal(fs.readFileSync(path.join(library.directory, 'index.json'), 'utf8'), before);
-});
 async function ArchiveFixture(t) {
   const root = Temp(t), from = new Store(path.join(root, 'source')), offline = Offline(path.join(root, 'source')), first = from.data.activePlaylistId;
   from.Apply({ type: 'add', playlistId: first, urls: 'av123' }); from.Apply({ type: 'create', name: '別リスト' }); const second = from.data.activePlaylistId; from.Apply({ type: 'add', playlistId: second, urls: 'av456' });
@@ -61,18 +53,6 @@ async function ArchiveFixture(t) {
   const file = path.join(root, 'backup.zip'); const exported = await new LibraryArchive(from, offline).Export(file); assert.equal(exported.downloaded, 3);
   const to = new Store(path.join(root, 'target')), target = Offline(path.join(root, 'target')); return { root, from, first, second, file, to, target, archive: new LibraryArchive(to, target) };
 }
-test('playlist ZIP restores only selected saved video, audio and cover with unused playlist IDs preserved and no downloads', async t => {
-  const h = await ArchiveFixture(t), plan = await h.archive.Prepare(h.file); assert.equal(plan.playlists.find(p => p.id === h.first).downloaded, 2);
-  const result = await h.archive.Commit(plan.id, [h.first]); assert.equal(result.downloaded, 2); assert.equal(result.imported, 1); assert.equal(h.target.records.size, 2); assert.equal(h.target.Find(entry(456)), null);
-  assert.equal(h.target.Cover(entry(123)), PNG); assert.equal(fs.readFileSync(h.target.Find(entry(123)).path, 'utf8'), 'playable fixture'); assert.equal(result.state.activePlaylistId, h.first);
-  const restarted = Offline(path.join(h.root, 'target')); assert.equal(restarted.Find(entry(123), 'audio').kind, 'audio'); assert.equal(restarted.Cover(entry(123)), PNG);
-  const again = await h.archive.Prepare(h.file); const repeated = await h.archive.Commit(again.id, [h.first]); assert.equal(repeated.downloaded, 0); assert.equal(h.target.records.size, 2);
-});
-test('failed selected import rolls back the download index and all copied media without replacing existing data', async t => {
-  const h = await ArchiveFixture(t), plan = await h.archive.Prepare(h.file), before = h.to.Snapshot(); h.to.Save = () => { throw new Error('disk failure'); };
-  await assert.rejects(h.archive.Commit(plan.id, [h.first]), /disk failure/); assert.deepEqual(h.to.Snapshot(), before); assert.equal(h.target.records.size, 0); assert.equal(fs.existsSync(path.join(h.target.directory, 'index.json')), false); assert.equal(h.target.importing, false);
-  const files = fs.readdirSync(h.target.directory, { recursive: true }).filter(f => /\.(mp4|m4a|png)$/.test(f)); assert.equal(files.length, 0);
-});
 test('download manifests reject traversal, byte mismatches and unsafe covers before extracting media', async t => {
   const h = await ArchiveFixture(t), zip = await new ZipReader().Open(h.file); t.after(() => zip.Close());
   const records = JSON.parse((await zip.Content('downloads/catalog.json')).toString()); records.files[0].media = '../escape';

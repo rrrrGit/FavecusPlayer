@@ -114,3 +114,82 @@ test('a resync after Compact ends with a cursor at or above the watermark, and C
   server.rows.push({ seq: ++server.lastSeq, record_id: S.PlaylistId(pid(1)), f: { name: ['後から', 'ffffffffffff-0000-z'.replace('ffffffffffff', '00ffffffffff')] }, device_id: 'x', batch_id: 'late', idx: 0 });
   const before = server.rows.length; await repoA.Call('POST', 'rpc/sync_compact', { body: { p_ids: [S.PlaylistId(pid(1))], p_upto: server.lastSeq - 1 } }); assert.equal(server.rows.length, before);
 });
+
+test('Pull falls back to full resync when Compact advances watermark mid-pull', async () => {
+  const server = FakeServer({ now: T0 });
+  await X.SendCode(CONFIG, server.request, 'a@example.com');
+  let session = await X.VerifyCode(CONFIG, server.request, 'a@example.com', '123456', () => server.now);
+  const makeRepo = reqFn => new X.SupabaseSyncRepository({
+    config: CONFIG, request: reqFn, now: () => server.now,
+    session: { get: () => session, set: v => { session = v; } },
+  });
+  const repoA = makeRepo(server.request);
+  const a = E.NewDevice('dev-a'), b = E.NewDevice('dev-b');
+  E.Initialize(a, Base(), T0);
+  assert.equal((await E.Sync(a, repoA, T0)).ok, true);
+  assert.equal((await E.Sync(b, repoA, T0)).ok, true);
+  const cursorBeforeDelete = b.cursor;
+
+  E.Edit(a, Edited(a, n => { n.playlists = n.playlists.filter(p => p.id !== pid(2)); Playlist(n, 1).childIds = []; }), T0 + 1000);
+  assert.equal((await E.Sync(a, repoA, T0 + 1000)).ok, true);
+  server.now = T0 + 92 * DAY;
+
+  let compacted = false;
+  const repoB = makeRepo(async (method, reqUrl, init) => {
+    if (method === 'GET' && String(reqUrl).includes('sync_changes') && String(reqUrl).includes(`seq=gt.${cursorBeforeDelete}`) && !compacted) {
+      compacted = true;
+      await repoA.Compact(server.now);
+    }
+    return server.request(method, reqUrl, init);
+  });
+  const pulled = await repoB.Pull(cursorBeforeDelete);
+  assert.equal(compacted, true);
+  assert.equal(pulled.resync, true);
+  const ids = new Set(pulled.snapshot.map(r => r.id));
+  assert.equal(ids.has(S.PlaylistId(pid(1))), true);
+  assert.equal(ids.has(S.PlaylistId(pid(2))), false);
+});
+
+test('FakeServer skips no-op sync_counts, rejects duplicate rows (21000), PushCounts deduplicates, and cleared_at clamps', async () => {
+  const server = FakeServer();
+  const headers = { apikey: KEY };
+  await server.request('POST', 'https://abcdefgh.supabase.co/auth/v1/otp', { headers, body: { email: 'a@example.com' } });
+  const auth = await server.request('POST', 'https://abcdefgh.supabase.co/auth/v1/verify', { headers, body: { email: 'a@example.com', token: '123456' } });
+  const authed = { ...headers, Authorization: `Bearer ${auth.json.access_token}` };
+
+  const row = { device_id: 'dev1', epoch: 0, month: '2026-11', media_key: 'bili:BV1aaaaaaaaa:p1', n: 3 };
+  await server.request('POST', 'https://abcdefgh.supabase.co/rest/v1/sync_counts', { headers: authed, body: [row] });
+  assert.equal(server.countsSeq, 1);
+  await server.request('POST', 'https://abcdefgh.supabase.co/rest/v1/sync_counts', { headers: authed, body: [row] });
+  assert.equal(server.countsSeq, 1);
+  await server.request('POST', 'https://abcdefgh.supabase.co/rest/v1/sync_counts', { headers: authed, body: [{ ...row, n: 2 }] });
+  assert.equal(server.countsSeq, 1);
+  await server.request('POST', 'https://abcdefgh.supabase.co/rest/v1/sync_counts', { headers: authed, body: [{ ...row, n: 4 }] });
+  assert.equal(server.countsSeq, 2);
+
+  const dup = await server.request('POST', 'https://abcdefgh.supabase.co/rest/v1/sync_counts', {
+    headers: authed,
+    body: [
+      { device_id: 'd1', epoch: 0, month: '2026-11', media_key: 'bili:BV1aaaaaaaaa:p1', n: 2 },
+      { device_id: 'd1', epoch: 0, month: '2026-11', media_key: 'bili:BV1aaaaaaaaa:p1', n: 5 },
+    ],
+  });
+  assert.equal(dup.status, 400);
+  assert.equal(dup.json.code, '21000');
+
+  const repo = new X.SupabaseSyncRepository({
+    config: { url: 'https://abcdefgh.supabase.co', anonKey: KEY },
+    request: server.request,
+    now: () => server.now,
+    session: { get: () => ({ accessToken: auth.json.access_token, refreshToken: auth.json.refresh_token, userId: auth.json.user.id, expiresAt: server.now + 3600000 }), set() {} },
+  });
+  await repo.PushCounts('d1', [
+    { epoch: 0, month: '2026-11', key: 'bili:BV1aaaaaaaaa:p1', n: 2 },
+    { epoch: 0, month: '2026-11', key: 'bili:BV1aaaaaaaaa:p1', n: 5 },
+  ]);
+  const pulled = await repo.PullCounts(0, 'd2');
+  assert.equal(pulled.rows.find(r => r.device === 'd1').n, 5);
+
+  await repo.PutHistoryState({ clearedAt: server.now + 10_000_000 });
+  assert.equal((await repo.GetHistoryState()).clearedAt, server.now + 599000);
+});
