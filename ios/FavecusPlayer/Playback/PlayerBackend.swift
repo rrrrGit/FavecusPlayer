@@ -134,6 +134,32 @@ final class AVPlayerBackend: PlayerBackend {
         applyVolume()
     }
 
+    #if DEBUG
+    /// シミュレーター等で実オーディオ再生なしにクロスフェード進行中状態を作るテスト用ヘルパー。
+    func startCrossfadeForTesting(seconds: Double) {
+        endCrossfade()
+        let outgoing = AVPlayer()
+        outgoing.volume = fade * levelGain
+        ghost = outgoing
+        mix = 0
+        applyVolume()
+        fadeTask = Task { @MainActor [weak self] in
+            let steps = max(1, Int(seconds * 20))
+            for step in 1...steps {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                guard let self, !Task.isCancelled else { return }
+                let progress = Float(step) / Float(steps)
+                self.mix = progress
+                self.applyVolume()
+                self.ghost?.volume = self.fade * self.levelGain * (1 - progress)
+            }
+            self?.endCrossfade()
+        }
+    }
+
+    var hasActiveCrossfadeForTesting: Bool { ghost != nil || fadeTask != nil }
+    #endif
+
     var volume: Float {
         get { fade }
         set { fade = max(0, min(1, newValue)); applyVolume() }

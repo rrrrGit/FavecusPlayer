@@ -67,8 +67,14 @@ class SyncSession {
   }
   async Apply(token) {
     this.applying = true;
-    try { const changed = await this.adapter.Apply(this.device.view, token); this.base = Snapshot(this.device); if (changed) this.onApplied(); }
-    finally { this.applying = false; }
+    try {
+      const result = await this.adapter.Apply(this.device.view, token);
+      const changed = typeof result === 'object' && result !== null ? !!result.changed : !!result;
+      const nextToken = typeof result === 'object' && result !== null && 'token' in result ? result.token : token;
+      this.base = Snapshot(this.device);
+      if (changed) this.onApplied();
+      return nextToken;
+    } finally { this.applying = false; }
   }
   // 差分の取り込み→反映。取り込みと反映の間に編集が入ったとき（iPhone版は問い合わせが非同期）は、編集を取り消さず、やり直す。
   async Converge(base) {
@@ -76,7 +82,7 @@ class SyncSession {
       // JSC の structuredClone はJSON用なので、Setは明示して複製する。
       const before = { ...JSON.parse(JSON.stringify(this.device)), derivedEdges: new Set(this.device.derivedEdges) };
       const previousBase = this.base;
-      try { const token = await this.Reconcile(base); await this.Apply(token); return token; }
+      try { const token = await this.Reconcile(base); return await this.Apply(token); }
       catch (error) {
         this.device = before; this.base = previousBase;
         if (attempt < 3 && error && error.code === 'changed') continue;

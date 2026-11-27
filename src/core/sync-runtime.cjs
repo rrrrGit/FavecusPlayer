@@ -31,11 +31,12 @@ function Adapter(host) {
       const { text, data } = await load(), { changed, next } = MergeView(data, view);
       // 取り込みの後に編集が入っていたら、反映せずやり直させる（編集を黙って取り消さない）。
       if (token !== undefined && token !== text) throw Object.assign(new Error('同期中に保存データが変更されました。'), { code: 'changed' });
-      if (!changed) return false;
+      if (!changed) return { changed: false, token: text };
       const checked = ValidateLibrary({ version: 3, identityVersion: 2, ...next }); // 不正なら例外（ライブラリは変更しない）
-      try { await host.write(JSON.stringify({ base: text, text: Pretty(Compose(data, next, checked)) })); }
+      const written = Pretty(Compose(data, next, checked));
+      try { await host.write(JSON.stringify({ base: text, text: written })); }
       catch (error) { throw Object.assign(new Error(String(error && error.message || error)), { code: 'changed' }); } // 書き込み時に編集が入っていた場合も、やり直す
-      return true;
+      return { changed: true, token: written };
     }
   };
 }
