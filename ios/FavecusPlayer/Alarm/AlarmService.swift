@@ -16,6 +16,8 @@ final class AlarmService: ObservableObject {
     var isLibraryReady: () -> Bool = { true }
     /// 「曲を再生」で起動・処理中のアラームID（resync 中にランダム再抽選で書き換えないため）。
     var pendingPlayAlarmId: (() -> String?)?
+    /// 稼働履歴の記録用コールバック（種別, 詳細）。曲名・ファイルパスは含めない。
+    var activityLog: ((String, [String: String]) -> Void)?
     private var resyncing = false
     private var needsResync = false
     private var opChain: Task<Void, Never>?
@@ -63,9 +65,18 @@ final class AlarmService: ObservableObject {
             try store.save(next)
             alarms = next
             if item.sound == nil, let url = soundURL(id: item.id) { try? FileManager.default.removeItem(at: url) }
+            activityLog?("alarm.save", [
+                "id": String(item.id.uuidString.prefix(8)),
+                "time": String(format: "%02d:%02d", item.hour, item.minute),
+                "weekdays": item.weekdays.sorted().map(String.init).joined(separator: ","),
+                "enabled": item.enabled ? "1" : "0",
+                "random": item.randomSound ? "1" : "0",
+                "hasSound": item.sound != nil ? "1" : "0"
+            ])
         } catch {
             await scheduler.cancel(id: item.id)
             notice = error.localizedDescription
+            activityLog?("alarm.save_failed", ["id": String(item.id.uuidString.prefix(8))])
         }
     }
 
@@ -86,6 +97,7 @@ final class AlarmService: ObservableObject {
         do { try store.save(next); alarms = next } catch { notice = error.localizedDescription; return }
         await scheduler.cancel(id: id)
         if let url = soundURL(id: id) { try? FileManager.default.removeItem(at: url) }
+        activityLog?("alarm.remove", ["id": String(id.uuidString.prefix(8))])
     }
 
     // MARK: 音
@@ -137,9 +149,13 @@ final class AlarmService: ObservableObject {
     }
 
     private func performResync() async {
-        guard let live = await scheduler.scheduledIDs() else { return }
+        let snapshots = await scheduler.scheduledSnapshots()
+        guard let live = snapshots.map({ Set($0.map(\.id)) }) ?? (await scheduler.scheduledIDs()) else { return }
         let ready = isLibraryReady()
         let pending = pendingPlayAlarmId?() ?? AlarmPlayRequest.peek()
+        var retiredCount = 0
+        var rescheduledCount = 0
+        var rerolledCount = 0
         for item in alarms where item.enabled && !live.contains(item.id) {
             if item.weekdays.isEmpty {
                 var done = item
@@ -149,6 +165,7 @@ final class AlarmService: ObservableObject {
                 do {
                     try store.save(next)
                     alarms = next
+                    retiredCount += 1
                     if let url = soundURL(id: item.id) { try? FileManager.default.removeItem(at: url) }
                 } catch {
                     notice = "アラームの状態を保存できませんでした：\(error.localizedDescription)"
@@ -161,15 +178,31 @@ final class AlarmService: ObservableObject {
                     guard ready else { continue }
                     soundName = await prepareSound(item)
                 }
-                do { try await scheduler.schedule(item, soundName: soundName) } catch { notice = error.localizedDescription }
+                do {
+                    try await scheduler.schedule(item, soundName: soundName)
+                    rescheduledCount += 1
+                } catch { notice = error.localizedDescription }
             }
         }
-        guard ready else { return }
-        // 「ランダム」：鳴る時刻を過ぎていたら、次の1回の曲を抽選し直す（「曲を再生」で開かれる途中の曲は、変えない）
-        for item in alarms where item.enabled && item.randomSound && (item.rolledFor ?? .distantPast) <= now() && item.id.uuidString != pending {
-            await performSave(item, rollRandom: true, clearNotice: false)
+        if ready {
+            // 「ランダム」：鳴る時刻を過ぎていたら、次の1回の曲を抽選し直す（「曲を再生」で開かれる途中の曲は、変えない）
+            for item in alarms where item.enabled && item.randomSound && (item.rolledFor ?? .distantPast) <= now() && item.id.uuidString != pending {
+                await performSave(item, rollRandom: true, clearNotice: false)
+                rerolledCount += 1
+            }
+            cleanupOrphanSounds()
         }
-        cleanupOrphanSounds()
+        var detail: [String: String] = [
+            "liveCount": String(live.count),
+            "enabledCount": String(alarms.filter(\.enabled).count),
+            "rescheduled": String(rescheduledCount),
+            "retired": String(retiredCount),
+            "rerolled": String(rerolledCount)
+        ]
+        if let snapshots, !snapshots.isEmpty {
+            detail["osAlarms"] = snapshots.map { "\(String($0.id.uuidString.prefix(8))):\($0.state)" }.sorted().joined(separator: ",")
+        }
+        activityLog?("alarm.resync", detail)
     }
 
     private func cleanupOrphanSounds() {

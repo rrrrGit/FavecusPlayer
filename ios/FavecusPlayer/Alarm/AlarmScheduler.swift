@@ -8,6 +8,11 @@ import SwiftUI
 
 enum AlarmAuthorization: Equatable { case authorized, denied, unsupported }
 
+struct AlarmSnapshot: Equatable {
+    var id: UUID
+    var state: String
+}
+
 /// 端末のアラーム予約。実体はAlarmKit（iOS 26以降）。テストでは差し替える。
 protocol AlarmScheduling {
     func requestAuthorization() async -> AlarmAuthorization
@@ -16,6 +21,12 @@ protocol AlarmScheduling {
     func cancel(id: UUID) async
     /// OS側に予約が残っているアラームのID（取得できないときは nil）。
     func scheduledIDs() async -> Set<UUID>?
+    /// 稼働履歴用：OS側にあるアラームのIDと状態（取得できないときは nil）。
+    func scheduledSnapshots() async -> [AlarmSnapshot]?
+}
+
+extension AlarmScheduling {
+    func scheduledSnapshots() async -> [AlarmSnapshot]? { nil }
 }
 
 /// iOS 26未満、またはAlarmKitのない環境。
@@ -94,6 +105,11 @@ struct AlarmKitScheduler: AlarmScheduling {
     func scheduledIDs() async -> Set<UUID>? {
         guard let alarms = try? AlarmManager.shared.alarms else { return nil }
         return Set(alarms.map { $0.id })
+    }
+
+    func scheduledSnapshots() async -> [AlarmSnapshot]? {
+        guard let alarms = try? AlarmManager.shared.alarms else { return nil }
+        return alarms.map { AlarmSnapshot(id: $0.id, state: String(describing: $0.state)) }
     }
 
     static func weekdays(_ numbers: Set<Int>) -> [Locale.Weekday] {

@@ -252,6 +252,24 @@ class SupabaseSyncRepository {
     const at = Number.isFinite(clearedAt) && clearedAt >= 0 ? Math.floor(clearedAt) : 0;
     await this.Extra('POST', 'sync_history_state?on_conflict=user_id', { body: [{ cleared_at: at }], prefer: 'resolution=merge-duplicates,return=minimal' });
   }
+  // 端末ごとの稼働履歴（日単位・7日保持）。送信前に day で一意化・ソートし、保持期限より古い行を削除する。
+  async PushActivityLogs(deviceId, days, retentionBeforeDay) {
+    const dayPattern = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/;
+    const byDay = new Map();
+    for (const row of days || []) {
+      if (!row || typeof row.day !== 'string' || !dayPattern.test(row.day) || !Array.isArray(row.entries)) continue;
+      byDay.set(row.day, row.entries);
+    }
+    const body = [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+      .map(([day, entries]) => ({ device_id: deviceId, day, entries, updated_at: new Date(this.now()).toISOString() }));
+    for (let i = 0; i < body.length; i += this.chunk) {
+      await this.Extra('POST', 'sync_activity_logs?on_conflict=user_id,device_id,day', { body: body.slice(i, i + this.chunk), prefer: 'resolution=merge-duplicates,return=minimal' });
+    }
+    if (typeof retentionBeforeDay === 'string' && dayPattern.test(retentionBeforeDay)) {
+      await this.Extra('DELETE', `sync_activity_logs?device_id=eq.${encodeURIComponent(deviceId)}&day=lt.${retentionBeforeDay}`, {});
+    }
+    return { pushedDays: body.length };
+  }
   // 保持期間を過ぎたTombstoneの整理。どのレコードを消すかは共通の規則（S.Compact：復旧に使われるTombstoneは残す）で決め、サーバーは指定されたIDの行を消すだけ。
   async Compact(now = this.now(), retentionMs = RETENTION_MS) {
     const all = await this.Rows(0), state = S.Merge(S.NewState(), all.rows.map(row => ({ id: row.record_id, f: row.f }))).state;

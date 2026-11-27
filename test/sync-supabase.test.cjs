@@ -193,3 +193,18 @@ test('FakeServer skips no-op sync_counts, rejects duplicate rows (21000), PushCo
   await repo.PutHistoryState({ clearedAt: server.now + 10_000_000 });
   assert.equal((await repo.GetHistoryState()).clearedAt, server.now + 599000);
 });
+
+test('PushActivityLogs upserts daily logs, deletes entries older than retentionBeforeDay, and reports missing table', async () => {
+  const server = FakeServer();
+  const repo = await Repo(server);
+  await repo.PushActivityLogs('ios-dev1', [
+    { day: '2026-11-19', entries: [{ at: '2026-11-19T09:05:00.000+09:00', kind: 'app.launch' }] },
+    { day: '2026-11-27', entries: [{ at: '2026-11-27T09:05:00.000+09:00', kind: 'alarm.resync' }] },
+    { day: 'invalid-day', entries: [] },
+  ], '2026-11-21');
+  assert.equal(server.activityLogs.has('ios-dev1|2026-11-19'), false);
+  assert.equal(server.activityLogs.has('ios-dev1|2026-11-27'), true);
+
+  server.activityTable = false;
+  await assert.rejects(() => repo.PushActivityLogs('ios-dev1', [{ day: '2026-11-27', entries: [] }], '2026-11-21'), error => error.code === 'missing');
+});

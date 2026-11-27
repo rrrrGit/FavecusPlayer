@@ -57,10 +57,14 @@ final class SyncCoordinator: ObservableObject {
     private var debounce: Task<Void, Never>?
     private var observer: AnyCancellable?
     private var foreground: NSObjectProtocol?
+    private var midnightTimer: Task<Void, Never>?
     var onResetExtras: (() -> Void)?
+    var activityLogs: ActivityLogStore?
+    var activityDeviceId: (() -> String)?
 
     deinit {
         if let foreground { NotificationCenter.default.removeObserver(foreground) }
+        midnightTimer?.cancel()
     }
 
     var configURL: URL { store.syncDirectory.appendingPathComponent("config.json") }
@@ -163,7 +167,13 @@ final class SyncCoordinator: ObservableObject {
         #if canImport(UIKit)
         if foreground == nil {
             foreground = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.request() }
+                Task { @MainActor in
+                    self?.request()
+                    self?.scheduleMidnightSync()
+                    if self?.activityLogs?.needsDailySync() == true {
+                        _ = await self?.syncActivityLogs()
+                    }
+                }
             }
         }
         #endif
@@ -171,6 +181,10 @@ final class SyncCoordinator: ObservableObject {
         guard await open() else { return }
         publish(state: .idle)
         request()
+        scheduleMidnightSync()
+        if activityLogs?.needsDailySync() == true {
+            Task { @MainActor [weak self] in _ = await self?.syncActivityLogs() }
+        }
     }
 
     /// 同期のJSを開く（保存された状態の検証。未知の版・壊れた状態は、上書きせず停止）。
@@ -234,6 +248,7 @@ final class SyncCoordinator: ObservableObject {
         host.invalidateSession()
         try? writeConfig()
         debounce?.cancel()
+        midnightTimer?.cancel()
         publish(state: .off)
     }
 
@@ -332,6 +347,71 @@ final class SyncCoordinator: ObservableObject {
         }
         chain = Task { _ = await work.value }
         return await work.value
+    }
+
+    /// 次の 0:00（ローカル時刻）に稼働履歴を Supabase へ自動同期するタイマーを予約する。
+    func scheduleMidnightSync() {
+        midnightTimer?.cancel()
+        guard config.enabled, let activityLogs else { return }
+        let target = activityLogs.nextMidnight()
+        let seconds = max(1.0, target.timeIntervalSinceNow)
+        midnightTimer = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            _ = await self.syncActivityLogs()
+            self.scheduleMidnightSync()
+        }
+    }
+
+    /// 稼働履歴（直近7日分）を Supabase へ送信する。
+    @discardableResult
+    func syncActivityLogs(force: Bool = false) async -> Bool {
+        let previous = chain
+        let reset = pendingReset
+        let work = Task { () -> Bool in
+            await previous?.value
+            await reset?.value
+            return await self.pushActivityLogs(force: force)
+        }
+        chain = Task { _ = await work.value }
+        return await work.value
+    }
+
+    private func pushActivityLogs(force: Bool) async -> Bool {
+        guard config.enabled, blockedReason.isEmpty, let activityLogs else { return false }
+        guard force || activityLogs.needsDailySync() else { return true }
+        guard await open() else { return false }
+        guard config.enabled, let current = session() else { return false }
+        let payload = activityLogs.pendingSyncPayload()
+        let syncedDays = payload.days.compactMap { $0["day"] as? String }
+        if syncedDays.isEmpty {
+            activityLogs.markSynced(days: [])
+            return true
+        }
+        let saveScope = host.beginSessionSaveScope()
+        defer { host.endSessionSaveScope(saveScope) }
+        var args: [String: Any] = [
+            "origin": ["url": config.url, "userId": current.userId],
+            "days": payload.days,
+            "retentionBeforeDay": payload.retentionBeforeDay
+        ]
+        if let deviceId = activityDeviceId?(), !deviceId.isEmpty {
+            args["deviceId"] = deviceId
+        }
+        do {
+            let result = try await call("SyncPushActivityLogs", args)
+            let ok = result["ok"] as? Bool == true
+            if ok {
+                activityLogs.markSynced(days: syncedDays)
+                activityLogs.record("sync.activity_logs", detail: ["days": String(syncedDays.count), "ok": "1"])
+            } else {
+                activityLogs.record("sync.activity_logs", detail: ["ok": "0", "missing": (result["missing"] as? Bool == true) ? "1" : "0"])
+            }
+            return ok
+        } catch {
+            activityLogs.record("sync.activity_logs", detail: ["ok": "0"])
+            return false
+        }
     }
 
     private func cycle() async -> Bool {

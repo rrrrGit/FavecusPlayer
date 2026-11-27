@@ -147,6 +147,7 @@ ${parts.join(',\n')}
     SyncValidate: function (json) { return runner().SyncValidate(json); },
     SyncSendCode: function (json) { return runner().SyncSendCode(json); },
     SyncVerifyCode: function (json) { return runner().SyncVerifyCode(json); },
+    SyncPushActivityLogs: function (json) { return runner().SyncPushActivityLogs(json); },
     TransferPrepare: function (json) { return runner().TransferPrepare(json); },
     TransferImport: function (json) { return runner().TransferImport(json); },
     TransferExport: function (json) { return runner().TransferExport(json); }

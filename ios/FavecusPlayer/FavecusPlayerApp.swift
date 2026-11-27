@@ -1,8 +1,13 @@
 import SwiftUI
 import UIKit
+#if canImport(BackgroundTasks)
+import BackgroundTasks
+#endif
 
 /// 背面で終わった保存の通信を、再起動されたときに受け取る（BackgroundTransfers が同じ識別子のセッションを作り直して続きを受け取る）。
 final class AppDelegate: NSObject, UIApplicationDelegate {
+    static let activitySyncTaskIdentifier = "dev.favecus.player.activity-sync"
+
     /// 画面の向きの制限：通常は縦のみ。動画の最大化の間だけ、OrientationLock が横を許す。
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         OrientationLock.mask
@@ -15,6 +20,22 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     /// 背面で起こされたときも、画面（Scene）を待たずに、保存の通信のセッションを作り直して、続きを受け取る。
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         _ = AppEnvironment.shared
+        #if canImport(BackgroundTasks)
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.activitySyncTaskIdentifier, using: nil) { task in
+            guard let refreshTask = task as? BGAppRefreshTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            Task { @MainActor in
+                let worker = Task { @MainActor in
+                    await AppEnvironment.shared.handleBackgroundActivitySync()
+                }
+                refreshTask.expirationHandler = { worker.cancel() }
+                let ok = await worker.value
+                refreshTask.setTaskCompleted(success: ok)
+            }
+        }
+        #endif
         // PC版と同じ配色（タブバー・ナビゲーションバー）
         let tab = UITabBarAppearance()
         tab.configureWithOpaqueBackground()
@@ -45,10 +66,15 @@ struct FavecusPlayerApp: App {
             LibraryRootView(store: environment.store, importer: environment.importer, exporter: environment.exporter, player: environment.player, sync: environment.sync, bilibili: environment.bilibili, downloads: environment.downloads, artwork: environment.artwork, observer: environment.observer, onLibraryLoaded: { await environment.onLibraryLoaded() }, onDocumentChanged: { await environment.migrateAliases() })
                 .onChange(of: scenePhase) { phase in
                     if phase == .active {
+                        environment.activityLogs.record("app.foreground")
                         Task { await environment.downloads?.resume(); await environment.alarms.resync(); await environment.playPendingAlarm() }
                         environment.player?.sleepTimer.tick() // 画面ロック中に期限を過ぎていれば、すぐ止める
-                    } else {
+                    } else if phase == .background {
+                        environment.activityLogs.record("app.background")
+                        environment.scheduleBackgroundActivitySync()
                         environment.player?.flushResume() // 背面へ移るとき、前回の続きの位置を確定する
+                    } else {
+                        environment.player?.flushResume()
                     }
                 }
                 .task { await environment.playPendingAlarm() }
@@ -71,6 +97,8 @@ final class AppEnvironment: ObservableObject {
     let artwork: ArtworkStore
     /// アラーム（端末内だけ。同期しない）。保存先の準備に失敗しても、アラームの画面にだけ理由を出す。
     let alarms: AlarmService
+    /// アプリ稼働履歴（7日分保持・毎日0:00にSupabaseへ同期）。
+    let activityLogs: ActivityLogStore
     private(set) var libraryReady = false
     private var pendingAlarmId: String?
     private var playingPendingAlarm = false
@@ -97,6 +125,7 @@ final class AppEnvironment: ObservableObject {
             pendingAlarmId = nil
             return
         }
+        activityLogs.record("alarm.play_request", detail: ["id": String(id.prefix(8))])
         let catalog = AlarmSongCatalog(store: store, downloads: downloads)
         var refreshedKeys = false
         for _ in 0..<50 {
@@ -126,7 +155,13 @@ final class AppEnvironment: ObservableObject {
 
     init() {
         let alarmDirectory = (try? LibraryStore.defaultDirectory()) ?? FileManager.default.temporaryDirectory.appendingPathComponent("FavecusPlayer-unavailable")
+        let activityLogStore = ActivityLogStore(directory: alarmDirectory)
+        activityLogStore.record("app.launch")
+        self.activityLogs = activityLogStore
         let alarmService = AlarmService(store: AlarmStore(directory: alarmDirectory), scheduler: AlarmSchedulers.make())
+        alarmService.activityLog = { [weak activityLogStore] kind, detail in
+            activityLogStore?.record(kind, detail: detail)
+        }
         // 作ったアラームの音は、Library/Sounds（アラームが探す場所）に置く
         alarmService.soundsDirectory = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first?.appendingPathComponent("Sounds", isDirectory: true)
         alarms = alarmService
@@ -176,6 +211,8 @@ final class AppEnvironment: ObservableObject {
             let vault = KeychainVault()
             let host = StoreSyncHost(store: store, directory: store.syncDirectory, vault: vault, counts: playCounts, favorites: favoritesStore, history: history)
             let coordinator = (try? SyncCore(bundle: .main, host: host)).map { SyncCoordinator(store: store, core: $0, host: host, vault: vault) }
+            coordinator?.activityLogs = activityLogStore
+            coordinator?.activityDeviceId = { [weak playCounts] in playCounts?.deviceId ?? "" }
             sync = coordinator
             playCounts.onChange = { [weak coordinator] in coordinator?.scheduleExtras() }
             favoritesStore.onChange = { [weak coordinator] in coordinator?.scheduleExtras() }
@@ -207,5 +244,22 @@ final class AppEnvironment: ObservableObject {
         }
         alarms.isLibraryReady = { [weak self] in self?.libraryReady == true }
         alarms.pendingPlayAlarmId = { [weak self] in self?.pendingAlarmId }
+    }
+
+    func scheduleBackgroundActivitySync() {
+        #if canImport(BackgroundTasks)
+        guard sync?.status.enabled == true else { return }
+        let request = BGAppRefreshTaskRequest(identifier: AppDelegate.activitySyncTaskIdentifier)
+        request.earliestBeginDate = activityLogs.nextMidnight()
+        try? BGTaskScheduler.shared.submit(request)
+        #endif
+    }
+
+    func handleBackgroundActivitySync() async -> Bool {
+        activityLogs.record("app.bg_refresh")
+        await alarms.resync()
+        let ok = await sync?.syncActivityLogs() ?? false
+        scheduleBackgroundActivitySync()
+        return ok
     }
 }

@@ -26,9 +26,12 @@ targets:
         LSSupportsOpeningDocumentsInPlace: true
         # アラーム（AlarmKit、iOS 26以降）の許可の確認に表示する説明
         NSAlarmKitUsageDescription: 設定した時刻に、選んだ曲の音でアラームを鳴らすために使います
-        # 画面を閉じた・ロックした状態でも音声の再生を続ける
+        # 画面を閉じた・ロックした状態でも音声の再生を続ける・毎日0:00以降の稼働履歴同期
         UIBackgroundModes:
           - audio
+          - fetch
+        BGTaskSchedulerPermittedIdentifiers:
+          - dev.favecus.player.activity-sync
         CFBundleDocumentTypes:
           - CFBundleTypeName: FavecusPlayerアーカイブ
             CFBundleTypeRole: Viewer

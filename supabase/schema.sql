@@ -280,3 +280,28 @@ revoke execute on function public.sync_favorites_before() from public, anon, aut
 revoke execute on function public.sync_history_before() from public, anon, authenticated;
 revoke execute on function public.sync_history_state_before() from public, anon, authenticated;
 revoke execute on function public.sync_history_state_after() from public, anon, authenticated;
+
+-- ===== v0.7.6：端末ごとのアプリ稼働履歴（7日分保持） =====
+-- 既存テーブルには変更を加えない。SQL Editor でこのファイル全体を再実行すれば追加される（再実行安全）。
+create table if not exists public.sync_activity_logs (
+  user_id    uuid        not null default auth.uid() references auth.users(id) on delete cascade,
+  device_id  text        not null check (device_id ~ '^[A-Za-z0-9_-]{1,64}$'),
+  day        text        not null check (day ~ '^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'),
+  entries    jsonb       not null check (jsonb_typeof(entries) = 'array' and pg_column_size(entries) <= 131072),
+  updated_at timestamptz not null default now(),
+  primary key (user_id, device_id, day)
+);
+create index if not exists sync_activity_logs_user_day on public.sync_activity_logs (user_id, day);
+
+alter table public.sync_activity_logs enable row level security;
+drop policy if exists sync_activity_logs_select on public.sync_activity_logs;
+drop policy if exists sync_activity_logs_insert on public.sync_activity_logs;
+drop policy if exists sync_activity_logs_update on public.sync_activity_logs;
+drop policy if exists sync_activity_logs_delete on public.sync_activity_logs;
+create policy sync_activity_logs_select on public.sync_activity_logs for select to authenticated using (user_id = auth.uid());
+create policy sync_activity_logs_insert on public.sync_activity_logs for insert to authenticated with check (user_id = auth.uid());
+create policy sync_activity_logs_update on public.sync_activity_logs for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy sync_activity_logs_delete on public.sync_activity_logs for delete to authenticated using (user_id = auth.uid());
+
+revoke all on public.sync_activity_logs from anon, authenticated;
+grant select, insert, update, delete on public.sync_activity_logs to authenticated;

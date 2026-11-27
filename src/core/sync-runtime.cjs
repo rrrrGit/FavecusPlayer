@@ -140,4 +140,24 @@ function ValidateConfig(options) {
   try { return { ok: true, config: X.SupabaseConfig(options.config || {}) }; }
   catch (error) { return Fail(error); }
 }
-module.exports = { Open, Enable, Cycle, Unblock, Changed, Reset, State, SendCode, VerifyCode, ValidateConfig };
+// 端末ごとの稼働履歴（日単位・7日分）を Supabase へ送信する。
+async function PushActivityLogs(options) {
+  try {
+    if (!runtime || !runtime.session) throw new Error('同期が開かれていません。');
+    const host = Host();
+    if (typeof host.isAborted === 'function' && host.isAborted()) return { ok: false, aborted: true, error: '同期は中断されました。' };
+    const origin = options?.origin;
+    const expected = runtime.session.origin;
+    if (expected?.url && origin && (expected.url !== origin.url || expected.userId !== origin.userId)) {
+      return { ok: false, mismatch: true, error: '接続先またはアカウントが異なります。' };
+    }
+    const deviceId = options?.deviceId || runtime.session.device?.id;
+    if (!deviceId) throw new Error('端末IDが特定できません。');
+    const repository = runtime.session.makeRepository();
+    const result = await repository.PushActivityLogs(deviceId, options?.days || [], options?.retentionBeforeDay);
+    return { ok: true, ...result };
+  } catch (error) {
+    return { ...Fail(error), ok: false, missing: error?.code === 'missing' };
+  }
+}
+module.exports = { Open, Enable, Cycle, Unblock, Changed, Reset, State, SendCode, VerifyCode, ValidateConfig, PushActivityLogs };

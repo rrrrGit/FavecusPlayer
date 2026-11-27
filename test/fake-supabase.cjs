@@ -13,7 +13,8 @@ function FakeServer(options = {}) {
     // v0.7.1〜v0.7.5：再生回数・設定・お気に入り・再生履歴（schema.sql と同じ規則）
     countsTable: true, counts: new Map(), countsSeq: 0, prefs: null,
     favoritesTable: true, favorites: new Map(), favoritesSeq: 0,
-    historyTable: true, history: new Map(), historySeq: 0, historyState: null };
+    historyTable: true, history: new Map(), historySeq: 0, historyState: null,
+    activityTable: true, activityLogs: new Map() };
   const issue = user => {
     const n = s.tokens.size + 1, access = `acc-${n}`, refresh = `ref-${n}`;
     s.tokens.set(access, { user, exp: Math.floor(s.now / 1000) + s.ttl }); s.tokens.set(refresh, { user, refresh: true });
@@ -114,6 +115,28 @@ function FakeServer(options = {}) {
         for (const [k, row] of s.history) if (row.played_at <= clearedAt) s.history.delete(k);
       }
       return { status: 201, json: null };
+    }
+    if (path === '/rest/v1/sync_activity_logs') {
+      if (!s.activityTable) return { status: 404, json: { code: 'PGRST205' } };
+      if (method === 'POST') {
+        const seen = new Set();
+        for (const row of body) {
+          const id = `${row.device_id}|${row.day}`;
+          if (seen.has(id)) return { status: 400, json: { code: '21000' } };
+          seen.add(id);
+        }
+        for (const row of body) s.activityLogs.set(`${row.device_id}|${row.day}`, { ...row });
+        return { status: 201, json: null };
+      }
+      if (method === 'DELETE') {
+        const device = (u.searchParams.get('device_id') || '').replace(/^eq\./, '');
+        const lt = (u.searchParams.get('day') || '').replace(/^lt\./, '');
+        for (const [k, row] of s.activityLogs) {
+          if ((!device || row.device_id === device) && (!lt || row.day < lt)) s.activityLogs.delete(k);
+        }
+        return { status: 204, json: null };
+      }
+      return { status: 200, json: [...s.activityLogs.values()] };
     }
     return { status: 404, json: {} };
   };

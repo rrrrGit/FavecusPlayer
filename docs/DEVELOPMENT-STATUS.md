@@ -12,6 +12,13 @@
 - **ドキュメント**：`README.md` を現行最新バージョン `0.7.5` へ更新、`docs/BUILD.md` のバージョン更新チェックリストを補完。
 - **テスト整理**：重複テスト・バージョン別回帰ファイル（`bugfix-075` / `bugfix-075-2` / `bugfix-076` / `notice-layout`）・小規模ファイル群を機能ドメイン別（`queue.test.cjs` / `player-runtime.test.cjs` / `ui-components.test.cjs` / `infra.test.cjs` / `library-app.test.cjs` / `ui-regression.test.cjs` 等）へ統合し、同一ファイル内の細分化ケースもカバレッジを保ったまま集約。Node テストは **93ファイル → 68ファイル（-25）**、実行件数 **778件 → 678件（-100）** に整理。
 - **検証**：`node scripts/build-shared-bundle.cjs`、`node scripts/check.cjs`（214 JS files OK）、`node --test --test-concurrency=4 test/*.test.cjs`（678件中 665成功・0失敗・13環境依存スキップ）。Swift コンパイル・XCTest は `release/v0.7.6` Push 後の GitHub Actions で検証予定。
+
+## v0.7.6 稼働履歴・日次0:00 Supabase同期追加（2026-11-27）
+- **目的**：v0.7.5 実機で発生した「平日 9:05 設定のアラームが 14:30 頃にも AlarmKit 画面付きで鳴動した事象」の事後追跡のため、アプリ稼働履歴（7日保持・個人データ除外）と日次 0:00 同期を追加。
+- **変更内容**：
+  - **Supabase・共通JS**：`supabase/schema.sql` に `sync_activity_logs` テーブル（`user_id`, `device_id`, `day`, `entries`, `updated_at`・RLS）を追加。`src/core/sync-supabase.cjs`（`PushActivityLogs`）・`src/core/sync-runtime.cjs`・`shared/runtime/fixture-runner.js`・`scripts/build-shared-bundle.cjs`・`test/fake-supabase.cjs`・`test/sync-supabase.test.cjs` へ日単位 upsert＋7日超削除を実装。
+  - **iPhone版**：`ios/FavecusPlayer/Sync/ActivityLogStore.swift`（`activity-logs.json` 7日保持・1日300件上限・破損時退避）、`AlarmScheduler.swift`（`scheduledSnapshots()`）・`AlarmService.swift`（`save`/`remove`/`resync` のOS予約状態含む記録）、`SyncCoordinator.swift`（0:00 フォアグラウンドタイマー・起動/復帰時未送信キャッチアップ・`SyncPushActivityLogs` 呼び出し）、`FavecusPlayerApp.swift`（起動/復帰/背面移行/再生依頼、`BGAppRefreshTask` `dev.favecus.player.activity-sync`）、`ios/project.yml`（`UIBackgroundModes: fetch`・`BGTaskSchedulerPermittedIdentifiers`）、`ios/FavecusPlayerTests/ActivityLogTests.swift` を追加。
+- **検証**：`node scripts/build-shared-bundle.cjs`、`node scripts/check.cjs`（214 JS files OK）、`node --test test/sync-supabase.test.cjs test/sync-runtime.test.cjs`（25/25 成功）。未検証：macOS/Xcode での Swift コンパイル・`ActivityLogTests` 実行、実機での `BGAppRefreshTask`・実 Supabase（利用者は `supabase/schema.sql` の再実行が必要）。
 v0.7.0〜v0.7.4（配布済み・main）の詳細工程・検証記録は [DEVELOPMENT-STATUS-ARCHIVE.md](DEVELOPMENT-STATUS-ARCHIVE.md) と docs/VALIDATION-067.md（v0.6.7分）にあります。
 
 ## v0.7.5 の開発記録（2026-11-22）
