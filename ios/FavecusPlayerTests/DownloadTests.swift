@@ -69,6 +69,7 @@ final class DownloadTests: XCTestCase {
         var video: Data = Data()
         var audioSizeOverride: Int?
         var videoURL = "https://upos.bilivideo.com/v/64.m4s"
+        var muxed: Data?
         var audioURL = "https://upos.bilivideo.com/a/30280.m4s"
         var audioBackups: [String] = []
         var duration = 3
@@ -85,8 +86,13 @@ final class DownloadTests: XCTestCase {
         audioItem["backupUrl"] = fixture.audioBackups
         var dash: [String: Any] = ["audio": [audioItem], "video": [Any]()]
         if !fixture.video.isEmpty { dash["video"] = [["id": 64, "height": 720, "bandwidth": 500000, "codecs": "avc1.640028", "baseUrl": fixture.videoURL, "size": fixture.video.count] as [String: Any]] }
-        let play: [String: Any] = ["code": 0, "data": ["dash": dash, "timelength": fixture.duration * 1000]]
-        let audio = fixture.audio, video = fixture.video
+        let play: [String: Any]
+        if let muxed = fixture.muxed {
+            play = ["code": 0, "data": ["quality": 64, "durl": [["url": "https://upos.bilivideo.com/v/muxed.mp4", "size": muxed.count, "length": fixture.duration * 1000]], "timelength": fixture.duration * 1000]]
+        } else {
+            play = ["code": 0, "data": ["dash": dash, "timelength": fixture.duration * 1000]]
+        }
+        let audio = fixture.audio, video = fixture.muxed ?? fixture.video
         StubProtocol.install { request in
             let path = request.url?.path ?? ""
             switch (request.url?.host, path) {
@@ -461,6 +467,36 @@ final class DownloadTests: XCTestCase {
 
     // MARK: 保存タブの表示と更新（v0.7.1）
 
+    func testMuxedVideoRequiresBothAudioAndVideoTracks() async throws {
+        let audio = try makeAudio(seconds: 2)
+        let video = try await makeVideo(seconds: 2)
+        let audioFile = directory.appendingPathComponent("mux-audio.m4a")
+        let videoFile = directory.appendingPathComponent("mux-video.mp4")
+        let muxedFile = directory.appendingPathComponent("muxed.mp4")
+        try audio.write(to: audioFile)
+        try video.write(to: videoFile)
+        _ = try await MediaProcessor.mergeVideo(video: videoFile, audio: audioFile, output: muxedFile, expectedDuration: 2)
+        var fixture = Fixture(audio: audio)
+        fixture.duration = 2
+        fixture.muxed = try Data(contentsOf: muxedFile)
+        let (service, _) = try environment(fixture)
+        await service.start()
+        let key = try await requireKey(service)
+        service.save(entry: entry, kind: "video")
+        let saved = try await wait(service, key: key, kind: "video", [.completed, .failed])
+        XCTAssertEqual(saved.state, .completed, saved.message ?? "")
+
+        fixture.muxed = audio // 音声だけをmuxed動画と偽った応答
+        let root = directory.appendingPathComponent("invalid-muxed")
+        let (invalid, _) = try environment(fixture, root: root)
+        await invalid.start()
+        invalid.save(entry: entry, kind: "video")
+        let rejected = try await wait(invalid, key: key, kind: "video", [.completed, .failed])
+        XCTAssertEqual(rejected.state, .failed)
+        XCTAssertNil(invalid.savedFile(key: key, kind: "video"))
+        XCTAssertTrue(leftovers(invalid).isEmpty)
+    }
+
     func testClearingProblemsRemovesOnlyFailedAndCancelledRecords() async throws {
         let media = directory.appendingPathComponent("downloads", isDirectory: true)
         try FileManager.default.createDirectory(at: media, withIntermediateDirectories: true)
@@ -630,6 +666,12 @@ final class PlaylistOfflineTargetTests: XCTestCase {
 final class DownloadRegressionTests: XCTestCase {
     private var directory: URL!
 
+    private final class FinishedDownloadTask: URLSessionDownloadTask, @unchecked Sendable {
+        override var response: URLResponse? {
+            HTTPURLResponse(url: URL(string: "https://upos.bilivideo.com/a/x")!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)
+        }
+    }
+
     override func setUpWithError() throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("favecus-dl-reg-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -652,6 +694,36 @@ final class DownloadRegressionTests: XCTestCase {
         transfers.urlSession(dummySession, task: task, didCompleteWithError: URLError(.cancelled))
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: transfers.staging("removed-job").path), "削除済みジョブの作業フォルダや .err を再作成しない")
+    }
+
+    func testFinishedDownloadRacingWithRemovalDoesNotLeaveStagedMedia() throws {
+        let media = directory.appendingPathComponent("downloads")
+        let jobs = directory.appendingPathComponent("download-jobs")
+        try FileManager.default.createDirectory(at: jobs, withIntermediateDirectories: true)
+        let transfers = BackgroundTransfers(configuration: .ephemeral, identifier: "test-\(UUID().uuidString)", jobsDirectory: jobs, stagingRoot: media)
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.invalidateAndCancel() }
+        for index in 0..<50 {
+            let id = "finish-race-\(index)"
+            let job = DownloadJob(id: id, key: "key", kind: "audio", title: "test", quality: 0, duration: 1, layout: "dash", streams: [JobStream(urls: [], size: 4, ext: "m4a")], createdAt: 0)
+            try JSONEncoder().encode(job).write(to: jobs.appendingPathComponent("\(id).json"))
+            let source = directory.appendingPathComponent("received-\(index)")
+            try Data([1, 2, 3, 4]).write(to: source)
+            let task = FinishedDownloadTask()
+            task.taskDescription = "\(id)#0"
+            let group = DispatchGroup()
+            group.enter()
+            DispatchQueue.global().async {
+                transfers.urlSession(session, downloadTask: task, didFinishDownloadingTo: source)
+                group.leave()
+            }
+            transfers.remove(id)
+            group.wait()
+            XCTAssertFalse(FileManager.default.fileExists(atPath: transfers.staging(id).path), "削除と移動が競合しても残留しない")
+            // 削除済みの通知も、作業フォルダを再作成しない。
+            transfers.urlSession(session, downloadTask: task, didFinishDownloadingTo: source)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: transfers.staging(id).path))
+        }
     }
 
     func testDownloadServiceResolvesAvUrlsUsingProvidedVideoAliases() async throws {

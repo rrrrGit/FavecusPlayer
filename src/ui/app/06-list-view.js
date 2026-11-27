@@ -36,9 +36,9 @@ function RenderNext() {
   $('up-next-label').textContent = queueInfo?.repeat === 'one' ? '次に再生 · 1曲リピート' : '次に再生';
   const next = queueInfo?.next;
   const path = next ? tree.Path(state, next.playlistId, queueInfo.playlistId).map(p => p.name).join('/') : '';
-  $('up-next-path').textContent = path; $('up-next-path').title = path;
+  $('up-next-path').textContent = path; SetTitle($('up-next-path'), path);
   $('up-next-title').textContent = next ? `${String(next.index).padStart(2, '0')}　${next.title}` : 'この曲で再生リストが終了します';
-  box.title = next ? `${path || queueInfo.name} / ${next.index}. ${next.title}` : '';
+  SetTitle(box, next ? `${path || queueInfo.name} / ${next.index}. ${next.title}` : '');
   if (timelineOpen) RenderTimeline(!timelineManual);
 }
 function RenderTimeline(focusNext = false) {
@@ -96,7 +96,7 @@ function RenderViewButton() {
   const button = $('view-open'); if (!button) return;
   const on = !!ListView(ViewScope()) && !allListsView;
   button.classList.toggle('enabled', on); button.textContent = on ? '曲の表示 ●' : '曲の表示';
-  button.title = on ? '曲の並べ替え・絞り込みを選んでいます（押すと変更）' : '曲の並べ替え・絞り込み';
+  SetTitle(button, on ? '曲の並べ替え・絞り込みを選んでいます（押すと変更）' : '曲の並べ替え・絞り込み');
   button.classList.toggle('hidden', allListsView);
 }
 function ViewSettings() {
@@ -136,13 +136,16 @@ function MakePlaylistRow(item) {
 // 一覧の行の遅延作成：近くに来た行から、中身を作る（EAGER_ROWS 行は、最初から作る）。
 const EAGER_ROWS = 80, pendingRows = new Map();
 let fillObserver = null;
+function EnsureRowBuilt(row) {
+  const build = pendingRows.get(row);
+  if (build) { fillObserver?.unobserve(row); pendingRows.delete(row); build(); row.classList.remove('pending'); }
+  return row;
+}
 if (typeof IntersectionObserver !== 'undefined') {
   fillObserver = new IntersectionObserver(changes => {
     for (const change of changes) {
       if (!change.isIntersecting) continue;
-      const row = change.target, build = pendingRows.get(row);
-      fillObserver.unobserve(row); pendingRows.delete(row);
-      if (build) { build(); row.classList.remove('pending'); }
+      EnsureRowBuilt(change.target);
     }
   }, { root: $('entries'), rootMargin: '900px 0px' });
 }
@@ -174,7 +177,7 @@ function RenderEntries() {
             event.preventDefault();
             Run(async () => {
               await Action({ type: 'move', playlistId: ownerId, entryId: entry.id, direction: event.key === 'ArrowUp' ? -1 : 1 });
-              entryRows.get(entry.id)?.querySelector('.entry-number')?.focus?.({ preventScroll: true });
+              EnsureRowBuilt(entryRows.get(entry.id))?.querySelector('.entry-number')?.focus?.({ preventScroll: true });
             });
           }
         });
@@ -186,7 +189,8 @@ function RenderEntries() {
       const play = Button('', 'icon-button', () => PlayEntry(entry), `${EntryTitle(entry)}を再生する`);
       play.innerHTML = '<svg aria-hidden="true"><use href="icons.svg#play"/></svg>'; row.append(play);
       const info = Button('', 'entry-info', () => PlayEntry(entry), `${EntryTitle(entry)}を再生`);
-      info.append(Element('strong', '', EntryTitle(entry)), Element('small', '', entry.type !== 'local' ? `${EntryDuration(entry)} · ${entry.videoId} · P${entry.part || 1}` : `${EntryDuration(entry)} · このPCに保存したファイル`));
+      const latest = state.playlists.find(p => p.id === ownerId)?.entries.find(e => e.id === entry.id) || entry;
+      info.append(Element('strong', '', EntryTitle(entry)), Element('small', '', entry.type !== 'local' ? `${EntryDuration(latest)} · ${entry.videoId} · P${entry.part || 1}` : `${EntryDuration(latest)} · このPCに保存したファイル`));
       info.dataset.durationEntry = entry.id;
       const badge = Element('span', 'entry-type'); PaintSavedBadge(badge, entry); row.append(info, badge);
       row.append(Button('•••', 'icon-button', () => EntryMenu(entry), `${EntryTitle(entry)}を編集`));

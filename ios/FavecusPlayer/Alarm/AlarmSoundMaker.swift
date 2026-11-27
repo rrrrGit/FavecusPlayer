@@ -11,7 +11,42 @@ enum AlarmSoundMaker {
 
     private final class LevelState: @unchecked Sendable {
         var framesDone = 0
-        var finished = false
+    }
+
+    /// キャンセルがcontinuation登録より先でも、終了処理と再開をそれぞれ1回だけ行う。
+    final class CompletionState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var finished = false
+        private var cancelled = false
+        private var continuation: CheckedContinuation<Void, Never>?
+        private let markFinished: @Sendable () -> Void
+
+        init(markFinished: @escaping @Sendable () -> Void) { self.markFinished = markFinished }
+        var isFinished: Bool { lock.withLock { finished } }
+        var isCancelled: Bool { lock.withLock { cancelled } }
+
+        func bind(_ continuation: CheckedContinuation<Void, Never>) {
+            let alreadyFinished = lock.withLock {
+                if finished { return true }
+                self.continuation = continuation
+                return false
+            }
+            if alreadyFinished { continuation.resume() }
+        }
+
+        func cancel() { lock.withLock { cancelled = true } }
+
+        func complete() {
+            let pending: CheckedContinuation<Void, Never>? = lock.withLock {
+                guard !finished else { return nil }
+                finished = true
+                markFinished()
+                let pending = continuation
+                continuation = nil
+                return pending
+            }
+            pending?.resume()
+        }
     }
 
     private static func peakOf(asset: AVURLAsset, track: AVAssetTrack, range: CMTimeRange, settings: [String: Any]) throws -> Int {
@@ -23,38 +58,32 @@ enum AlarmSoundMaker {
         guard reader.startReading() else { throw AlarmError.sound("音声を読み込めません") }
         var peak = 0
         while let buffer = output.copyNextSampleBuffer() {
+            if Task.isCancelled { reader.cancelReading(); throw CancellationError() }
             guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
-            var length = 0
-            var pointer: UnsafeMutablePointer<Int8>?
-            guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &pointer) == kCMBlockBufferNoErr, let pointer else { continue }
-            let count = length / 2
-            pointer.withMemoryRebound(to: Int16.self, capacity: count) { values in
-                for index in 0..<count { peak = max(peak, abs(Int(values[index]))) }
-            }
+            guard PCM16Buffer.withSamples(in: block, { values in
+                for value in values { peak = max(peak, abs(Int(value))) }
+            }) else { throw AlarmError.sound("音声を読み込めません") }
         }
         return peak
     }
 
     /// 16bitの音声のサンプルに、倍率とフェードインをかける（ステレオ・インターリーブ）。
-    private static func scale(_ buffer: CMSampleBuffer, gain: Float, fadeFrames: Int, state: LevelState) {
-        guard let block = CMSampleBufferGetDataBuffer(buffer) else { return }
-        var length = 0
-        var pointer: UnsafeMutablePointer<Int8>?
-        guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &pointer) == kCMBlockBufferNoErr, let pointer else { return }
-        let count = length / 2
+    private static func scale(_ buffer: CMSampleBuffer, gain: Float, fadeFrames: Int, state: LevelState) -> Bool {
+        guard let block = CMSampleBufferGetDataBuffer(buffer) else { return false }
         let start = state.framesDone
-        pointer.withMemoryRebound(to: Int16.self, capacity: count) { values in
-            for index in 0..<count {
+        return PCM16Buffer.withSamples(in: block, writingBack: true) { values in
+            for index in values.indices {
                 let frame = start + index / 2
                 var factor = gain
                 if frame < fadeFrames { factor *= Float(frame) / Float(fadeFrames) }
                 values[index] = Int16(max(-32768, min(32767, (Float(values[index]) * factor).rounded())))
             }
+            state.framesDone += values.count / 2
         }
-        state.framesDone += count / 2
     }
 
     static func make(source: URL, start: Double, duration: Double, output: URL) async throws {
+        try Task.checkCancellation()
         let asset = AVURLAsset(url: source)
         guard let track = try await asset.loadTracks(withMediaType: .audio).first else { throw AlarmError.sound("音声がありません") }
         let total = try await asset.load(.duration).seconds
@@ -89,50 +118,50 @@ enum AlarmSoundMaker {
         guard reader.startReading() else { throw AlarmError.sound("音声を読み込めません") }
         guard writer.startWriting() else { throw AlarmError.sound("音声を書き出せません") }
         writer.startSession(atSourceTime: CMTime(seconds: from, preferredTimescale: 600))
-        try Task.checkCancellation()
+        let completion = CompletionState { input.markAsFinished() }
         await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                let complete: @Sendable () -> Void = {
-                    guard !level.finished else { return }
-                    level.finished = true
-                    input.markAsFinished()
-                    continuation.resume()
-                }
+                completion.bind(continuation)
+                if completion.isFinished { return }
                 input.requestMediaDataWhenReady(on: DispatchQueue(label: "favecus.alarm.sound")) {
-                    if level.finished { return }
+                    if completion.isFinished { return }
                     while input.isReadyForMoreMediaData {
-                        guard !Task.isCancelled, writer.status == .writing, reader.status == .reading || reader.status == .completed else {
-                            complete()
+                        guard !completion.isCancelled, !completion.isFinished, writer.status == .writing, reader.status == .reading || reader.status == .completed else {
+                            completion.complete()
                             return
                         }
                         if let buffer = readerOutput.copyNextSampleBuffer() {
-                            scale(buffer, gain: gain, fadeFrames: fadeFrames, state: level)
-                            if !input.append(buffer) {
-                                complete()
+                            if !scale(buffer, gain: gain, fadeFrames: fadeFrames, state: level) || !input.append(buffer) {
+                                completion.complete()
                                 return
                             }
                         } else {
-                            complete()
+                            completion.complete()
                             return
                         }
                     }
                     if writer.status != .writing || reader.status == .failed || reader.status == .cancelled {
-                        complete()
+                        completion.complete()
                     }
                 }
             }
+            if !completion.isCancelled { await writer.finishWriting() }
         } onCancel: {
+            completion.cancel()
             reader.cancelReading()
             writer.cancelWriting()
+            completion.complete()
         }
         if Task.isCancelled {
             reader.cancelReading()
             writer.cancelWriting()
             throw CancellationError()
         }
-        await writer.finishWriting()
         guard reader.status == .completed, writer.status == .completed else { throw AlarmError.sound("音声の書き出しに失敗しました") }
-        if FileManager.default.fileExists(atPath: output.path) { try FileManager.default.removeItem(at: output) }
-        try FileManager.default.moveItem(at: temp, to: output)
+        if FileManager.default.fileExists(atPath: output.path) {
+            _ = try FileManager.default.replaceItemAt(output, withItemAt: temp)
+        } else {
+            try FileManager.default.moveItem(at: temp, to: output)
+        }
     }
 }

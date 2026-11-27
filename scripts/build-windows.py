@@ -1,9 +1,14 @@
 """Windows用の小さなGUIランチャーと、自己展開セットアップを作る。"""
 from pathlib import Path
-import argparse, hashlib, json, struct, subprocess, tempfile, zipfile
+import argparse, hashlib, json, re, struct, subprocess, tempfile, zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
 ALIGN = lambda n, a=4: (n+a-1)//a*a
+
+def safe_relative(name):
+    # install-core.cjs の SafeRelative と同じASCIIの要素・長さ制約。
+    return (isinstance(name, str) and len(name) < 220 and not name.startswith('/') and '\\' not in name
+            and all(part not in ('', '.', '..') and re.fullmatch(r'[\w. -]+', part, re.ASCII) for part in name.split('/')))
 
 def run(*args):
     subprocess.run(args, check=True, cwd=ROOT)
@@ -138,6 +143,9 @@ def main():
         for file in ['install.cjs','install-core.cjs','brand-runtime.cjs','brand-runtime.ps1','runtime-downloads.json']:records['scripts/'+file]=ROOT/'scripts'/file
         records['FavecusPlayer.exe']=launcher;records['bootstrap/node.exe']=args.node;records['bootstrap/NODE-LICENSE.txt']=args.node_license
         records['app/build/FavecusPlayerTaskbar.exe']=taskbar
+        for name in records:
+            if not safe_relative(name):
+                raise ValueError(f'インストーラーに対応しないファイル名です: {name}')
         manifest={'product':'favecus-player','version':version,'files':[{'path':name,'sha256':hashlib.sha256(file.read_bytes()).hexdigest()} for name,file in records.items()]}
         archive=work/'payload.zip'
         with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=7) as z:

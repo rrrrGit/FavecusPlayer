@@ -69,16 +69,24 @@ function Restore(library, item) {
   if (!ValidItem(item)) throw new Error('保管されたデータが正しくないため、元に戻せません。');
   const keyOf = LibraryMediaKey(library.videoAliases || []);
   const allEntries = () => library.playlists.flatMap(p => p.entries);
+  const mediaIds = new Map(allEntries().map(e => [keyOf(e), e.mediaId]));
+  const restoreEntry = entry => {
+    const restored = Clone(entry), key = keyOf(restored);
+    if (mediaIds.has(key)) restored.mediaId = mediaIds.get(key);
+    else mediaIds.set(key, restored.mediaId);
+    return restored;
+  };
   if (item.kind === 'entry') {
     const list = library.playlists.find(p => p.id === item.playlistId);
     if (!list) throw new Error('元のプレイリストがないため、曲を戻せません。先にプレイリストを戻してください。');
     if (allEntries().some(e => e.id === item.entry.id)) throw new Error('この曲は、すでに戻っています。');
     if (list.entries.some(e => keyOf(e) === keyOf(item.entry))) throw new Error('同じ動画が、そのプレイリストにすでにあります。');
     if (allEntries().length + 1 > MAX_ENTRIES) throw new Error('登録数の上限は全リスト合計10000件です。');
-    list.entries.splice(Math.min(item.index, list.entries.length), 0, Clone(item.entry));
+    list.entries.splice(Math.min(item.index, list.entries.length), 0, restoreEntry(item.entry));
     return;
   }
   const saved = Clone(item.playlist);
+  saved.entries = saved.entries.map(restoreEntry);
   if (library.playlists.some(p => p.id === saved.id)) throw new Error('このプレイリストは、すでに戻っています。');
   const existing = new Set(allEntries().map(e => e.id));
   if (saved.entries.some(e => existing.has(e.id))) throw new Error('このプレイリストの曲が、すでに別の場所にあるため、戻せません。');
@@ -100,7 +108,10 @@ function Restore(library, item) {
         const at = current.indexOf(child);
         if (at >= 0 && change.after.includes(child)) { current.splice(at, 1); taken.add(child); }
       }
-      if (!current.includes(saved.id)) current.splice(Math.min(change.before.indexOf(saved.id), current.length), 0, saved.id);
+      if (!current.includes(saved.id)) {
+        const at = change.before.indexOf(saved.id);
+        current.splice(at < 0 ? current.length : Math.min(at, current.length), 0, saved.id);
+      }
     }
     placed = true;
   }

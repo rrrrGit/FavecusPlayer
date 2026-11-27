@@ -13,6 +13,7 @@ const App = require('../src/core/library-app.cjs');
 const Eng = require('../src/core/sync-engine.cjs');
 const { TrashStore } = require('../src/core/trash-store.cjs');
 const { Store } = require('../src/core/store.cjs');
+const { PlanMediaIds, LibraryMediaKey } = require('../src/core/library-identity.cjs');
 
 const id = (kind, n) => `0000000${kind}-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const P = n => id(1, n), E = n => id(2, n), M = n => id(3, n);
@@ -34,6 +35,29 @@ const Delete = (library, action) => {
   return { before, after, item: Trash.Capture(before, after, action, NOW) };
 };
 const restore = (library, item) => { const copy = clone(library); Trash.Restore(copy, item); return copy; };
+
+test('restoring songs and playlists reuses media IDs assigned to the same video after deletion', () => {
+  for (const action of [{ type: 'remove', playlistId: P(2), entryId: E(2) }, { type: 'delete', playlistId: P(2) }]) {
+    const { after, item } = Delete(Library(), action);
+    after.playlists.find(p => p.id === P(5)).entries.push(entry(2, { id: E(90), mediaId: M(90) }));
+    const result = restore(after, item);
+    assert.equal(result.playlists.find(p => p.id === P(2)).entries.find(e => e.id === E(2)).mediaId, M(90));
+    ValidateLibrary(result);
+    assert.doesNotThrow(() => PlanMediaIds(result.playlists, ctx.createId, LibraryMediaKey(result.videoAliases)));
+    assert.equal((item.entry || item.playlist.entries[0]).mediaId, M(2), '保管データは変更しない');
+  }
+});
+
+test('restoring a playlist shares IDs within its batch and appends when its recorded position is absent', () => {
+  const { after, item } = Delete(Library(), { type: 'delete', playlistId: P(2) });
+  item.playlist.entries.push(entry(2, { id: E(91), mediaId: M(91) }));
+  item.changes[0].before = [P(3)];
+  after.playlists[0].childIds.push(P(5));
+  const result = restore(after, item), saved = result.playlists.find(p => p.id === P(2));
+  assert.equal(saved.entries.at(-1).mediaId, M(2));
+  assert.equal(result.playlists[0].childIds.at(-1), P(2));
+  assert.doesNotThrow(() => PlanMediaIds(result.playlists, ctx.createId, LibraryMediaKey(result.videoAliases)));
+});
 
 test('restoring deleted playlists restores promoted children, multi-parent refs, and root/last positions', () => {
   const { before, after, item } = Delete(Library(), { type: 'delete', playlistId: P(2) });

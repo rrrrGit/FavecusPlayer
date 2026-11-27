@@ -53,8 +53,15 @@ test('local copies share the original media bytes, and export/import round-trip 
 test('Unicode JSON escapes and UTF-8 / UTF-16 BOMs preserve Japanese, Chinese and supplementary characters', () => {
   const value = { title:'刻ト詩 / 樱之刻 🎵 𠮷', url:'https://www.bilibili.com/video/av123/?p=2' };
   const text = JSON.stringify(value), utf16be = Buffer.from(text,'utf16le').swap16();
-  for (const bytes of [Buffer.from(ExportJSON(value)),Buffer.from('\ufeff'+text),Buffer.concat([Buffer.from([255,254]),Buffer.from(text,'utf16le')]),Buffer.concat([Buffer.from([254,255]),utf16be])]) assert.deepEqual(ReadJSON(bytes),value);
+  const context = { module: { exports: {} }, TextDecoder: undefined };
+  require('node:vm').runInNewContext(fs.readFileSync(path.join(__dirname, '../src/core/library-json.cjs'), 'utf8'), context);
+  const fallback = context.module.exports.ReadJSON;
+  for (const bytes of [Buffer.from(ExportJSON(value)),Buffer.from(text),Buffer.from('\ufeff'+text),Buffer.concat([Buffer.from([255,254]),Buffer.from(text,'utf16le')]),Buffer.concat([Buffer.from([254,255]),utf16be])]) {
+    assert.deepEqual(ReadJSON(bytes),value);
+    assert.equal(JSON.stringify(fallback(bytes)), JSON.stringify(value));
+  }
   assert.throws(()=>ReadJSON(Buffer.from([0x7b,0x81,0x7d])),/文字コード/);
+  for (const bytes of [[0xc0,0xaf], [0xe0,0x80,0xaf], [0xed,0xa0,0x80], [0xf4,0x90,0x80,0x80], [0xf0,0x90], [255,254,0], [255,254,0,216]]) assert.throws(() => fallback(bytes), /文字コード/);
 });
 test('Discord uses the uploaded art key and paused position stays fixed without a live timestamp', () => {
   const media = { source:'bilibili', title:'刻ト詩', position:176.4, duration:311, paused:true };

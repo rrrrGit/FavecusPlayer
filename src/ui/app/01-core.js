@@ -5,6 +5,12 @@ let state, current = null, playback = null, thumbnail = null, statuses = {}, que
 let submitModal = null, toastTimer, loaded = false, seeking = false, accounts = {}, dragged = null, lastVolume = 1, modalEpoch = 0, pendingModal = null, cancelModal = null;
 const { HasPlayback, TransportState } = window.FavecusTransport;
 const api = window.favecusApp;
+let backgroundTitlesEnabled = true;
+function SetTitle(node, text) {
+  if (Object.hasOwn(node.dataset, 'savedTitle') || (node.closest?.('.sidebar, main, .transport, .titlebar') && (!backgroundTitlesEnabled || !foreground || $('modal').open))) {
+    node.dataset.savedTitle = text; node.removeAttribute('title');
+  } else node.title = text;
+}
 // おやすみタイマー（規則は core/sleep-timer.cjs。ここは表示と、押したときの次の指定だけ）。
 let sleepState = { mode: 'off' };
 // 再生速度（0.5〜2.0倍。ボタンを押すたびに、次の段階へ。段階と保存は main 側＝core/playback-speed.cjs）
@@ -32,13 +38,13 @@ function UpdateTransportMoreIndicator() {
   if (speedOn) parts.push(`再生速度 ${playbackSpeed}x`);
   const label = parts.join('・');
   button.classList.toggle('enabled', sleepOn || speedOn);
-  button.title = label; button.setAttribute('aria-label', label);
+  SetTitle(button, label); button.setAttribute('aria-label', label);
 }
 function NextSpeed(value) { const at = SPEED_OPTIONS.indexOf(value); return SPEED_OPTIONS[(at + 1) % SPEED_OPTIONS.length]; }
 function RenderSpeed() {
   const button = $('speed'); if (!button) return;
   const text = `${playbackSpeed}x`, label = `再生速度 ${text}（押すと${NextSpeed(playbackSpeed)}x）`;
-  button.textContent = `再生速度：${text}`; button.title = label; button.setAttribute('aria-label', label); button.classList.toggle('enabled', playbackSpeed !== 1);
+  button.textContent = `再生速度：${text}`; SetTitle(button, label); button.setAttribute('aria-label', label); button.classList.toggle('enabled', playbackSpeed !== 1);
   UpdateTransportMoreIndicator();
 }
 const SLEEP_MINUTES = [15, 30, 45, 60, 90];
@@ -58,7 +64,7 @@ function RenderSleep() {
   const nextText = next.cancel ? 'オフ' : next.song ? 'この曲の終わりまで' : `${next.minutes}分`;
   const label = `${SleepDescription(sleepState)}（押すと${nextText}）`;
   button.textContent = sleepState?.mode === 'minutes' ? `☾ おやすみ：残り約${Math.max(0, Math.ceil((sleepState.deadline - Date.now()) / 60000))}分` : sleepState?.mode === 'song' ? '☾ おやすみ：この曲の終わりまで' : '☾ おやすみタイマー：オフ';
-  button.title = label; button.setAttribute('aria-label', label); button.setAttribute('aria-pressed', String(on)); button.classList.toggle('enabled', on);
+  SetTitle(button, label); button.setAttribute('aria-label', label); button.setAttribute('aria-pressed', String(on)); button.classList.toggle('enabled', on);
   UpdateTransportMoreIndicator();
   clearTimeout(sleepRefresh); sleepRefresh = sleepState?.mode === 'minutes' ? setTimeout(RenderSleep, 1000) : null;
 }
@@ -75,7 +81,7 @@ function RenderFavorite() {
   button.classList.toggle('hidden', !show);
   if (!show) return;
   const on = IsFavorite(entryId), label = on ? 'お気に入りから外す' : 'お気に入りにする';
-  button.textContent = on ? '♥' : '♡'; button.title = label; button.setAttribute('aria-label', label); button.setAttribute('aria-pressed', String(on)); button.classList.toggle('enabled', on);
+  button.textContent = on ? '♥' : '♡'; SetTitle(button, label); button.setAttribute('aria-label', label); button.setAttribute('aria-pressed', String(on)); button.classList.toggle('enabled', on);
 }
 // 最近削除（設定の中）。削除したプレイリスト・曲を30日間保管し、元に戻せる。規則は共通（core/trash.cjs）、ここは表示と操作だけ。
 function TrashSettings() {
@@ -157,7 +163,7 @@ function RenderResume() {
   const button = $('resume-last'); if (!button) return;
   const show = !!resumeOffer && !current;
   button.classList.toggle('hidden', !show);
-  if (show) { const text = `前回の続きから：${resumeOffer.title}（${Time(resumeOffer.position)}～）`; button.textContent = text; button.title = text; button.setAttribute('aria-label', text); }
+  if (show) { const text = `前回の続きから：${resumeOffer.title}（${Time(resumeOffer.position)}～）`; button.textContent = text; SetTitle(button, text); button.setAttribute('aria-label', text); }
 }
 let sleepRefresh = null; // 残り時間の表示を、1秒ごとに更新する（タイマーが動いている間だけ）
 const tree = window.FavecusTree;

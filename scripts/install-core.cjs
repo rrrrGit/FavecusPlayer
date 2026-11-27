@@ -206,7 +206,8 @@ async function Commit(root, payload, manifest, stage, progress, hooks = {}) {
     await hooks.beforeSwitch?.();
     if (nested) {
       const folder = path.join(root, 'runtime/previous-installations'); await fsp.mkdir(folder, { recursive: true });
-      archived = path.join(folder, `nested-${Date.now()}-${randomUUID()}`); await fsp.rename(nested, archived); await hooks.afterArchive?.();
+      const candidate = path.join(folder, `nested-${Date.now()}-${randomUUID()}`);
+      await fsp.rename(nested, candidate); archived = candidate; await hooks.afterArchive?.();
       notes.push(`重複したプログラムを保管しました: ${archived}`);
     }
     const previous = JSON.parse(old.get(`${CONFIG}/favecus-player-install.json`)?.toString() || old.get('favecus-player-install.json')?.toString() || '{}');
@@ -260,9 +261,9 @@ async function InstallCurrent({ root, payload, mode, progress = () => {}, depend
   }
   try { handle = await fsp.open(lock, 'wx'); }
   catch (error) { if (error.code === 'EEXIST') throw new Error('別のセットアップが実行中です。'); throw error; }
-  await handle.writeFile(JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })); await handle.close();
-  const deps = { download: Download, extract: ExtractZip, ...dependencies };
   try {
+    await handle.writeFile(JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })); await handle.close(); handle = null;
+    const deps = { download: Download, extract: ExtractZip, ...dependencies };
     const runtime = path.join(root, 'runtime'); await fsp.mkdir(runtime, { recursive: true });
     stage = await fsp.mkdtemp(path.join(runtime, '.setup-stage-'));
     const nodeDirectory = path.join(runtime, 'node'); await NoLink(nodeDirectory); await fsp.mkdir(nodeDirectory, { recursive: true });
@@ -277,8 +278,11 @@ async function InstallCurrent({ root, payload, mode, progress = () => {}, depend
     progress(`Favecus Player ${result.version} の準備が完了しました。`); return result;
   } catch (error) { keepStage = !!error.keepStage; throw error; }
   finally {
-    if (stage && !keepStage) await fsp.rm(stage, { recursive: true, force: true }).catch(() => progress('更新用一時ファイルの一部を整理できませんでした。'));
-    await fsp.rm(lock, { force: true });
+    try { await handle?.close(); } finally {
+      try {
+        if (stage && !keepStage) await fsp.rm(stage, { recursive: true, force: true }).catch(() => progress('更新用一時ファイルの一部を整理できませんでした。'));
+      } finally { await fsp.rm(lock, { force: true }); }
+    }
   }
 }
 async function Install(options) {

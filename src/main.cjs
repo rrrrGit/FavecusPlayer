@@ -144,8 +144,10 @@ async function StartShuffled(scope, entries) {
   const settings = { shuffle: true };
   if (store.data.settings.repeat === 'one') settings.repeat = 'off';
   const state = store.Apply({ type: 'settings', settings }); queue = nextQueue; Emit('state', state);
+  const request = loadRequest;
   try { return await LoadEntry(selected.playlistId, first); }
   catch (error) {
+    if (loadRequest > request + 1) throw error;
     queue = previousQueue;
     try { const restored = store.Apply({ type: 'settings', settings: previousSettings }); Emit('state', restored); } catch {}
     Emit('queue', QueueState());
@@ -160,8 +162,9 @@ async function AutoPlay(kind, entryId, shuffled) {
   PlayableEntry(selected.playlistId, selected.id);
   const previousQueue = queue.Clone();
   queue.Start(scope, entries, selected.id, store.data.settings.shuffle);
+  const request = loadRequest;
   try { return await LoadEntry(selected.playlistId, selected.id); }
-  catch (error) { queue = previousQueue; Emit('queue', QueueState()); throw error; }
+  catch (error) { if (loadRequest <= request + 1) { queue = previousQueue; Emit('queue', QueueState()); } throw error; }
 }
 // 最近削除に保管中の曲も、保存済みメディアの整理では「参照されている」ものとして数える（元に戻したときに、保存済みの動画・音声が残るように）。
 function WithTrashedEntries(data) {
@@ -370,7 +373,7 @@ function ResumeOffer() {
 function SetVolume(factor = 1) {
   // 曲ごとの自動調整（保存済み・ローカルの曲だけ。大きい曲を下げる。設定でオフにできる）
   const volume = store.data.settings.volume * factor * (store.data.settings.volumeLeveling === false ? 1 : songGain); biliBrowser?.SetVolume(volume);
-  for (const wc of [remoteView?.webContents, ...[...accountWindows.values()].map(w => w.webContents)].filter(Boolean)) {
+  for (const wc of [remoteView?.webContents, ...[...accountWindows.values()].filter(w => w && !w.isDestroyed()).map(w => w.webContents)].filter(Boolean)) {
     if (!wc.isDestroyed()) {
       const channel = mediaChannels.get(wc);
       wc.setAudioMuted(volume === 0 || !channel?.ready);
@@ -449,6 +452,7 @@ function MatchesCurrentURL(raw) {
   } catch { return false; }
 }
 function MakeView(source, forceNew = false, officialPlayer = false) {
+  if (!win || win.isDestroyed()) return null;
   if (!forceNew && current?.source === source && !current.pageMode && current.officialPlayer === officialPlayer && LivePlayer()) {
     generation++; recovery?.Cancel();
     SuspendPlayer(); remoteView.pendingToggle = false;
@@ -457,6 +461,7 @@ function MakeView(source, forceNew = false, officialPlayer = false) {
     return remoteView;
   }
   CloseView();
+  if (!win || win.isDestroyed()) return null;
   const view = new WebContentsView({ webPreferences: {
     preload: path.join(__dirname, 'preloads/media.cjs'),
     additionalArguments: ['--favecus-start-at-zero', ...(source === 'bilibili' ? ['--favecus-quality-360p'] : []), ...(officialPlayer ? ['--favecus-official-player'] : [])],
@@ -495,23 +500,23 @@ function MakeView(source, forceNew = false, officialPlayer = false) {
     }
     return { action: 'deny' };
   });
-  wc.on('will-navigate', (event, url) => {
-    if (source === 'local' || !IsAllowedRemote(url, source)) event.preventDefault();
-    else if (source === 'bilibili') {
+  const allowedNavigation = url => {
+    if (source === 'local' || !IsAllowedRemote(url, source)) return false;
+    if (source === 'bilibili') {
       try {
-        const target = ParseBilibili(url);
-        if (!MatchesCurrentURL(target.url)) { event.preventDefault(); Notify('別の動画はURLを再生リストへ追加して再生してください。'); }
-      } catch {
-        try {
-          const host = new URL(url).hostname;
-          if (host !== 'passport.bilibili.com' && host !== 'player.bilibili.com') event.preventDefault();
-        } catch { event.preventDefault(); }
-      }
+        const host = new URL(url).hostname;
+        return MatchesCurrentURL(url) || host === 'passport.bilibili.com' || host === 'player.bilibili.com';
+      } catch { return false; }
     }
+    return true;
+  };
+  wc.on('will-navigate', (event, url) => {
+    if (!allowedNavigation(event.url || url)) { event.preventDefault(); if (source === 'bilibili') Notify('別の動画はURLを再生リストへ追加して再生してください。'); }
   });
   wc.on('will-redirect', (event, url, _inPlace, mainFrame) => {
-    if (source !== 'local' && !IsAllowedRemote(url, source)) event.preventDefault();
-    else if (mainFrame && remoteView === view) view.requestedURL = url;
+    url = event.url || url;
+    if (!allowedNavigation(url)) event.preventDefault();
+    else if ((event.isMainFrame ?? mainFrame) && remoteView === view) view.requestedURL = url;
   });
   wc.on('dom-ready', () => {
     if (remoteView !== view || wc.isDestroyed() || !view.requestedURL) return;
@@ -577,7 +582,7 @@ async function LoadEntry(playlistId, entryId, pageMode = false, { allowRecovery 
   if (remoteView) { remoteView.requestedURL = null; remoteView.pendingToggle = false; }
   // ended等の通知中に同じネイティブ画面を操作せず、連打では最後の要求を採用する。
   await new Promise(resolve => setImmediate(resolve));
-  if (quitting || request !== loadRequest) return current;
+  if (quitting || request !== loadRequest) return { cancelled: true };
   const entry = PlayableEntry(playlistId, entryId);
   const saved = useSaved && !pageMode && offline?.preferSaved ? offline.Find(entry, store.data.settings.thumbnailMode ? 'audio' : 'video') : null;
   const source = saved ? 'local' : entry.type;
@@ -586,6 +591,7 @@ async function LoadEntry(playlistId, entryId, pageMode = false, { allowRecovery 
   const release = saved ? offline.Pin(saved) : null; let view;
   try { view = MakeView(source, forceNew || pageMode || !!saved || !!remoteView?.offlineRoute, officialPlayer); }
   catch (error) { release?.(); throw error; }
+  if (!view) { release?.(); return { cancelled: true }; }
   if (saved) {
     const id = randomUUID(); view.offlineRoute = id; playbackRoutes.set(id, { record: saved });
     view.releaseOffline = () => { playbackRoutes.delete(id); release(); };
@@ -615,8 +621,9 @@ async function Step(direction, automatic = false) {
   if (!next) return;
   PlayableEntry(next.playlistId, id);
   const previousQueue = queue.Clone(); queue = nextQueue;
+  const request = loadRequest;
   try { await LoadEntry(next.playlistId, id); }
-  catch (error) { queue = previousQueue; Emit('queue', QueueState()); throw error; }
+  catch (error) { if (loadRequest <= request + 1) { queue = previousQueue; Emit('queue', QueueState()); } throw error; }
 }
 function SyncPlayingQueue(notify = true) {
   if (!current?.playlistId) return;
@@ -661,8 +668,9 @@ async function Play(playlistId, entryId, resume = null) {
   PlayableEntry(selected.playlistId, selected.id);
   const previousQueue = queue.Clone();
   queue.Start(playlistId, entries, selected.id, store.data.settings.shuffle);
+  const request = loadRequest;
   try { return await LoadEntry(selected.playlistId, selected.id, false, resume ? { resume } : {}); }
-  catch (error) { queue = previousQueue; Emit('queue', QueueState()); throw error; }
+  catch (error) { if (loadRequest <= request + 1) { queue = previousQueue; Emit('queue', QueueState()); } throw error; }
 }
 async function ShufflePlay(playlistId) {
   const entries = ArrangedEntries(playlistId);
@@ -670,7 +678,19 @@ async function ShufflePlay(playlistId) {
 }
 async function AllPlay(shuffle) {
   if (shuffle) return ShufflePlay('*');
-  const state = store.Apply({ type: 'settings', settings: { shuffle: false } }); Emit('state', state); return Play('*');
+  const previousShuffle = store.data.settings.shuffle, request = loadRequest;
+  const state = store.Apply({ type: 'settings', settings: { shuffle: false } }); Emit('state', state);
+  try { return await Play('*'); }
+  catch (error) {
+    if (loadRequest <= request + 1) {
+      try { Emit('state', store.Apply({ type: 'settings', settings: { shuffle: previousShuffle } })); } catch {}
+    }
+    throw error;
+  }
+}
+function CloseChildWindows() {
+  for (const window of [...accountWindows.values(), helpWindow]) if (window && !window.isDestroyed()) window.close();
+  accountWindows.clear(); helpWindow = null;
 }
 function OpenHelp(page = 'GUIDE.html') {
   if (!['GUIDE.html', 'TASKBAR.html', 'DISCORD.html'].includes(page)) return;
@@ -718,6 +738,7 @@ function MakeContext() {
     get biliAccount() { return biliAccount; },
     get biliBrowser() { return biliBrowser; },
     get current() { return current; },
+    get loadRequest() { return loadRequest; },
     get favorites() { return favorites; },
     get mini() { return mini; },
     get notesStore() { return notesStore; },
@@ -869,7 +890,7 @@ async function Start() {
   });
   win.on('query-session-end', () => { sessionEnding = true; clearTimeout(sessionTimer); sessionTimer = setTimeout(() => { sessionEnding = false; }, 30000); sessionTimer.unref?.(); });
   win.on('session-end', () => { clearTimeout(sessionTimer); sessionEnding = true; });
-  win.on('closed', () => { offline?.Cancel(); biliBrowser?.Destroy(); backgroundMode?.Dispose(); mini?.Destroy(); mini = null; StopPlayer(); win = null; presence?.Stop(); app.quit(); });
+  win.on('closed', () => { sleepTimer?.Reset(); CloseChildWindows(); offline?.Cancel(); biliBrowser?.Destroy(); backgroundMode?.Dispose(); mini?.Destroy(); mini = null; StopPlayer(); win = null; presence?.Stop(); app.quit(); });
   presence = new DiscordPresence((code, text) => Status('discord', code, text));
   mini = new MiniPlayer(win, MiniState, Command, ChangeVolume, Notify, { settings: () => store.data.settings, status: (code, text) => Status('taskbar', code, text) });
   biliBrowser = new BilibiliBrowser({ BrowserWindow, WebContentsView, ipcMain }, {
@@ -1064,6 +1085,7 @@ process.on?.('uncaughtExceptionMonitor', (error, origin) => PlayerDiagnostic('un
 app.on('before-quit', () => {
   if (quitting) return;
   quitting = true;
+  sleepTimer?.Reset(); CloseChildWindows();
   if (presenceTimer) { if (typeof clearInterval === 'function') clearInterval(presenceTimer); presenceTimer = null; }
   mediaKeys?.Dispose(); mediaKeys = null;
   resumeStore?.Flush(); playTimeStore?.Flush(); loadRequest++; sync?.Dispose(); offline?.CancelEstimate();

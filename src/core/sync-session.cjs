@@ -73,8 +73,15 @@ class SyncSession {
   // 差分の取り込み→反映。取り込みと反映の間に編集が入ったとき（iPhone版は問い合わせが非同期）は、編集を取り消さず、やり直す。
   async Converge(base) {
     for (let attempt = 0; ; attempt++) {
-      try { const token = await this.Reconcile(base); await this.Apply(token); return; }
-      catch (error) { if (attempt < 3 && error && error.code === 'changed') continue; throw error; }
+      // JSC の structuredClone はJSON用なので、Setは明示して複製する。
+      const before = { ...JSON.parse(JSON.stringify(this.device)), derivedEdges: new Set(this.device.derivedEdges) };
+      const previousBase = this.base;
+      try { const token = await this.Reconcile(base); await this.Apply(token); return token; }
+      catch (error) {
+        this.device = before; this.base = previousBase;
+        if (attempt < 3 && error && error.code === 'changed') continue;
+        throw error;
+      }
     }
   }
   // 停止する。理由は同期状態へ保存し、再起動しても、利用者が選ぶまで解除しない（ファイルの消失・復旧の取り違えで、他の端末の内容を消さないため）。
@@ -107,7 +114,8 @@ class SyncSession {
     if (!this.skipEmptyCheck && IsPristine(local) && HasContent(this.base.view)) {
       return this.Block('ライブラリが空の状態に見えるため、同期を停止しました（他の端末の内容を消さないためです）。意図した操作でなければ「サーバーの内容で復元」を、意図して空にした場合は「この端末の内容を正とする」を選んでください。');
     }
-    try { await this.Converge(); this.skipEmptyCheck = false; } catch (error) { return { ok: false, error: `ローカルの変更を同期用に変換・反映できません：${error.message}` }; }
+    let token;
+    try { token = await this.Converge(); this.skipEmptyCheck = false; } catch (error) { return { ok: false, error: `ローカルの変更を同期用に変換・反映できません：${error.message}` }; }
     try { await this.persist(this); } catch (error) { return { ok: false, error: `保存できません：${error.message}` }; }
     let repository;
     try { repository = this.makeRepository(); } catch (error) { return { ok: false, error: error.message }; }
@@ -116,7 +124,11 @@ class SyncSession {
     if (context.isAborted?.()) return { ok: false, aborted: true, error: '同期は中断されました。' };
     try {
       // 同期中にローカルの編集があった：同期前のbaseとの差分として取り込んでから反映する。先にライブラリ、その後に同期の状態。
-      if (this.version !== version) await this.Converge(base); else await this.Apply(undefined);
+      if (this.version !== version) await this.Converge(base);
+      else {
+        try { await this.Apply(token); }
+        catch (error) { if (error?.code !== 'changed') throw error; await this.Converge(base); }
+      }
       if (context.isAborted?.()) return { ok: false, aborted: true, error: '同期は中断されました。' };
       if (result.ok) this.lastSyncAt = this.now();
       if (result.ok && this.now() - this.lastCompactAt > DAY) { try { await repository.Compact(this.now()); this.lastCompactAt = this.now(); } catch { /* 整理は次回に回す */ } }

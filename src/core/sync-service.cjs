@@ -55,7 +55,7 @@ class SyncService {
     this.config = Storage.ReadConfig(this.dir); this.blocked = ''; this.error = ''; this.state = 'off';
     this.session = new SyncSession({ adapter: this.adapter, repository: () => this.Repository(), persist: session => Storage.WriteState(this.dir, session.device, session.Extra()), now: this.now, onApplied: () => this.onApplied(), deviceId: () => `win-${randomUUID().slice(0, 8)}` });
     this.chain = Promise.resolve(); this.debounce = null; this.interval = null; this.disposed = false;
-    this.pendingCode = null; this.loaded = false; this.suppressChanged = false; this.resetGen = 0; this.signOutGen = 0; this.cycling = false; this.pendingReset = false;
+    this.pendingCode = null; this.loaded = false; this.suppressChanged = false; this.resetGen = 0; this.signOutGen = 0; this.cycling = false; this.pendingReset = false; this.controls = 0; this.refreshLock = {};
   }
   get device() { return this.session.device; }
   get lastSyncAt() { return this.session.lastSyncAt; }
@@ -68,13 +68,13 @@ class SyncService {
   Repository() {
     const config = X.SupabaseConfig({ url: this.config.url, anonKey: this.config.anonKey });
     const authGen = this.signOutGen;
-    return new X.SupabaseSyncRepository({ config, request: this.request, now: this.now, session: { get: () => this.vault.Get(), set: session => { if (this.signOutGen === authGen) this.vault.Set(session); } } });
+    return new X.SupabaseSyncRepository({ config, request: this.request, now: this.now, refreshLock: this.refreshLock, session: { get: () => this.vault.Get(), set: session => { if (this.signOutGen === authGen) this.vault.Set(session); } } });
   }
   // ---- 設定とサインイン（利用者の操作）
   Configure({ url, anonKey }) {
     const config = X.SupabaseConfig({ url, anonKey });
     if (this.config.enabled) throw new Error('同期を止めてから接続先を変更してください。');
-    if (config.url !== this.config.url) { this.signOutGen++; this.vault.Clear(); } // 別の接続先へ古いトークンを送らない
+    if (config.url !== this.config.url) { this.signOutGen++; this.refreshLock = {}; this.vault.Clear(); } // 別の接続先へ古いトークンを送らない
     this.config = { ...this.config, url: config.url, anonKey: config.anonKey }; Storage.WriteConfig(this.dir, this.config); this.Emit(this.state, this.error);
   }
   async SendCode(email) {
@@ -85,9 +85,9 @@ class SyncService {
   async VerifyCode(email, code) {
     const config = X.SupabaseConfig({ url: this.config.url, anonKey: this.config.anonKey });
     const session = await X.VerifyCode(config, this.request, email, code, this.now);
-    this.vault.Set(session); this.config = { ...this.config, email: String(email).trim() }; Storage.WriteConfig(this.dir, this.config); this.Emit(this.state, '');
+    this.signOutGen++; this.refreshLock = {}; this.vault.Set(session); this.config = { ...this.config, email: String(email).trim() }; Storage.WriteConfig(this.dir, this.config); this.Emit(this.state, '');
   }
-  SignOut() { this.signOutGen++; this.vault.Clear(); this.Emit(this.state, ''); }
+  SignOut() { this.signOutGen++; this.refreshLock = {}; this.vault.Clear(); this.Emit(this.state, ''); }
   // ---- 開始・有効化・停止
   Load() {
     if (this.loaded) return; this.loaded = true;
@@ -102,23 +102,33 @@ class SyncService {
   }
   Tick() { if (this.disposed) return; this.Request().catch(() => {}); this.interval = this.timers.set(() => this.Tick(), INTERVAL_MS); this.interval.unref?.(); }
   async Enable() {
-    await this.chain;
-    this.Load(); // Start前でも、既存の同期データを確認してから始める
-    if (this.blocked) throw new Error(this.blocked);
-    if (!this.Session()) throw new Error('先にサインインしてください。');
-    if (!this.device) await this.session.Enable({ url: this.config.url, userId: this.Session().userId });
-    this.config = { ...this.config, enabled: true }; Storage.WriteConfig(this.dir, this.config);
-    this.Emit('idle'); this.interval = this.interval || this.timers.set(() => this.Tick(), INTERVAL_MS); this.interval.unref?.();
-    return this.SyncNow();
+    const gen = this.resetGen; this.controls++;
+    try {
+      await this.chain;
+      if (gen !== this.resetGen) return { ok: false, aborted: true };
+      this.Load(); // Start前でも、既存の同期データを確認してから始める
+      if (this.blocked) throw new Error(this.blocked);
+      if (!this.Session()) throw new Error('先にサインインしてください。');
+      if (!this.device) await this.session.Enable({ url: this.config.url, userId: this.Session().userId });
+      if (gen !== this.resetGen) return { ok: false, aborted: true };
+      this.config = { ...this.config, enabled: true }; Storage.WriteConfig(this.dir, this.config);
+      this.Emit('idle'); this.interval = this.interval || this.timers.set(() => this.Tick(), INTERVAL_MS); this.interval.unref?.();
+      return this.SyncNow();
+    } finally { this.controls--; if (this.pendingReset && !this.controls && !this.cycling) this._FinishReset(); }
   }
   // 停止の解除（利用者の選択）。mode：'restore'＝同期した内容でこの端末を復元／'keep'＝この端末の内容を正として同期（削除も送る）。
   async Unblock(mode) {
-    await this.chain;
-    this.Load();
-    if (!this.device || !this.session.blocked) throw new Error('解除できる停止状態がありません。');
-    await this.session.Unblock(mode);
-    this.blocked = ''; this.Emit('idle');
-    return this.SyncNow();
+    const gen = this.resetGen; this.controls++;
+    try {
+      await this.chain;
+      if (gen !== this.resetGen) return { ok: false, aborted: true };
+      this.Load();
+      if (!this.device || !this.session.blocked) throw new Error('解除できる停止状態がありません。');
+      await this.session.Unblock(mode);
+      if (gen !== this.resetGen) return { ok: false, aborted: true };
+      this.blocked = ''; this.Emit('idle');
+      return this.SyncNow();
+    } finally { this.controls--; if (this.pendingReset && !this.controls && !this.cycling) this._FinishReset(); }
   }
   Disable() {
     this.config = { ...this.config, enabled: false }; Storage.WriteConfig(this.dir, this.config);
@@ -132,7 +142,7 @@ class SyncService {
   ResetLink() {
     this.resetGen++;
     this.Disable();
-    if (this.cycling) { this.pendingReset = true; return; }
+    if (this.cycling || this.controls) { this.pendingReset = true; return; }
     this._FinishReset();
   }
   _FinishReset() {
@@ -173,7 +183,7 @@ class SyncService {
       return result;
     } finally {
       this.cycling = false;
-      if (this.pendingReset) this._FinishReset();
+      if (this.pendingReset && !this.controls) this._FinishReset();
       else if (!this.config.enabled && !this.disposed) this.Emit('off');
     }
   }

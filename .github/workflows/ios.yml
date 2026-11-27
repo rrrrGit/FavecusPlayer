@@ -150,7 +150,7 @@ jobs:
             -derivedDataPath build/sim \
             CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES 2>&1 | tee build/test.log
           XC=${PIPESTATUS[0]}
-          if [ "$XC" -ne 0 ]; then kill $DRIVER_PID 2>/dev/null; fi
+          if [ "$XC" -ne 0 ] || grep -qE "TEST FAILED|Test Case .* failed|: error: " build/test.log; then kill $DRIVER_PID 2>/dev/null || true; fi
           wait $DRIVER_PID; DRV=$?
           kill $SERVER_PID 2>/dev/null
           echo "--- cross-device driver (exit $DRV) ---"; cat "$CROSS/driver.log"

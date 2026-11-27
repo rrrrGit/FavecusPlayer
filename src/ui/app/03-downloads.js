@@ -53,7 +53,7 @@ function SavedState(entry) {
 function PaintSavedBadge(badge, entry, playbackDetail = '') {
   const value = SavedState(entry), detail = value.detail + (playbackDetail ? ` ${playbackDetail}` : '');
   if (badge.textContent !== value.label) badge.textContent = value.label;
-  if (badge.title !== detail) badge.title = detail;
+  SetTitle(badge, detail);
   const label = `${value.label}：${detail}`; if (badge.getAttribute('aria-label') !== label) badge.setAttribute('aria-label', label);
   if (badge.dataset.savedKind !== value.kind) badge.dataset.savedKind = value.kind;
   if (entry.type === 'bilibili') { if (badge.dataset.mediaUrl !== entry.url) badge.dataset.mediaUrl = entry.url; }

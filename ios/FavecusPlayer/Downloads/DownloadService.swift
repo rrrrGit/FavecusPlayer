@@ -658,6 +658,9 @@ final class DownloadService: ObservableObject, MediaProvider {
                     if !audioJob, audio == nil || audio == .failed || audio == .cancelled || audio == .notDownloaded { await saveAudioFallback(key: job.key, audioFile: files[1], duration: job.duration, staging: staging) }
                     throw error
                 }
+            } else if job.kind == "video", job.layout == "muxed" {
+                try FileManager.default.copyItem(at: files[0], to: output)
+                duration = try await MediaProcessor.validate(file: output, needsVideo: true, expectedDuration: job.duration)
             } else {
                 duration = try await MediaProcessor.finalizeAudio(input: files[0], output: output, expectedDuration: job.duration)
             }

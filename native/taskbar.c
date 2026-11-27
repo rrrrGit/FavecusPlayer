@@ -109,7 +109,8 @@ static I64 BarProc(H h,U32 message,U64 w,I64 l) {
     if(message==0x21)return 3;
     if(message==0x10){Command("restore");return 0;}
     if(message==0x2){if(h==bar)bar=0;return 0;}
-    if(message==0x200){int button=ButtonAt((short)(l&0xffff),(short)((l>>16)&0xffff));if(button!=hover){hover=button;frameDirty=1;}if(button==5)OpenVolume();return 0;}
+    if(message==0x200){TASKTRACKMOUSE tracking={sizeof(tracking),2,h,0};if(TrackMouseEvent)TrackMouseEvent(&tracking);int button=ButtonAt((short)(l&0xffff),(short)((l>>16)&0xffff));if(button!=hover){hover=button;frameDirty=1;}if(button==5)OpenVolume();return 0;}
+    if(message==0x2a3){hover=-1;frameDirty=1;return 0;}
     if(message==0x201){pressedButton=ButtonAt((short)(l&0xffff),(short)((l>>16)&0xffff));return 0;}
     if(message==0x202){int b=ButtonAt((short)(l&0xffff),(short)((l>>16)&0xffff)),pressed=pressedButton;pressedButton=0;if(!b||b!=pressed||!Enabled(b))return 0;if(b==1)Command("previous");else if(b==2)Command("toggle");else if(b==3)Command("next");else if(b==4)Command("stop");else if(b==5)Volume(state.volume?0:previousVolume);else if(b==6)Command("restore");return 0;}
     if(message==0x205){POINT p;if(GetCursorPos(&p))MenuAt(p.x,p.y);return 0;}

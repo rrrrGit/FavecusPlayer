@@ -23,6 +23,49 @@ const Base = () => library([list(1, '親', [track(1), track(2)], [pid(2)]), list
 const Playlist = (lib, n) => lib.playlists.find(p => p.id === pid(n));
 const Edited = (d, change) => { const next = JSON.parse(JSON.stringify(d.view)); change(next); return next; };
 
+test('concurrent forced token refreshes share one request across repositories and await saving', async () => {
+  const server = FakeServer(), first = await Repo(server), session = first.session, refreshLock = {};
+  const second = new X.SupabaseSyncRepository({ config: CONFIG, request: server.request, session, refreshLock, now: () => server.now });
+  first.refreshLock = refreshLock;
+  const set = session.set; let release, saving;
+  const started = new Promise(resolve => { saving = resolve; });
+  session.set = async value => { saving(); await new Promise(resolve => { release = resolve; }); set(value); };
+  const before = server.requests.length;
+  let done = false;
+  const pending = Promise.all([first.Token(true), first.Token(true), second.Token(true)]).then(values => { done = true; return values; });
+  await started;
+  assert.equal(done, false);
+  assert.equal(server.requests.slice(before).filter(r => r.rawUrl.includes('/auth/v1/token')).length, 1);
+  release();
+  const tokens = await pending;
+  assert.equal(new Set(tokens).size, 1);
+  assert.equal(refreshLock.promise, null);
+  session.set = async () => { throw new Error('vault failure'); };
+  await assert.rejects(first.Token(true), /vault failure/);
+  assert.equal(refreshLock.promise, null, '失敗してもロックを解放する');
+});
+
+test('counts discard invalid months and media keys before sending valid rows', async () => {
+  const server = FakeServer(), repo = await Repo(server);
+  const row = { epoch: 0, month: '2026-11', key: 'bili:BV1aaaaaaaaa:p1', n: 3 };
+  await repo.PushCounts('valid-counts', [row, { ...row, month: '2026-00' }, { ...row, month: '2026-13' }, { ...row, month: '2026-1' }, { ...row, key: 'local:private.mp3' }, { ...row, key: null }, { ...row, month: 'legacy' }]);
+  const pulled = await repo.PullCounts(0, 'other');
+  assert.deepEqual(pulled.rows.map(r => r.month).sort(), ['2026-11', 'legacy']);
+});
+
+test('activity log upload keeps the newest suffix below the UTF-8 size budget without mutating input', async () => {
+  const server = FakeServer(), repo = await Repo(server);
+  const entries = Array.from({ length: 200 }, (_, n) => ({ n, text: '日本語😀'.repeat(100) }));
+  await repo.PushActivityLogs('bounded', [{ day: '2026-11-27', entries }]);
+  const saved = server.activityLogs.get('bounded|2026-11-27').entries;
+  assert.ok(saved.length > 0 && saved.length < entries.length);
+  assert.ok(Buffer.byteLength(JSON.stringify(saved), 'utf8') <= 120000);
+  assert.deepEqual(saved, entries.slice(-saved.length));
+  assert.equal(entries.length, 200);
+  await repo.PushActivityLogs('bounded', [{ day: '2026-11-27', entries: [{ text: 'a'.repeat(150000) }] }]);
+  assert.deepEqual(server.activityLogs.get('bounded|2026-11-27').entries, []);
+});
+
 test('config accepts only an https supabase URL and an anon key, never a service_role or secret key', () => {
   assert.throws(() => X.SupabaseConfig({ url: 'http://evil.example.com', anonKey: KEY }), /URL/);
   assert.throws(() => X.SupabaseConfig({ url: 'https://abcdefgh.supabase.co.evil.com', anonKey: KEY }), /URL/);

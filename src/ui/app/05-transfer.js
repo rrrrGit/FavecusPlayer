@@ -11,7 +11,7 @@ function PlaylistURL(prefill = {}) {
     <div id="playlist-selection-tools" class="selection-tools hidden"><button id="playlist-select-all" type="button" class="button secondary">表示中をすべて選択</button><button id="playlist-select-none" type="button" class="button secondary">選択をすべて解除</button><span id="playlist-selected-count"></span></div>
     <label class="field">一覧の動画を検索<input id="playlist-video-filter" type="search" placeholder="曲名・動画番号で検索"></label><div id="playlist-videos" class="favorite-list"></div>`, async () => {
     if (!browser.ready || !browser.selected.size) throw new Error('取得が完了してから、追加する動画にチェックしてください。');
-    await AddSelected({ type: 'add-videos', videos: [...browser.selected].map(([url, title]) => ({ url, title, duration: browser.metadata?.get(url)?.duration })) }, destinations());
+    return AddSelected({ type: 'add-videos', videos: [...browser.selected].map(([url, title]) => ({ url, title, duration: browser.metadata?.get(url)?.duration })) }, destinations());
   }, '選択した動画を追加');
   destinations = AddDestinations({ initialIds: prefill.destinationIds || null });
   const epoch = modalEpoch;

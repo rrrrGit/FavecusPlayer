@@ -71,7 +71,7 @@ async function Open(options) {
     const tokens = { value: options.session || null };
     const session = new SyncSession({
       adapter, now: () => Date.now(), deviceId: () => options.deviceId,
-      repository: () => new X.SupabaseSyncRepository({ config, request: Request(host), now: () => Date.now(), session: { get: () => tokens.value, set: value => { tokens.value = value; host.saveSession(JSON.stringify(value)); } } }),
+      repository: () => new X.SupabaseSyncRepository({ config, request: Request(host), now: () => Date.now(), refreshLock: tokens, session: { get: () => tokens.value, set: async value => { tokens.value = value; await host.saveSession(JSON.stringify(value)); } } }),
       persist: current => host.persist(SerializeState(current.device, current.Extra()))
     });
     runtime = { session, tokens, config };

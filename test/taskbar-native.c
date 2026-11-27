@@ -117,6 +117,7 @@ int main(void){
     assert(PrepareFrame());DrawVolumePanel(frameDC);ReleaseFrame();
     p.opcode=2;memcpy(pipeBytes,&p,1024);pipeAt=0;pipeFragment=1024;ReadState();assert(closing&&!failed);
     closing=0;incomingSize=0;p.opcode=1;p.magic=0;memcpy(pipeBytes,&p,1024);pipeAt=0;ReadState();assert(failed&&strstr(output,"protocol-error"));
+    hover=2;frameDirty=0;BarProc(bar,0x2a3,0,0);assert(hover==-1&&frameDirty);
     assert(framesCreated==framesDeleted&&framesDeleted==dcsDeleted);
     puts("Native taskbar surface/alpha/visibility/occlusion/width/DPI/cleanup/reconnect/protocol checks passed (mock Win32; no Windows rendering test).");return 0;
 }

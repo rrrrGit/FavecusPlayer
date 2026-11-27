@@ -26,8 +26,9 @@ module.exports = function RegisterQueue(ctx) {
     const entry = ScopeEntries(next.playlistId).find(e => e.id === target) || next.catalog.get(target);
     if (!entry) return { ok: false };
     PlayableEntry(entry.playlistId, target); S.queue = next;
-    try { await LoadEntry(entry.playlistId, target); }
-    catch (error) { S.queue = prev; Emit('queue', QueueState()); throw error; }
+    const request = S.loadRequest;
+    try { const result = await LoadEntry(entry.playlistId, target); if (result?.cancelled) return { ok: false, cancelled: true }; }
+    catch (error) { if (S.queue === next && (request === undefined || S.loadRequest <= request + 1)) { S.queue = prev; Emit('queue', QueueState()); } throw error; }
     return { ok: true };
   });
 };

@@ -215,7 +215,7 @@ async function MainHarness(t, options = {}) {
   class Mini {Update(){}Destroy(){}Restore(){windows[0].show();windows[0].focus();}CanHideToTray(){return options.tray===true;}}
   class Thumbnails {Get(){return new Promise(resolve=>thumbnailDone=resolve);}async Improve(entry,image,file){improveCalls.push({entry,file});return options.improved||image;}async GetPreview(entry,active){previewCalls.push(entry);return active()?'data:image/png;base64,aWNvbg==':null;}}
   const app=new EventEmitter();Object.assign(app,{setName(){},setPath:(key,value)=>paths.set(key,value),commandLine:{appendSwitch:(key,value)=>switches.set(key,value)},requestSingleInstanceLock:()=>true,quit(){},getPath:()=>path.join(root,'data'),getVersion:()=> '0.6.4',getAppPath:()=>path.resolve(__dirname,'..'),whenReady:()=>({then:fn=>{ready=fn();return ready;}})});
-  const ipcMain=new EventEmitter();ipcMain.handle=(key,fn)=>handlers.set(key,fn);
+  const ipcMain=new EventEmitter();ipcMain.handle=(key,fn)=>handlers.set(key,fn);ipcMain.removeHandler=key=>handlers.delete(key);
   const session=new EventEmitter();session.setPermissionRequestHandler=()=>{};session.setPermissionCheckHandler=()=>{};
   session.preconnect = value => { connections.push(value); if (options.failPreconnect) throw new Error('offline'); };
   session.fetch = async url => options.fetch ? options.fetch(url) : new Response(JSON.stringify({ code: 0, data: new URL(url).pathname.endsWith('/nav') ? { isLogin: loggedIn, mid: 1234, uname: 'user' } : options.details || { title: '動画全体', pages: [{ page: 1, part: '第1曲' }, { page: 2, part: '第2曲' }] } }));
@@ -588,6 +588,9 @@ test('060 saved video plays through the app protocol and explicit online playbac
 test('060 official-page av-to-BV redirect preserves the selected song but rejects other parts and videos',async t=>{
  const h=await MainHarness(t,{details:{aid:123,bvid:'BV1oo4y1t7GX',title:'曲',pages:[{page:1,cid:1}]}});let s=(await h.invoke('app:state')).state,id=s.activePlaylistId;s=await h.invoke('library:action',{type:'add',playlistId:id,urls:'av123'});await h.invoke('player:play',id,s.playlists[0].entries[0].id);await FlushPlayer();await h.invoke('player:command','page-mode');const wc=h.views.at(-1).webContents;
  const send=url=>h.ipcMain.emit('media:state',{sender:wc,senderFrame:wc.mainFrame},{url,position:10,duration:200,paused:false});send('https://www.bilibili.com/video/BV1oo4y1t7GX/');assert.equal((await h.invoke('app:state')).playback.position,10);send('https://www.bilibili.com/video/BV1oo4y1t7GX/?p=2');assert.equal((await h.invoke('app:state')).current.entry.videoId,'av123');
+ for(const eventName of ['will-navigate','will-redirect'])for(const [url,allowed] of [['https://www.bilibili.com/video/BV1oo4y1t7GX/',true],['https://passport.bilibili.com/login',true],['https://player.bilibili.com/player.html',true],['https://www.bilibili.com/video/av456/',false],['https://www.bilibili.com/video/BV1oo4y1t7GX/?p=2',false],['https://example.org/',false]]){
+   let prevented=false;const requested=h.views.at(-1).requestedURL;wc.emit(eventName,{preventDefault(){prevented=true;}},url,false,true);assert.equal(prevented,!allowed,url);if(eventName==='will-redirect')assert.equal(h.views.at(-1).requestedURL,allowed?url:requested);
+ }
 });
 test('060 rapid skips bound metadata prefetch to two outstanding requests without delaying navigation',async t=>{
  let calls=0;const pending=[];const h=await MainHarness(t,{fetch:async url=>new URL(url).pathname.endsWith('/nav')?new Response(JSON.stringify({code:0,data:{isLogin:false}})):new Promise(resolve=>{calls++;pending.push(()=>resolve(new Response(JSON.stringify({code:0,data:{pages:[{page:1,cid:1}]}}))))})});let s=(await h.invoke('app:state')).state,id=s.activePlaylistId;s=await h.invoke('library:action',{type:'add',playlistId:id,urls:Array.from({length:12},(_,i)=>'av'+(600+i)).join('\n')});
@@ -779,6 +782,32 @@ test('063 rapid requests coalesce and stop cancels pending navigation', async t 
   assert.equal(wc.loads, 2); assert.equal((await h.invoke('app:state')).current.entry.videoId, 'av789');
   const pending = h.invoke('player:command', 'previous'); await h.invoke('player:command', 'stop'); await pending; await FlushPlayer();
   assert.equal((await h.invoke('app:state')).current, null); assert.equal(wc.loads, 2); assert.equal(h.main.children.length, 0);
+});
+
+test('cancelled parallel play preserves the newest queue and all-play restores shuffle after failure', async t => {
+  const h = await MainHarness(t), id = h.store.data.activePlaylistId;
+  await h.invoke('library:action', { type: 'add', playlistId: id, urls: 'av123\nav456' });
+  const [first, second] = h.store.Playlist(id).entries;
+  const a = h.invoke('player:play', id, first.id), b = h.invoke('player:play', id, second.id);
+  assert.equal((await a).cancelled, true); await b;
+  assert.equal((await h.invoke('app:state')).current.entryId, second.id);
+  assert.equal((await h.invoke('app:state')).queue.timeline.current.id, second.id);
+  await h.invoke('library:action', { type: 'settings', settings: { shuffle: true } });
+  await h.invoke('library:action', { type: 'remove-many', playlistId: id, entryIds: [first.id, second.id] });
+  await assert.rejects(h.invoke('player:all', false), /再生する曲がありません/);
+  assert.equal(h.store.data.settings.shuffle, true);
+});
+
+test('closing the main window during a pending play creates no view and local redirects are refused', async t => {
+  const h = await MainHarness(t), id = h.store.data.activePlaylistId;
+  const local = path.join(h.root, 'safe.mp3'); fs.writeFileSync(local, 'audio'); await h.store.AddFiles([id], [local]);
+  await h.invoke('player:play', id); const wc = h.views[0].webContents, requested = h.views[0].requestedURL;
+  let prevented = false; wc.emit('will-redirect', { preventDefault() { prevented = true; } }, 'https://www.bilibili.com/video/av123/', false, true);
+  assert.equal(prevented, true); assert.equal(h.views[0].requestedURL, requested);
+  const pending = h.invoke('player:play', id);
+  h.main.closed = true;
+  assert.equal((await pending).cancelled, true);
+  assert.equal(h.views.length, 1);
 });
 
 test('063 unexpectedly destroyed contents can be recovered without reading the missing view property', async t => {

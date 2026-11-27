@@ -56,9 +56,34 @@ final class ActivityLogTests: XCTestCase {
         store.markSynced(days: ["2026-11-27"])
         XCTAssertFalse(store.needsDailySync())
 
+        store.record("sync.activity_logs", detail: ["ok": "1"], markDirty: false)
+        XCTAssertTrue(store.dirtyDays.isEmpty, "同期成功の記録で再dirty化しない")
+        store.record("app.foreground")
+        store.record("sync.activity_logs", detail: ["ok": "1"], markDirty: false)
+        XCTAssertEqual(store.dirtyDays, ["2026-11-27"])
+        XCTAssertFalse(store.needsDailySync(), "当日中の通常ログは次の0:00まで蓄積する")
+        let reloaded = ActivityLogStore(directory: directory, calendar: calendar, now: { now })
+        XCTAssertFalse(reloaded.needsDailySync(), "再起動後も当日の同期済み状態を保持する")
+        XCTAssertEqual(reloaded.entries.last?.kind, "sync.activity_logs")
+
         // 0:00 を跨ぐと再び日次同期が必要になる
         now = date(2026, 11, 28, 0, 0)
         XCTAssertTrue(store.needsDailySync())
+    }
+
+    func testAnUnsyncedPreviousDayStillRequiresSyncAfterTodaysSync() {
+        var now = date(2026, 11, 26, 23, 59)
+        let store = ActivityLogStore(directory: directory, calendar: calendar, now: { now })
+        store.record("app.background")
+        now = date(2026, 11, 27, 9)
+        store.record("app.foreground")
+        store.markSynced(days: ["2026-11-27"])
+        XCTAssertTrue(store.needsDailySync(), "今日同期済みでも前日分を取り残さない")
+        store.markSynced(days: ["2026-11-26"])
+        store.record("app.foreground")
+        XCTAssertFalse(store.needsDailySync())
+        XCTAssertFalse(store.needsDailySync(at: date(2026, 11, 27, 23, 59)))
+        XCTAssertTrue(store.needsDailySync(at: date(2026, 11, 28)))
     }
 
     func testCorruptFileIsBackedUpInsteadOfCrashing() throws {

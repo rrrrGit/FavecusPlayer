@@ -26,7 +26,7 @@ class BilibiliBrowser {
   }
   Handle(channel, callback) {
     this.electron.ipcMain.handle(channel, async (event, ...args) => {
-      const wc = this.window?.webContents;
+      const wc = this.window && !this.window.isDestroyed() ? this.window.webContents : null;
       if (!wc || wc.isDestroyed() || event.sender !== wc || event.senderFrame !== wc.mainFrame || event.senderFrame.url !== 'favecus://app/browse.html') return { ok: false, error: '許可されていない操作です。' };
       try { return { ok: true, value: await callback(...args) }; } catch (error) { return { ok: false, error: error.message }; }
     });
@@ -43,15 +43,16 @@ class BilibiliBrowser {
     try { return ParseBilibili(wc.getURL()); } catch { return CollectionURL(wc.getURL()) ? { url: wc.getURL(), collection: true } : null; }
   }
   State() {
-    const wc = this.view?.webContents, video = this.Video(), history = wc?.navigationHistory;
+    const contents = this.view?.webContents, wc = contents && !contents.isDestroyed() ? contents : null, video = this.Video(), history = wc?.navigationHistory;
     return { url: wc?.getURL() || '', title: wc?.getTitle().slice(0, 180) || 'Bilibiliから検索して追加', video,
       canAdd: !!video && !!this.profile.loggedIn && !this.busy, busy: this.busy, loggedIn: !!this.profile.loggedIn,
       canBack: !!history?.canGoBack(), canForward: !!history?.canGoForward(), message: this.message,
-      maximized: !!this.window?.isMaximized(), muted: this.muted !== false };
+      maximized: !!this.window && !this.window.isDestroyed() && this.window.isMaximized(), muted: this.muted !== false };
   }
-  Update() { if (this.window && !this.window.isDestroyed()) this.window.webContents.send('browse:state', this.State()); }
+  Update() { if (this.window && !this.window.isDestroyed() && !this.window.webContents.isDestroyed()) this.window.webContents.send('browse:state', this.State()); }
   Bounds() {
-    if (!this.window || !this.view) return;
+    const wc = this.view?.webContents;
+    if (!this.window || this.window.isDestroyed() || !wc || wc.isDestroyed()) return;
     const [width, height] = this.window.getContentSize(); this.view.setBounds({ x: 0, y: 116, width, height: Math.max(0, height - 116) });
   }
   async Open() {
@@ -103,7 +104,7 @@ class BilibiliBrowser {
     this.mediaChannel?.Send('media:command', { type: 'volume', value }); wc.setAudioMuted(!this.mediaChannel?.ready || this.muted !== false || value === 0);
   }
   Silence() { this.muted = true; const wc = this.view?.webContents; if (wc && !wc.isDestroyed()) { this.mediaChannel?.Send('media:command', { type: 'pause' }); wc.setAudioMuted(true); } this.Update(); }
-  Hide() { this.window?.hide(); }
+  Hide() { if (this.window && !this.window.isDestroyed()) this.window.hide(); }
   async AddCurrent() {
     if (this.busy) throw new Error('動画を確認しています。');
     const video = this.Video(); if (!video) throw new Error('追加する投稿動画のページを開いてください。');
@@ -121,7 +122,8 @@ class BilibiliBrowser {
     } finally { this.busy = false; this.Update(); }
   }
   async Command(command, value) {
-    const window = this.window, wc = this.view?.webContents; if (!window || window.isDestroyed()) return;
+    const window = this.window, contents = this.view?.webContents; if (!window || window.isDestroyed()) return;
+    const wc = contents && !contents.isDestroyed() ? contents : null;
     const history = wc?.navigationHistory;
     if (command === 'minimize') window.minimize();
     else if (command === 'maximize') window.isMaximized() ? window.unmaximize() : window.maximize();
@@ -130,10 +132,13 @@ class BilibiliBrowser {
     else if (command === 'forward' && history?.canGoForward()) history.goForward();
     else if (command === 'search') await this.Navigate(SearchURL(value));
     else if (command === 'home') await this.Navigate(HOME);
-    else if (command === 'reload') await this.Navigate(wc.getURL() || HOME);
+    else if (command === 'reload' && wc) await this.Navigate(wc.getURL() || HOME);
     else if (command === 'sound') { this.muted = !this.muted; this.SetVolume(this.options.volume()); this.Update(); }
   }
-  Close() { this.openEpoch++; this.window?.close(); }
-  Destroy() { this.disposed = true; this.navigation++; this.Close(); }
+  Close() { this.openEpoch++; if (this.window && !this.window.isDestroyed()) this.window.close(); }
+  Destroy() {
+    this.disposed = true; this.navigation++; this.Close();
+    for (const name of ['state', 'command', 'add']) this.electron.ipcMain.removeHandler(`browse:${name}`);
+  }
 }
 module.exports = { BilibiliBrowser, AllowedBrowseURL, SearchURL };

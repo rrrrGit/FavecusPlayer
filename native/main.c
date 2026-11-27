@@ -9,7 +9,10 @@ static U32 runError=0;
 static W runId[64];
 static int Len(const W *s){int n=0;while(s[n])n++;return n;}
 static void Copy(W *to,const W *from){int n=0;while(from[n]&&n<CAP-1){to[n]=from[n];n++;}to[n]=0;}
-static void Add(W *to,const W *s){int n=Len(to),i=0;while(s[i]&&n<CAP-1)to[n++]=s[i++];to[n]=0;}
+static void AddN(W *to,int cap,const W *s){int n=0,i=0;if(cap<=0)return;while(n<cap-1&&to[n])n++;while(s[i]&&n<cap-1)to[n++]=s[i++];to[n]=0;}
+static void Add(W *to,const W *s){AddN(to,CAP,s);}
+// 引数末尾のバックスラッシュは、終端引用符の前で二重化する（D:\など）。
+static void QuotedArgument(W *out,const W *value){Add(out,L"\"");Add(out,value);for(int i=Len(value)-1;i>=0&&value[i]=='\\';i--)Add(out,L"\\");Add(out,L"\"");}
 static void Join(W *out,const W *a,const W *b){Copy(out,a);Add(out,L"\\");Add(out,b);}
 static void Number(W *out,U64 n){W reverse[32];int count=0;do{reverse[count++]=(W)('0'+n%10);n/=10;}while(n);int i=0;while(count)out[i++]=reverse[--count];out[i]=0;}
 static int Equal(const W *a,const W *b){int i=0;while(a[i]&&a[i]==b[i])i++;return a[i]==b[i];}
@@ -19,13 +22,13 @@ static void Status(const W *text){if(statusLabel){SetWindowTextW(statusLabel,tex
 static void Error(const W *text){MessageBoxW(window,text,L"Favecus Player",0x10);}
 static I64 WindowProc(H h,U32 m,U64 w,I64 l){if(m==0x10){if(busy)MessageBoxW(h,L"処理が終わるまでお待ちください。",L"Favecus Player",0x40);else DestroyWindow(h);return 0;}return DefWindowProcW(h,m,w,l);}
 static void MakeWindow(void){WNDCLASS c={0};c.proc=WindowProc;c.instance=GetModuleHandleW(0);c.icon=LoadIconW(c.instance,(const W*)1);c.cursor=LoadCursorW(0,(const W*)32512);c.background=(H)6;c.name=L"FavecusPlayerSetup";RegisterClassW(&c);window=CreateWindowExW(0,c.name,L"Favecus Player セットアップ",0x00c80000,200,200,640,170,0,0,c.instance,0);statusLabel=CreateWindowExW(0,L"STATIC",L"準備しています…",0x50000000,25,28,570,90,window,0,c.instance,0);ShowWindow(window,5);UpdateWindow(window);}
-static int ReadText(const W *file,W *out){char data[12000];U32 read=0;H f=CreateFileW(file,0x80000000,7,0,3,0,0);if(f==INVALID)return 0;int ok=ReadFile(f,data,sizeof(data)-1,&read,0);CloseHandle(f);if(!ok)return 0;data[read]=0;int n=MultiByteToWideChar(65001,0,data,(int)read,out,CAP-1);out[n]=0;return 1;}
+static int ReadText(const W *file,W *out){char data[12000];U32 read=0;out[0]=0;H f=CreateFileW(file,0x80000000,7,0,3,0,0);if(f==INVALID)return 0;int ok=ReadFile(f,data,sizeof(data)-1,&read,0);CloseHandle(f);if(!ok||read==0)return 0;data[read]=0;int n=MultiByteToWideChar(65001,0,data,(int)read,out,CAP-1);if(n<=0){out[0]=0;return 0;}out[n]=0;return 1;}
 static void PollLog(void){static U64 previous=0;U64 now=GetTickCount64();if(!logPath[0]||now-previous<300)return;previous=now;W text[CAP];if(ReadText(logPath,text)){W *line=text;for(int i=0;text[i];i++)if(text[i]=='\n'&&text[i+1])line=text+i+1;SetWindowTextW(statusLabel,line);}}
 // CREATE_NO_WINDOW suppresses console windows. Do not set SW_HIDE: GUI children must show normally.
 static I64 Run(const W *program,const W *args,const W *cwd,int wait){W cmd[CAP];Copy(cmd,L"\"");Add(cmd,program);Add(cmd,L"\" ");Add(cmd,args);STARTUPINFO si={0};PROCESSINFO pi={0};si.cb=sizeof(si);runError=0;if(!CreateProcessW(program,cmd,0,0,0,0x08000000,0,cwd,&si,&pi)){runError=GetLastError();return -1;}CloseHandle(pi.thread);if(!wait){CloseHandle(pi.process);return 0;}while(WaitForSingleObject(pi.process,50)==258){Pump();if(window)PollLog();}U32 code=1;GetExitCodeProcess(pi.process,&code);CloseHandle(pi.process);return (I64)code;}
 static void PSQuote(W *out,const W *value){Add(out,L"'");for(int i=0;value[i];i++){W c[2]={value[i],0};Add(out,c);if(value[i]=='\'')Add(out,L"'");}Add(out,L"'");}
 static int PowerShell(const W *script){W program[CAP],args[CAP];GetSystemDirectoryW(program,CAP);Add(program,L"\\WindowsPowerShell\\v1.0\\powershell.exe");Copy(args,L"-NoLogo -NoProfile -NonInteractive -Command \"$ErrorActionPreference='Stop'; ");Add(args,script);Add(args,L"\"");return Run(program,args,0,1);}
-static int WritePayload(const W *file){H module=GetModuleHandleW(0),res=FindResourceW(module,(const W*)101,(const W*)10);if(!res)return 0;U32 size=SizeofResource(module,res);H data=LockResource(LoadResource(module,res));H f=CreateFileW(file,0x40000000,0,0,1,0,0);if(f==INVALID)return 0;U32 written=0;int ok=WriteFile(f,data,size,&written,0);CloseHandle(f);return ok&&written==size;}
+static int WritePayload(const W *file){H module=GetModuleHandleW(0),res=FindResourceW(module,(const W*)101,(const W*)10);if(!res)return 0;U32 size=SizeofResource(module,res);if(!size)return 0;H resData=LoadResource(module,res);if(!resData)return 0;H data=LockResource(resData);if(!data)return 0;H f=CreateFileW(file,0x40000000,0,0,1,0,0);if(f==INVALID)return 0;U32 written=0;int ok=WriteFile(f,data,size,&written,0);CloseHandle(f);return ok&&written==size;}
 static int ChooseFolder(int patch){W display[CAP];BROWSEINFO bi={0};bi.owner=window;bi.display=display;bi.title=patch?L"更新するFavecus Playerの最上位フォルダーを選択してください":L"FavecusPlayerフォルダー、またはその保存先を選択してください。";bi.flags=0x41;H item=SHBrowseForFolderW(&bi);if(!item)return 0;int ok=SHGetPathFromIDListW(item,root);CoTaskMemFree(item);return ok;}
 static int SafeName(const W *name){if(Equal(name,L"app"))return 1;if(Len(name)<5||Len(name)>100)return 0;for(int i=0;name[i];i++)if(!((name[i]>='a'&&name[i]<='z')||(name[i]>='0'&&name[i]<='9')||name[i]=='-'||name[i]=='.'))return 0;for(int i=0;name[i+1];i++)if(name[i]=='.'&&name[i+1]=='.')return 0;return name[0]=='a'&&name[1]=='p'&&name[2]=='p'&&name[3]=='-';}
 static int Repair(void){W program[CAP];Join(program,root,L"runtime\\config\\Maintenance.exe");if(!Exists(program))Join(program,root,L"Maintenance.exe");if(Exists(program)){int code=Run(program,L"--repair",root,0);if(code==0)return 0;}Error(L"必要なファイルがありません。配布されたSetup.exeまたはPatch.exeを再実行してください。");return 1;}
@@ -53,7 +56,7 @@ static int Launch(void){
   Join(file,app,L"package.json");if(!Exists(file))return Repair();
   Join(file,app,L"src\\main.cjs");if(!Exists(file))return Repair();
   Copy(args,L"\"");Add(args,app);Add(args,L"\"");SetEnvironmentVariableW(L"FAVECUS_INSTALL_ROOT",root);
-  W stamp[32];Number(runId,GetCurrentProcessId());Add(runId,L"-");Number(stamp,GetTickCount64());Add(runId,stamp);SetEnvironmentVariableW(L"FAVECUS_RUN_ID",runId);
+  W stamp[32];Number(runId,GetCurrentProcessId());AddN(runId,64,L"-");Number(stamp,GetTickCount64());AddN(runId,64,stamp);SetEnvironmentVariableW(L"FAVECUS_RUN_ID",runId);
   H lock=CreateMutexW(0,0,L"Local\\FavecusPlayerRunning");I64 code=Run(program,args,root,1);if(lock)CloseHandle(lock);
   if(code!=0){W message[CAP],tag[CAP],file[CAP];ErrorCode(tag,code);LogExit(code,file);Copy(message,code<0?L"Favecus Playerのプロセスを起動できませんでした。":L"Favecus Playerが異常終了しました。");Add(message,L"\nエラーコード: ");Add(message,tag);Add(message,ExitExplanation(code));Add(message,L"\n記録ID: ");Add(message,runId);Add(message,L"\nログ: ");Add(message,file);Add(message,L"\n再生の詳細: runtime\\logs\\player-diagnostics.jsonl");Add(message,L"\nネイティブ記録: runtime\\logs\\electron.log / crashes");Error(message);}return (int)code;
 }
@@ -78,7 +81,7 @@ void Entry(void){InitAPI();CoInitializeEx(0,2);GetModuleFileNameW(0,exePath,CAP)
   Copy(script,L"Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::ExtractToDirectory(");PSQuote(script,zip);Add(script,L",");PSQuote(script,payload);Add(script,L")");
   if(PowerShell(script)!=0){Error(L"ファイルの展開に失敗しました。WindowsのPowerShellが利用可能か確認してください。");ExitProcess(1);}
   DeleteFileW(zip);Join(node,payload,L"bootstrap\\node.exe");Join(installer,payload,L"scripts\\install.cjs");
-  Copy(args,L"\"");Add(args,installer);Add(args,L"\" \"");Add(args,root);Add(args,L"\" \"");Add(args,payload);Add(args,L"\" \"");Add(args,logPath);Add(args,MODE==2?L"\" patch":L"\" setup");
+  args[0]=0;QuotedArgument(args,installer);Add(args,L" ");QuotedArgument(args,root);Add(args,L" ");QuotedArgument(args,payload);Add(args,L" ");QuotedArgument(args,logPath);Add(args,MODE==2?L" patch":L" setup");
   if(!repair)Add(args,L" selected");
   Status(L"必要なファイルを取得しています。インターネット接続が必要です。");int code=Run(node,args,payload,1);
   busy=0;if(code!=0){W message[CAP];Copy(message,L"セットアップを完了できませんでした。詳細ログ:\n");Add(message,logPath);Error(message);W notepad[CAP];GetSystemDirectoryW(notepad,CAP);Add(notepad,L"\\notepad.exe");Copy(args,L"\"");Add(args,logPath);Add(args,L"\"");Run(notepad,args,0,0);ExitProcess(1);}

@@ -6,6 +6,8 @@ typedef struct { U32 size; TASKRECT monitor, work; U32 flags; } MONITORINFO;
 _Static_assert(sizeof(PAINTINFO)==72, "Windows PAINTSTRUCT layout");
 _Static_assert(sizeof(MONITORINFO)==40, "Windows MONITORINFO layout");
 typedef struct { int width, height; } TASKSIZE;
+typedef struct { U32 size, flags; H window; U32 hoverTime; } TASKTRACKMOUSE;
+API(int,TrackMouseEvent,(TASKTRACKMOUSE*));
 typedef struct { unsigned char operation, flags, alpha, format; } TASKBLEND;
 typedef struct {
     U32 size; int width, height; unsigned short planes, depth;
@@ -74,6 +76,7 @@ API(void,InitCommonControls,(void));
 static int InitTaskbarAPI(void) {
     H k=LoadLibraryW(L"kernel32.dll"), u=LoadLibraryW(L"user32.dll"), g=LoadLibraryW(L"gdi32.dll"), c=LoadLibraryW(L"comctl32.dll");
     if (!k || !u || !g || !c) return 0;
+    REQUIRED(u,TrackMouseEvent);
     REQUIRED(k,GetStdHandle); REQUIRED(k,PeekNamedPipe); REQUIRED(k,Sleep); REQUIRED(k,OpenProcess); REQUIRED(k,SetLastError);
     REQUIRED(u,FindWindowW); REQUIRED(u,FindWindowExW); REQUIRED(u,IsWindow); REQUIRED(u,IsWindowVisible); REQUIRED(u,SetParent); REQUIRED(u,GetParent);
     REQUIRED(u,GetWindowLongPtrW); REQUIRED(u,SetWindowLongPtrW); REQUIRED(u,GetWindowRect); REQUIRED(u,GetClientRect); REQUIRED(u,ScreenToClient); REQUIRED(u,SetWindowPos);

@@ -8,7 +8,7 @@ const { ReadJSON, ExportJSON } = require('./library-json.cjs');
 const { PlanImportIdentity } = require('./import-identity.cjs');
 const { VideoAliases } = require('./library-identity.cjs');
 const { ShareMode, ShareData, ReadShare } = require('./library-share.cjs');
-const { ExportDownloads, ReadDownloads, StageDownloads, DownloadMatches } = require('./offline-archive.cjs');
+const { ExportDownloads, ReadDownloads, StageDownloads, DownloadMatches, MAX_MEDIA_BYTES } = require('./offline-archive.cjs');
 const Tree = require('../ui/library-tree.js');
 const { CheckInnerNames, CheckOuterNames } = require('./library-transfer.cjs');
 const MAGIC = Buffer.from('FVPA0001'), AUTO_MAGIC = Buffer.from('FVPA0002'), LIMIT = 32 * 1024 * 1024;
@@ -102,7 +102,7 @@ class LibraryArchive {
       return { id, mode: share.mode, playlists: playlists.map(p => ({ id: p.id, name: p.name, count: p.entries.length, downloaded: downloads.filter(r => p.entries.some(e => DownloadMatches(r, e))).length, childIds: p.childIds, sameName: this.store.data.playlists.some(q => q.name === p.name) })), rootPlaylistIds: roots };
     } catch (error) { await zip?.Close(); await fs.promises.rm(folder, { recursive: true, force: true }); throw error; }
   }
-  Prune() { for (const [id, p] of this.plans) if (!p.busy && (Date.now() - p.at > 30 * 60000 || this.plans.size >= 3)) void this.Cancel(id); }
+  Prune() { for (const [id, p] of this.plans) if (!p.busy && (Date.now() - p.at > 30 * 60000 || this.plans.size >= 3)) void this.Cancel(id).catch(() => {}); }
   async Cancel(id) { const plan = this.plans.get(id); if (!plan || plan.busy) return; this.plans.delete(id); await plan.zip?.Close(); await fs.promises.rm(plan.folder, { recursive: true, force: true }); }
   async Commit(id, ids, options = {}) {
     const plan = this.plans.get(id);
@@ -134,13 +134,17 @@ class LibraryArchive {
           if (plan.share.locals.get(original) === false) { if (plan.share.mode === 'information') omitted++; else missing++; entry.fileName = name; continue; }
           localStage ||= await fs.promises.mkdtemp(path.join(this.store.media, '.import-'));
           const staged = path.join(localStage, name); let available = false;
-          if (plan.zip?.entries.has(`media/${original}`)) { await plan.zip.Content(`media/${original}`, staged, Number.MAX_SAFE_INTEGER); available = true; }
+          if (plan.zip?.entries.has(`media/${original}`)) { await plan.zip.Content(`media/${original}`, staged, MAX_MEDIA_BYTES); available = true; }
           else if (!plan.zip) {
             const source = path.join(path.dirname(plan.file), 'media', original), stat = await fs.promises.lstat(source).catch(() => null), dir = await fs.promises.lstat(path.dirname(source)).catch(() => null);
-            if (stat?.isFile() && !stat.isSymbolicLink() && dir?.isDirectory() && !dir.isSymbolicLink()) { await fs.promises.copyFile(source, staged, fs.constants.COPYFILE_EXCL); available = true; } else missing++;
+            if (stat?.isFile() && !stat.isSymbolicLink() && dir?.isDirectory() && !dir.isSymbolicLink()) {
+              if (stat.size > MAX_MEDIA_BYTES) throw new Error('メディアが展開上限を超えています。');
+              await fs.promises.copyFile(source, staged, fs.constants.COPYFILE_EXCL); available = true;
+            } else missing++;
           } else missing++;
           if (!available && plan.share.locals.get(original) === true) throw new Error('同梱されたローカル曲を読み取れません。');
           if (available) {
+            if ((await fs.promises.stat(staged)).size > MAX_MEDIA_BYTES) throw new Error('メディアが展開上限を超えています。');
             try { await fs.promises.link(staged, destination); }
             catch (error) {
               if (!['EXDEV', 'EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EACCES', 'EMLINK', 'ENOSYS'].includes(error.code)) throw error;
@@ -172,7 +176,12 @@ class LibraryArchive {
       this.store.data.activePlaylistId = identity.idMap.get(ids[0]);
       Tree.ValidateGraph(this.store.data.playlists, this.store.data.rootPlaylistIds); this.store.Save();
       return { state: this.store.Snapshot(), imported: lists.length, ancestors: selection.ancestorIds.length, missing, omitted, skipped: plan.skipped, downloaded: downloadStage?.imported || 0 };
-    } catch (error) { if (before) this.store.data = before; await downloadStage?.rollback(); for (const file of copied) await fs.promises.rm(file, { force: true }); throw error; }
+    } catch (error) {
+      if (before) this.store.data = before;
+      try { await downloadStage?.rollback(); } catch {}
+      for (const file of copied) { try { await fs.promises.rm(file, { force: true }); } catch {} }
+      throw error;
+    }
     finally {
       try { if (localStage) await fs.promises.rm(localStage, { recursive: true, force: true }); }
       finally {

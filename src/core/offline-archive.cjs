@@ -7,6 +7,7 @@ const { ImageData, ImageURL } = require('./thumbnail.cjs');
 const { LibraryMediaKey } = require('./library-identity.cjs');
 const { isDeepStrictEqual } = require('node:util');
 const { SharedFolder, TrackFile } = require('./offline-layout.cjs');
+const MAX_MEDIA_BYTES = 16 * 1024 ** 3; // 個別メディアの展開上限（ZIP64の4GiB超も許容）
 async function ExportDownloads(library, playlists) {
   if (!library) return { items: [], count: 0 };
   if (library.indexError) throw new Error(library.indexError);
@@ -110,7 +111,10 @@ async function StageDownloads(library, zip, records, playlists, layout) {
         await fs.promises.mkdir(library.directory, { recursive: true });
         staging ||= await fs.promises.mkdtemp(path.join(library.directory, '.import-'));
         library.ResolvePath(path.relative(library.directory, staging).split(path.sep).join('/'));
-        const staged = path.join(staging, `${randomUUID()}.media`); await zip.Content(record.media, staged, Number.MAX_SAFE_INTEGER); await publish(staged, relative);
+        const staged = path.join(staging, `${randomUUID()}.media`);
+        await zip.Content(record.media, staged, MAX_MEDIA_BYTES);
+        if ((await fs.promises.stat(staged)).size > MAX_MEDIA_BYTES) throw new Error('メディアが展開上限を超えています。');
+        await publish(staged, relative);
         const { media, cover, ...data } = record, saved = { ...data, token, url: ParseBilibili(entry.url).url, aliases: [...new Set([ParseBilibili(entry.url).url, canonicalURL])], file: relative, layout: 4, playlistId: target.id, savedAt: new Date().toISOString() };
         if (covers.has(folder)) saved.thumbnail = covers.get(folder);
         else if (cover) {
@@ -134,7 +138,7 @@ async function StageDownloads(library, zip, records, playlists, layout) {
         throw error;
       }
     }, rollback };
-  } catch (error) { await rollback(); throw error; }
+  } catch (error) { try { await rollback(); } catch {} throw error; }
   finally { if (staging) await fs.promises.rm(staging, { recursive: true, force: true }); }
 }
-module.exports = { ExportDownloads, ReadDownloads, StageDownloads, DownloadMatches };
+module.exports = { ExportDownloads, ReadDownloads, StageDownloads, DownloadMatches, MAX_MEDIA_BYTES };

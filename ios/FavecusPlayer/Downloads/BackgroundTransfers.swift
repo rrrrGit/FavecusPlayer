@@ -277,7 +277,12 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         // このメソッドを抜けると一時ファイルが消えるため、確認と移動をここで終える。
-        guard let (id, index) = Self.parse(downloadTask.taskDescription), let job = job(id), index < job.streams.count else { return }
+        guard let (id, index) = Self.parse(downloadTask.taskDescription) else { return }
+        let activeJob: DownloadJob? = lock.withLock {
+            guard !removed.contains(id) else { return nil }
+            return job(id)
+        }
+        guard let job = activeJob, job.streams.indices.contains(index) else { return }
         guard let response = downloadTask.response as? HTTPURLResponse else { reject(id, index, "配信先の応答を確認できません。", refused: false); return }
         guard response.statusCode == 200 || response.statusCode == 206 else {
             let host = downloadTask.originalRequest?.url?.host.map { "・配信先 " + $0 } ?? ""
@@ -294,9 +299,21 @@ final class BackgroundTransfers: NSObject, URLSessionDownloadDelegate, @unchecke
             if FileManager.default.fileExists(atPath: destination.path) { try FileManager.default.removeItem(at: destination) }
             try FileManager.default.moveItem(at: location, to: destination)
         } catch {
+            lock.withLock {
+                if removed.contains(id) { try? FileManager.default.removeItem(at: staging(id)) }
+            }
             fail(id, index, "取得したファイルを保存できません。", refused: false)
             return
         }
+        let shouldNotify = lock.withLock {
+            guard !removed.contains(id) else {
+                try? FileManager.default.removeItem(at: destination)
+                try? FileManager.default.removeItem(at: staging(id))
+                return false
+            }
+            return true
+        }
+        guard shouldNotify else { return }
         onChange?(id)
     }
 

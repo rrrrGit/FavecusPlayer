@@ -76,23 +76,23 @@ final class SyncCore: @unchecked Sendable {
     private func installHost(_ host: SyncHost) {
         let object = JSValue(newObjectIn: context)
         let ctx = context
-        let library: @convention(block) () -> JSValue = { [weak self] in self?.promise { await host.library() } ?? JSValue(undefinedIn: ctx) }
-        let write: @convention(block) (String) -> JSValue = { [weak self] json in self?.promise { try await host.write(json); return nil } ?? JSValue(undefinedIn: ctx) }
-        let persist: @convention(block) (String) -> JSValue = { [weak self] text in self?.promise { try await host.persist(text); return nil } ?? JSValue(undefinedIn: ctx) }
-        let backup: @convention(block) () -> JSValue = { [weak self] in self?.promise { try await host.backup() } ?? JSValue(undefinedIn: ctx) }
-        let recovered: @convention(block) () -> JSValue = { [weak self] in self?.promise { await host.recovered() } ?? JSValue(undefinedIn: ctx) }
-        let request: @convention(block) (String, String, String) -> JSValue = { [weak self] method, url, json in self?.promise { try await host.request(method: method, url: url, json: json) } ?? JSValue(undefinedIn: ctx) }
-        let saveSession: @convention(block) (String) -> JSValue = { [weak self] json in host.saveSession(json); return self?.promise { nil } ?? JSValue(undefinedIn: ctx) }
+        let library: @convention(block) () -> JSValue = { [weak self, weak ctx] in self?.promise { await host.library() } ?? JSValue(undefinedIn: ctx) }
+        let write: @convention(block) (String) -> JSValue = { [weak self, weak ctx] json in self?.promise { try await host.write(json); return nil } ?? JSValue(undefinedIn: ctx) }
+        let persist: @convention(block) (String) -> JSValue = { [weak self, weak ctx] text in self?.promise { try await host.persist(text); return nil } ?? JSValue(undefinedIn: ctx) }
+        let backup: @convention(block) () -> JSValue = { [weak self, weak ctx] in self?.promise { try await host.backup() } ?? JSValue(undefinedIn: ctx) }
+        let recovered: @convention(block) () -> JSValue = { [weak self, weak ctx] in self?.promise { await host.recovered() } ?? JSValue(undefinedIn: ctx) }
+        let request: @convention(block) (String, String, String) -> JSValue = { [weak self, weak ctx] method, url, json in self?.promise { try await host.request(method: method, url: url, json: json) } ?? JSValue(undefinedIn: ctx) }
+        let saveSession: @convention(block) (String) -> JSValue = { [weak self, weak ctx] json in host.saveSession(json); return self?.promise { nil } ?? JSValue(undefinedIn: ctx) }
         let isAborted: @convention(block) () -> Bool = { host.isAborted() }
-        let countsRead: @convention(block) () -> JSValue = { [weak self] in self?.promise { await host.countsRead() } ?? JSValue(undefinedIn: ctx) }
-        let countsApply: @convention(block) (String) -> JSValue = { [weak self] json in self?.promise { await host.countsApply(json); return nil } ?? JSValue(undefinedIn: ctx) }
-        let countsPushed: @convention(block) () -> JSValue = { [weak self] in self?.promise { await host.countsPushed(); return nil } ?? JSValue(undefinedIn: ctx) }
-        let favoritesRead: @convention(block) () -> JSValue = { [weak self] in self?.promise { await host.favoritesRead() } ?? JSValue(undefinedIn: ctx) }
-        let favoritesApply: @convention(block) (String) -> JSValue = { [weak self] json in self?.promise { await host.favoritesApply(json); return nil } ?? JSValue(undefinedIn: ctx) }
-        let favoritesPushed: @convention(block) () -> JSValue = { [weak self] in self?.promise { await host.favoritesPushed(); return nil } ?? JSValue(undefinedIn: ctx) }
-        let historyRead: @convention(block) () -> JSValue = { [weak self] in self?.promise { await host.historyRead() } ?? JSValue(undefinedIn: ctx) }
-        let historyApply: @convention(block) (String) -> JSValue = { [weak self] json in self?.promise { await host.historyApply(json); return nil } ?? JSValue(undefinedIn: ctx) }
-        let historyPushed: @convention(block) () -> JSValue = { [weak self] in self?.promise { await host.historyPushed(); return nil } ?? JSValue(undefinedIn: ctx) }
+        let countsRead: @convention(block) () -> JSValue = { [weak self, weak ctx] in self?.promise { await host.countsRead() } ?? JSValue(undefinedIn: ctx) }
+        let countsApply: @convention(block) (String) -> JSValue = { [weak self, weak ctx] json in self?.promise { await host.countsApply(json); return nil } ?? JSValue(undefinedIn: ctx) }
+        let countsPushed: @convention(block) () -> JSValue = { [weak self, weak ctx] in self?.promise { await host.countsPushed(); return nil } ?? JSValue(undefinedIn: ctx) }
+        let favoritesRead: @convention(block) () -> JSValue = { [weak self, weak ctx] in self?.promise { await host.favoritesRead() } ?? JSValue(undefinedIn: ctx) }
+        let favoritesApply: @convention(block) (String) -> JSValue = { [weak self, weak ctx] json in self?.promise { await host.favoritesApply(json); return nil } ?? JSValue(undefinedIn: ctx) }
+        let favoritesPushed: @convention(block) () -> JSValue = { [weak self, weak ctx] in self?.promise { await host.favoritesPushed(); return nil } ?? JSValue(undefinedIn: ctx) }
+        let historyRead: @convention(block) () -> JSValue = { [weak self, weak ctx] in self?.promise { await host.historyRead() } ?? JSValue(undefinedIn: ctx) }
+        let historyApply: @convention(block) (String) -> JSValue = { [weak self, weak ctx] json in self?.promise { await host.historyApply(json); return nil } ?? JSValue(undefinedIn: ctx) }
+        let historyPushed: @convention(block) () -> JSValue = { [weak self, weak ctx] in self?.promise { await host.historyPushed(); return nil } ?? JSValue(undefinedIn: ctx) }
         for (name, block) in [("library", library as Any), ("write", write), ("persist", persist), ("backup", backup), ("recovered", recovered), ("request", request), ("saveSession", saveSession), ("isAborted", isAborted),
                               ("countsRead", countsRead), ("countsApply", countsApply), ("countsPushed", countsPushed),
                               ("favoritesRead", favoritesRead), ("favoritesApply", favoritesApply), ("favoritesPushed", favoritesPushed),

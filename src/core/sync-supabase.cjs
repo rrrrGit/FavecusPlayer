@@ -72,15 +72,26 @@ const FieldsKey = change => JSON.stringify([change.id, Object.keys(change.f).sor
 const RowOf = (deviceId, change) => ({ record_id: change.id, f: change.f, device_id: deviceId, batch_id: DerivedId(`chg:${FieldsKey(change)}`), idx: 0 });
 
 class SupabaseSyncRepository {
-  // options: { config, request, session: { get(): session|null, set(session) }, now, chunk, pageSize }
+  // options: { config, request, session: { get(): session|null, set(session)→void|Promise }, refreshLock?: { promise? }, now, chunk, pageSize }
   constructor(options) {
     this.config = options.config; this.request = options.request; this.session = options.session; this.now = options.now || Date.now;
     this.chunk = options.chunk || 500; this.pageSize = options.pageSize || 1000;
+    this.refreshLock = options.refreshLock || this.session;
   }
   async Token(force) {
+    const lock = this.refreshLock;
+    if (lock.promise) return (await lock.promise).accessToken;
     let session = this.session.get();
     if (!session) throw new SyncError('auth', FRIENDLY.auth);
-    if (force || session.expiresAt - 60 <= Math.floor(this.now() / 1000)) { session = await RefreshSession(this.config, this.request, session, this.now); this.session.set(session); }
+    if (force || session.expiresAt - 60 <= Math.floor(this.now() / 1000)) {
+      lock.promise = (async () => {
+        const refreshed = await RefreshSession(this.config, this.request, session, this.now);
+        await this.session.set(refreshed);
+        return refreshed;
+      })();
+      try { session = await lock.promise; }
+      finally { lock.promise = null; }
+    }
     return session.accessToken;
   }
   // 認証つきの要求。401は1回だけトークンを更新して再試行する。
@@ -148,7 +159,7 @@ class SupabaseSyncRepository {
   async PushCounts(deviceId, rows) {
     const best = new Map();
     for (const row of rows || []) {
-      if (!row || !Number.isSafeInteger(row.epoch) || row.epoch < 0 || typeof row.month !== 'string' || typeof row.key !== 'string' || !Number.isFinite(row.n) || row.n < 1) continue;
+      if (!row || !Number.isSafeInteger(row.epoch) || row.epoch < 0 || typeof row.month !== 'string' || !/^(\d{4}-(0[1-9]|1[0-2])|legacy)$/.test(row.month) || !FavCore.IsSyncKey(row.key) || !Number.isFinite(row.n) || row.n < 1) continue;
       const n = Math.floor(row.n), id = `${row.epoch}\0${row.month}\0${row.key}`, prev = best.get(id);
       if (!prev || n > prev.n) best.set(id, { epoch: row.epoch, month: row.month, key: row.key, n });
     }
@@ -258,7 +269,18 @@ class SupabaseSyncRepository {
     const byDay = new Map();
     for (const row of days || []) {
       if (!row || typeof row.day !== 'string' || !dayPattern.test(row.day) || !Array.isArray(row.entries)) continue;
-      byDay.set(row.day, row.entries);
+      // JSONBの配列管理領域も見込み、128KiBより余裕を持たせる。末尾の新しい記録を優先。
+      const fits = entries => {
+        let bytes = entries.length * 16;
+        for (const c of JSON.stringify(entries)) { const cp = c.codePointAt(0); bytes += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4; }
+        return bytes <= 120000;
+      };
+      let start = 0, end = row.entries.length;
+      while (start < end) {
+        const mid = Math.floor((start + end) / 2);
+        if (fits(row.entries.slice(mid))) end = mid; else start = mid + 1;
+      }
+      byDay.set(row.day, row.entries.slice(start));
     }
     const body = [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
       .map(([day, entries]) => ({ device_id: deviceId, day, entries, updated_at: new Date(this.now()).toISOString() }));

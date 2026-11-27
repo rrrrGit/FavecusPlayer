@@ -52,7 +52,7 @@ class MiniPlayer {
       this.window.setBounds(ExpandBounds(bounds, work, value));
     });
     this.reposition = () => {
-      if (this.window?.isVisible()) { this.window.setBounds(this.Placement()); this.window.webContents.send('mini:collapsed'); }
+      if (this.main && !this.main.isDestroyed() && this.window && !this.window.isDestroyed() && !this.window.webContents.isDestroyed() && this.window.isVisible()) { this.window.setBounds(this.Placement()); this.window.webContents.send('mini:collapsed'); }
     };
     screen.on('display-removed', this.reposition); screen.on('display-metrics-changed', this.reposition);
   }
@@ -61,11 +61,12 @@ class MiniPlayer {
   Status(code, text) { this.options.status?.(code, text); }
   Handle(channel, callback) {
     ipcMain.handle(channel, async (event, ...args) => {
-      if (!this.window || this.window.isDestroyed() || event.sender !== this.window.webContents || event.senderFrame !== this.window.webContents.mainFrame || event.senderFrame.url !== 'favecus://app/mini.html') return { ok: false, error: '許可されていない操作です。' };
+      if (!this.window || this.window.isDestroyed() || this.window.webContents.isDestroyed() || event.sender !== this.window.webContents || event.senderFrame !== this.window.webContents.mainFrame || event.senderFrame.url !== 'favecus://app/mini.html') return { ok: false, error: '許可されていない操作です。' };
       try { return { ok: true, value: await callback(...args) }; } catch (error) { return { ok: false, error: error.message }; }
     });
   }
   Placement() {
+    if (!this.main || this.main.isDestroyed()) return null;
     let anchor;
     try { anchor = this.tray?.getBounds(); } catch {}
     const display = anchor?.width > 0 ? screen.getDisplayMatching(anchor) : screen.getDisplayMatching(this.main.getBounds());
@@ -73,22 +74,22 @@ class MiniPlayer {
     return MiniBounds(display.workArea, anchor?.width > 0 ? anchor : null);
   }
   async Show() {
-    if (this.disposed || this.main.isDestroyed()) return;
+    if (this.disposed || !this.main || this.main.isDestroyed()) return;
     const epoch = ++this.showEpoch;
     if (this.taskbar && this.settings().taskbarEmbed !== false) {
       try {
         await this.taskbar.Show();
-        if (this.disposed || epoch !== this.showEpoch) return;
-        this.window?.hide(); this.main.hide(); return;
+        if (this.disposed || epoch !== this.showEpoch || !this.main || this.main.isDestroyed()) return;
+        if (this.window && !this.window.isDestroyed()) this.window.hide(); this.main.hide(); return;
       } catch (error) {
-        if (this.disposed || epoch !== this.showEpoch) return;
+        if (this.disposed || epoch !== this.showEpoch || !this.main || this.main.isDestroyed()) return;
         this.notice(`${error.message} 通常の小型画面を表示します。`);
       }
     }
     await this.ShowFloating(epoch);
   }
   async ShowFloating(epoch = ++this.showEpoch) {
-    if (this.disposed || this.main.isDestroyed()) return;
+    if (this.disposed || !this.main || this.main.isDestroyed()) return;
     this.taskbar?.Stop();
     if (!this.window || this.window.isDestroyed()) {
       this.window = new BrowserWindow({ ...this.Placement(), show: false, frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true,
@@ -100,23 +101,24 @@ class MiniPlayer {
       this.window.on('close', e => { if (!this.disposed) { e.preventDefault(); this.Restore(); } });
       this.loading = this.window.loadURL('favecus://app/mini.html');
     }
+    const window = this.window;
     try { await this.loading; }
-    catch { this.window?.destroy(); this.window = null; throw new Error('ミニプレイヤーを開けませんでした。'); }
-    if (this.disposed || epoch !== this.showEpoch || !this.window || this.window.isDestroyed()) return;
+    catch { if (this.window === window) { if (!window.isDestroyed()) window.destroy(); this.window = null; } throw new Error('ミニプレイヤーを開けませんでした。'); }
+    if (this.disposed || epoch !== this.showEpoch || !this.main || this.main.isDestroyed() || this.window !== window || !window || window.isDestroyed() || window.webContents.isDestroyed()) return;
     this.ready = true; this.window.setBounds(this.Placement()); this.window.webContents.send('mini:collapsed'); this.Update();
     this.window.show(); this.window.focus(); this.main.hide();
     this.Status('floating', '独立した小型画面で表示しています');
   }
   Restore() {
     ++this.showEpoch; this.taskbar?.Stop();
-    if (this.disposed || this.main.isDestroyed()) return;
-    this.window?.hide(); if (this.main.isMinimized()) this.main.restore(); this.main.show(); this.main.focus();
+    if (this.disposed || !this.main || this.main.isDestroyed()) return;
+    if (this.window && !this.window.isDestroyed()) this.window.hide(); if (this.main.isMinimized()) this.main.restore(); this.main.show(); this.main.focus();
     this.Status('off', '通常画面で表示しています');
   }
   Update() {
     const value = this.state();
     this.taskbar?.Update();
-    if (this.window && !this.window.isDestroyed() && this.ready) this.window.webContents.send('mini:state', value);
+    if (this.window && !this.window.isDestroyed() && !this.window.webContents.isDestroyed() && this.ready) this.window.webContents.send('mini:state', value);
     if (this.tray && !this.tray.isDestroyed()) this.tray.setToolTip(`Favecus Player · ${value.title}`.slice(0, 127));
   }
   async Configure() {
@@ -127,7 +129,7 @@ class MiniPlayer {
     this.disposed = true; ++this.showEpoch; this.taskbar?.Stop();
     screen.removeListener('display-removed', this.reposition); screen.removeListener('display-metrics-changed', this.reposition);
     for (const name of ['state', 'command', 'volume', 'restore', 'expand']) ipcMain.removeHandler(`mini:${name}`);
-    this.window?.destroy(); this.tray?.destroy(); this.window = null; this.tray = null;
+    if (this.window && !this.window.isDestroyed()) this.window.destroy(); if (this.tray && !this.tray.isDestroyed()) this.tray.destroy(); this.window = null; this.tray = null;
   }
 }
 module.exports = { MiniPlayer };

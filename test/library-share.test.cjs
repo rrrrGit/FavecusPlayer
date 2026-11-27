@@ -150,6 +150,33 @@ test('CRC failures and failed persistence roll back new media and download recor
     await assert.rejects(h.importer.Commit(plan.id, [h.first]), /failed/); assert.deepEqual(h.target.Snapshot(), before); assert.deepEqual(files(h.targetOffline.directory), index); assert.deepEqual(files(h.target.media), []);
   }
 });
+
+test('media extraction rejects declared sizes above 16GiB while keeping the ZIP64 range above 4GiB', async t => {
+  const { MAX_MEDIA_BYTES } = require('../src/core/offline-archive.cjs');
+  assert.ok(MAX_MEDIA_BYTES > 4 * 1024 ** 3);
+  for (const prefix of ['media/', 'downloads/media/']) {
+    const h = await Fixture(t); Seed(h.sourceOffline);
+    const { file } = await Export(h), plan = await h.importer.Prepare(file), prepared = h.importer.plans.get(plan.id);
+    const payload = [...prepared.zip.entries.values()].find(item => item.name.startsWith(prefix));
+    payload.bytes = MAX_MEDIA_BYTES + 1;
+    const before = h.target.Snapshot();
+    await assert.rejects(h.importer.Commit(plan.id, [h.first]), /大きすぎ/);
+    assert.deepEqual(h.target.Snapshot(), before);
+    assert.deepEqual(files(h.target.media), []);
+    assert.deepEqual(files(h.targetOffline.directory), []);
+  }
+});
+
+test('a failed download rollback still removes copied local media and preserves the save error', async t => {
+  const h = await Fixture(t); Seed(h.sourceOffline);
+  const { file } = await Export(h), plan = await h.importer.Prepare(file), before = h.target.Snapshot();
+  const commit = h.targetOffline.CommitRecords.bind(h.targetOffline); let calls = 0;
+  h.targetOffline.CommitRecords = (...args) => { if (++calls > 1) throw new Error('rollback failed'); return commit(...args); };
+  h.target.Save = () => { throw new Error('original save failure'); };
+  await assert.rejects(h.importer.Commit(plan.id, [h.first]), /original save failure/);
+  assert.deepEqual(h.target.Snapshot(), before);
+  assert.deepEqual(files(h.target.media), []);
+});
 test('exclusive media and cover placement failures preserve files created by another writer', async t => {
   for (const phase of ['media', 'cover']) {
     const h = await Fixture(t); Seed(h.sourceOffline); const { file } = await Export(h), plan = await h.importer.Prepare(file), before = h.target.Snapshot(); let collision;

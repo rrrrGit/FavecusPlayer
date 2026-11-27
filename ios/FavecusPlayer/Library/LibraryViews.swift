@@ -24,6 +24,8 @@ struct LibraryRootView: View {
     @State private var reveal: RevealTarget?
     @State private var showPicker = false
     @State private var showImport = false
+    @State private var pendingImport = false
+    @State private var waitingForImportDismissal = false
     @State private var showExport = false
     @State private var showSync = false
     @State private var alarmDemo: AlarmDemoMode?
@@ -65,6 +67,9 @@ struct LibraryRootView: View {
         .tint(Theme.accent)
         .background(Theme.background.ignoresSafeArea())
         .preferredColorScheme(.dark)
+        .background {
+            if let player { RootPlayerAlert(player: player, showPlayer: showPlayer) }
+        }
         .task {
             await store.load()
             player?.restoreLast() // 前回の曲を、一時停止の状態で表示する（鳴らさない）
@@ -96,9 +101,9 @@ struct LibraryRootView: View {
                 await onDocumentChanged()
             }
         }
-        .sheet(isPresented: $showDiagnostics) { PlaceholderView() }
-        .sheet(item: $alarmDemo) { AlarmDemoView(mode: $0, store: store, downloads: downloads) }
-        .sheet(isPresented: Binding(get: { insightsDemo != nil }, set: { if !$0 { insightsDemo = nil } })) {
+        .sheet(isPresented: $showDiagnostics, onDismiss: finishImportDismissal) { PlaceholderView() }
+        .sheet(item: $alarmDemo, onDismiss: finishImportDismissal) { AlarmDemoView(mode: $0, store: store, downloads: downloads) }
+        .sheet(isPresented: Binding(get: { insightsDemo != nil }, set: { if !$0 { insightsDemo = nil } }), onDismiss: finishImportDismissal) {
             NavigationStack {
                 switch insightsDemo {
                 case "auto": AutoListSettingsView(store: player?.autoSettings ?? AutoListSettingsStore(), player: player)
@@ -112,7 +117,10 @@ struct LibraryRootView: View {
             switch result {
             case .success(let url):
                 importer.begin(url: url)
-                showImport = true
+                Task { @MainActor in
+                    await Task.yield()
+                    requestImportPresentation()
+                }
             case .failure(let error):
                 store.notice = "ファイルを開けません：\(ErrorText.safe(error))"
             }
@@ -121,22 +129,22 @@ struct LibraryRootView: View {
             // 「このアプリで開く」で渡されたZIP（ファイルアプリ・共有シート）。
             guard let importer, url.isFileURL, url.pathExtension.lowercased() == "zip" else { return }
             importer.begin(url: url)
-            showImport = true
+            requestImportPresentation()
         }
-        .sheet(isPresented: $showBilibili) {
+        .sheet(isPresented: $showBilibili, onDismiss: finishImportDismissal) {
             if let bilibili { BilibiliSheet(account: bilibili, isPresented: $showBilibili) }
         }
-        .sheet(isPresented: $showSync) {
+        .sheet(isPresented: $showSync, onDismiss: finishImportDismissal) {
             if let sync { SyncSheet(sync: sync, isPresented: $showSync) }
         }
-        .sheet(isPresented: $showExport) {
+        .sheet(isPresented: $showExport, onDismiss: finishImportDismissal) {
             if let exporter { ExportSheet(coordinator: exporter, isPresented: $showExport) }
         }
         .sheet(isPresented: $showImport) {
             if let importer { ImportSheet(coordinator: importer, isPresented: $showImport) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openFullPlayer)) { _ in showPlayer = true } // 再生ボタンを押したとき、再生画面を大きく開く
-        .fullScreenCover(isPresented: $showPlayer, onDismiss: applyReveal) {
+        .fullScreenCover(isPresented: $showPlayer, onDismiss: { applyReveal(); finishImportDismissal() }) {
             if let player {
                 FullPlayerView(player: player, services: services, isPresented: $showPlayer) { chain, entryId in
                     guard let last = chain.last else { return }
@@ -163,12 +171,59 @@ struct RevealTarget: Equatable {
 }
 
 extension LibraryRootView {
+    private func requestImportPresentation() {
+        guard !showImport else { return }
+        pendingImport = true
+        // シートのアニメーションが終わるまで、次の表示はonDismissに任せる。
+        let dismissingSheet = showSync || showBilibili || showExport || showDiagnostics || alarmDemo != nil || insightsDemo != nil || showPlayer
+        waitingForImportDismissal = waitingForImportDismissal || dismissingSheet
+        showSync = false
+        showBilibili = false
+        showExport = false
+        showDiagnostics = false
+        alarmDemo = nil
+        insightsDemo = nil
+        showPlayer = false
+        showPicker = false
+        if !dismissingSheet {
+            Task { @MainActor in
+                await Task.yield()
+                presentPendingImport()
+            }
+        }
+    }
+
+    private func presentPendingImport() {
+        guard pendingImport, !waitingForImportDismissal, !showPicker, !showPlayer, !showSync, !showBilibili, !showExport, !showDiagnostics, alarmDemo == nil, insightsDemo == nil else { return }
+        pendingImport = false
+        showImport = true
+    }
+
+    private func finishImportDismissal() {
+        waitingForImportDismissal = false
+        presentPendingImport()
+    }
+
     fileprivate func applyReveal() {
         guard let target = pendingReveal else { return }
         pendingReveal = nil
         tab = 0
         path = NavigationPath(target.chain)
         reveal = target
+    }
+}
+
+/// 各タブで同時に提示せず、再生画面が閉じている間だけルートが通知を受け持つ。
+private struct RootPlayerAlert: View {
+    @ObservedObject var player: PlaybackEngine
+    let showPlayer: Bool
+
+    var body: some View {
+        Color.clear
+            .alert("お知らせ", isPresented: Binding(get: { player.message != nil && !showPlayer }, set: { if !$0 && !showPlayer { player.message = nil } })) {
+                Button("コピー") { Clipboard.copy(player.message ?? ""); player.message = nil }
+                Button("閉じる", role: .cancel) { player.message = nil }
+            } message: { Text(player.message ?? "") }
     }
 }
 

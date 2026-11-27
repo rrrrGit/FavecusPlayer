@@ -83,7 +83,9 @@ function Import(options) {
   if (!Array.isArray(ids) || !ids.length || ids.length > MAX_PLAYLISTS || ids.some(id => !plan.input.playlists.some(p => p.id === id))) throw new Error('取り込むプレイリストを選んでください。');
   let skippedIdentical = 0;
   if (options.skipIdentical) {
-    const identical = new Set(IdenticalIds(library, plan)), kept = ids.filter(id => !identical.has(id));
+    let identical = new Set();
+    try { identical = new Set(IdenticalIds(library, plan)); } catch { /* 対応表が矛盾するときは重複を省略しない */ }
+    const kept = ids.filter(id => !identical.has(id));
     skippedIdentical = ids.length - kept.length;
     if (!kept.length) throw new Error('選んだプレイリストは、すでに同じ構成のものがあります。取り込みは不要です。');
     ids = kept;

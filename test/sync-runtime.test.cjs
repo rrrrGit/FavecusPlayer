@@ -62,6 +62,46 @@ async function WindowsJoin(w) {
   return w.service.Enable();
 }
 
+test('an unannounced local edit during network sync is merged with remote additions', async () => {
+  const server = FakeServer({ now: Date.now() }), w = WindowsDevice(server), ios = IosDevice(server);
+  await WindowsJoin(w); await Join(server, ios);
+  w.store.Apply({ type: 'create', name: '通信前のリモート追加', select: false }); await w.service.SyncNow();
+  const host = globalThis.__favecusHost, request = host.request;
+  let injected = false;
+  host.request = async (...args) => {
+    if (!injected && args[0] === 'GET' && args[1].includes('/sync_changes')) {
+      injected = true;
+      const local = ios.library();
+      assert.ok(Actions.Apply(local, { type: 'create', name: '通知なしの並行編集', select: false }, ctx));
+      ios.text = Pretty(local); // Changed()を呼ばない。
+    }
+    return request(...args);
+  };
+  const result = await Runtime.Cycle();
+  assert.equal(result.ok, true, JSON.stringify(result)); assert.ok(injected);
+  assert.ok(ios.names().includes('通信前のリモート追加'));
+  assert.ok(ios.names().includes('通知なしの並行編集'));
+  assert.equal((await Runtime.Cycle()).ok, true);
+  assert.equal((await w.service.SyncNow()).ok, true);
+  assert.ok(w.names().includes('通知なしの並行編集'));
+});
+
+test('runtime waits for session persistence and propagates Keychain failures', async () => {
+  const server = FakeServer({ now: Date.now() }), ios = IosDevice(server);
+  await Join(server, ios);
+  await Runtime.Open({ stateText: ios.state, config: ios.config, session: { ...ios.session, expiresAt: 0 }, deviceId: 'ios-test' });
+  let release, started;
+  const saving = new Promise(resolve => { started = resolve; });
+  globalThis.__favecusHost.saveSession = async () => { started(); await new Promise(resolve => { release = resolve; }); throw new Error('Keychain failure'); };
+  let done = false;
+  const cycle = Runtime.Cycle().then(result => { done = true; return result; });
+  await saving;
+  assert.equal(done, false);
+  release();
+  const result = await cycle;
+  assert.equal(result.ok, false); assert.match(result.error, /Keychain failure/);
+});
+
 test('an iPhone device starting from the untouched default library adopts the Windows lists and never duplicates the default list', async () => {
   const server = FakeServer({ now: Date.now() }), w = WindowsDevice(server), ios = IosDevice(server);
   w.store.Apply({ type: 'create', name: 'Windowsのリスト', select: false }); w.store.Apply({ type: 'delete', playlistId: w.store.data.playlists.find(p => p.name === 'お気に入り').id });

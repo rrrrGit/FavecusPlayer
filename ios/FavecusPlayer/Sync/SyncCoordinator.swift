@@ -403,7 +403,7 @@ final class SyncCoordinator: ObservableObject {
             let ok = result["ok"] as? Bool == true
             if ok {
                 activityLogs.markSynced(days: syncedDays)
-                activityLogs.record("sync.activity_logs", detail: ["days": String(syncedDays.count), "ok": "1"])
+                activityLogs.record("sync.activity_logs", detail: ["days": String(syncedDays.count), "ok": "1"], markDirty: false)
             } else {
                 activityLogs.record("sync.activity_logs", detail: ["ok": "0", "missing": (result["missing"] as? Bool == true) ? "1" : "0"])
             }

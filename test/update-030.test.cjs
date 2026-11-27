@@ -128,7 +128,7 @@ function MiniHarness(fail=false, options={}) {
   const handlers=new Map(), calls=[],screen=new EventEmitter();screen.getDisplayMatching=()=>({workArea:{x:0,y:0,width:1920,height:1032}});
   let finish;const loading=new Promise(resolve=>finish=resolve);
   class Window extends EventEmitter {
-    constructor(options={}){super();this.options=options;this.bounds={x:0,y:0,width:430,height:64};this.webContents=new EventEmitter();this.webContents.mainFrame={url:'favecus://app/mini.html'};this.webContents.setWindowOpenHandler=()=>{};this.webContents.send=(...args)=>calls.push(args);}
+    constructor(options={}){super();this.options=options;this.bounds={x:0,y:0,width:430,height:64};this.webContents=new EventEmitter();this.webContents.isDestroyed=()=>!!this.dead;this.webContents.mainFrame={url:'favecus://app/mini.html'};this.webContents.setWindowOpenHandler=()=>{};this.webContents.send=(...args)=>calls.push(args);}
     getBounds(){return this.bounds;}setBounds(v){this.bounds=v;}isDestroyed(){return !!this.dead;}isMinimized(){return false;}isVisible(){return !!this.visible;}show(){this.visible=true;}hide(){this.visible=false;}focus(){}destroy(){this.dead=true;}restore(){}async loadURL(){if(fail)throw new Error('load failed');await loading;}
   }
   class Tray extends EventEmitter {setToolTip(){}getBounds(){return {x:1800,y:1040,width:20,height:20};}isDestroyed(){return false;}destroy(){this.dead=true;}}
@@ -151,6 +151,18 @@ test('mini-player waits for its UI before hiding the main window, restores it an
 });
 test('a failed mini-player load keeps the main window accessible',async()=>{
   const {mini,main}=MiniHarness(true);await assert.rejects(()=>mini.Show(),/開けません/);assert.equal(main.visible,true);assert.equal(mini.window,null);mini.Destroy();
+});
+
+test('mini-player ignores a destroyed main or floating window, including destruction during load', async () => {
+  const { mini, main, finish } = MiniHarness();
+  const pending = mini.Show();
+  main.destroy(); main.getBounds = main.hide = () => assert.fail('destroyed main accessed');
+  finish(); await pending;
+  assert.equal(mini.ready, false);
+  assert.equal(mini.Placement(), null);
+  await mini.Show(); await mini.ShowFloating(); mini.reposition();
+  mini.window.destroy(); mini.window.isVisible = () => assert.fail('destroyed floating window accessed');
+  mini.reposition(); mini.Restore(); mini.Destroy();
 });
 class FakeTaskbar {
   constructor(exe,state,settings,action,status,failure){Object.assign(this,{exe,state,settings,action,status,failure});}

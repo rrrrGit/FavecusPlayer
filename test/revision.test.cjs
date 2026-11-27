@@ -222,6 +222,30 @@ test('062 failed nested cleanup rolls back both installations and their launch m
     assert.equal(fs.readFileSync(path.join(root, 'runtime/config/favecus-player-install.json'), 'utf8'), before);
   }
 });
+
+test('failed nested archive rename rolls back the app without retaining a nonexistent archive', async t => {
+  const parent = Temp(t), root = path.join(parent, 'FavecusPlayer'), old = await Payload(parent, '0.6.1'), next = await Payload(parent, '0.6.2'), runtimes = async () => {};
+  await Install({ root, payload: old, mode: 'setup', dependencies: { runtimes } });
+  const nested = path.join(root, 'FavecusPlayer'); await Install({ root: nested, payload: old, mode: 'setup', dependencies: { runtimes } });
+  const rename = fs.promises.rename;
+  t.mock.method(fs.promises, 'rename', async (from, to) => { if (from === nested) throw new Error('archive rename denied'); return rename(from, to); });
+  await assert.rejects(Install({ root, payload: next, mode: 'patch', dependencies: { runtimes } }), error => { assert.match(error.message, /archive rename denied/); assert.ok(!error.keepStage); return true; });
+  for (const folder of [root, nested]) assert.equal(JSON.parse(fs.readFileSync(path.join(folder, 'app/package.json'))).version, '0.6.1');
+});
+
+test('setup lock write failure closes its handle and removes the lock for retry', async t => {
+  const parent = Temp(t), root = path.join(parent, 'FavecusPlayer'), payload = await Payload(parent), open = fs.promises.open;
+  let closed = false;
+  const mock = t.mock.method(fs.promises, 'open', async (file, flags, ...args) => {
+    const handle = await open(file, flags, ...args);
+    if (!String(file).endsWith('setup.lock')) return handle;
+    return { writeFile: async () => { throw new Error('lock write failed'); }, close: async () => { closed = true; await handle.close(); } };
+  });
+  await assert.rejects(Install({ root, payload, mode: 'setup', dependencies: { runtimes: async () => {} } }), /lock write failed/);
+  assert.equal(closed, true); assert.equal(fs.existsSync(path.join(root, 'runtime/config/setup.lock')), false);
+  mock.mock.restore();
+  await Install({ root, payload, mode: 'setup', dependencies: { runtimes: async () => {} } });
+});
 test('062 nested downloads and unrelated personal files are kept in place', async t => {
   const parent = Temp(t), root = path.join(parent, 'FavecusPlayer'), payload = await Payload(parent, '0.6.2'), dependencies = { runtimes: async () => {} };
   await Install({ root, payload, mode: 'setup', dependencies }); const nested = path.join(root, 'FavecusPlayer'); await Install({ root: nested, payload, mode: 'setup', dependencies });

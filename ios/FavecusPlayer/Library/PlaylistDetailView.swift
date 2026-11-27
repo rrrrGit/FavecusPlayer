@@ -204,11 +204,14 @@ struct PlaylistDetail: View {
             Button("キャンセル", role: .cancel) {}
         }
         .confirmationDialog(offlineRemovalTitle, isPresented: $confirmRemoveOffline, titleVisibility: .visible) {
-            Button("削除", role: .destructive) {
-                let keys = offlineTarget.keys
-                Task {
-                    if let current = services.player?.current, entries.contains(where: { $0.id == current.entryId }) { services.player?.stop() }
-                    _ = await services.downloads?.removeOffline(keys: keys)
+            if (services.downloads?.savedSummary(keys: offlineTarget.keys).count ?? 0) > 0 {
+                Button("削除", role: .destructive) {
+                    let keys = offlineTarget.keys
+                    Task {
+                        guard let downloads = services.downloads, downloads.savedSummary(keys: keys).count > 0 else { return }
+                        if let current = services.player?.current, entries.contains(where: { $0.id == current.entryId }) { services.player?.stop() }
+                        _ = await downloads.removeOffline(keys: keys)
+                    }
                 }
             }
             Button("キャンセル", role: .cancel) {}

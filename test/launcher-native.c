@@ -18,7 +18,16 @@ static int FakeCopy(const W*a,const W*b,int c){(void)a;(void)b;(void)c;copies++;
 static int FakeDelete(const W*p){(void)p;deletes++;return 1;}
 static int FakeMessage(H h,const W*m,const W*t,U32 n){(void)h;(void)m;(void)t;(void)n;return 1;}
 static int FakeDirectory(const W*p,H h){(void)p;(void)h;return 1;}
-static H FakeFile(const W*a,U32 b,U32 c,H d,U32 e,U32 f,H g){(void)a;(void)b;(void)c;(void)d;(void)e;(void)f;(void)g;return (H)3;}
+static int fileOpens=0;static H FakeFile(const W*a,U32 b,U32 c,H d,U32 e,U32 f,H g){(void)a;(void)b;(void)c;(void)d;(void)e;(void)f;(void)g;fileOpens++;return (H)3;}
+static U32 readCount=1;static int converted=1;
+static int FakeRead(H f,void*p,U32 cap,U32*n,H o){(void)f;(void)cap;(void)o;((char*)p)[0]='a';*n=readCount;return 1;}
+static int FakeWide(U32 cp,U32 flags,const char*p,int count,W*out,int cap){(void)cp;(void)flags;(void)p;(void)count;(void)cap;out[0]='a';return converted;}
+static U32 resourceSize=1;static H loadedResource=(H)1,lockedResource=(H)2;
+static H FakeModule(const W*p){(void)p;return (H)1;}
+static H FakeFind(H m,const W*n,const W*t){(void)m;(void)n;(void)t;return (H)1;}
+static U32 FakeResourceSize(H m,H r){(void)m;(void)r;return resourceSize;}
+static H FakeResourceLoad(H m,H r){(void)m;(void)r;return loadedResource;}
+static H FakeResourceLock(H r){(void)r;return lockedResource;}
 static int FakeSize(H h,I64*s){(void)h;*s=0;return 1;}
 static int FakeWrite(H h,const void*p,U32 n,U32*w,H o){(void)h;(void)o;assert(n<sizeof(logged));memcpy(logged,p,n);logged[n]=0;*w=n;return 1;}
 static H FakeBrowse(BROWSEINFO*b){(void)b;return (H)4;}
@@ -26,6 +35,9 @@ static int FakePath(H h,W*p){(void)h;Copy(p,chosen);return 1;}
 static void FakeFree(H h){(void)h;}
 static int Contains(const W*s,const W*needle){for(int i=0;s[i];i++){int j=0;while(needle[j]&&s[i+j]==needle[j])j++;if(!needle[j])return 1;}return 0;}
 int main(void) {
+    W quoted[CAP];quoted[0]=0;QuotedArgument(quoted,L"D:\\");assert(Equal(quoted,L"\"D:\\\\\""));
+    quoted[0]=0;QuotedArgument(quoted,L"D:\\Music Folder");assert(Equal(quoted,L"\"D:\\Music Folder\""));
+    struct { W text[4]; W sentinel; } bounded={{'a',0},123};AddN(bounded.text,4,L"bcdef");assert(bounded.text[3]==0&&bounded.sentinel==123);
     assert(SafeName(L"app"));assert(SafeName(L"app-0.4.2-1789011606542"));
     assert(!SafeName(L"../app"));assert(!SafeName(L"app/../other"));assert(!SafeName(L"app\\other"));assert(!SafeName(L"app.."));assert(!SafeName(L"application"));assert(!SafeName(L""));
     CreateProcessW=FakeCreate;CloseHandle=FakeClose;WaitForSingleObject=FakeWait;GetExitCodeProcess=FakeExit;GetLastError=FakeError;GetSystemDirectoryW=FakeSystem;CopyFileW=FakeCopy;DeleteFileW=FakeDelete;MessageBoxW=FakeMessage;
@@ -38,5 +50,11 @@ int main(void) {
     SHBrowseForFolderW=FakeBrowse;SHGetPathFromIDListW=FakePath;CoTaskMemFree=FakeFree;Copy(chosen,L"D:\\FavecusPlayer");assert(ChooseFolder(0));assert(Equal(root,chosen));assert(ChooseFolder(1));assert(Equal(root,chosen));
     exitValue=0;assert(HasDesktopShortcut());assert(Contains(lastCommand,L"CommonDesktopDirectory"));assert(Contains(lastCommand,L"previousRoots"));exitValue=1;assert(!HasDesktopShortcut());
     CreateDirectoryW=FakeDirectory;CreateFileW=FakeFile;GetFileSizeEx=FakeSize;WriteFile=FakeWrite;Copy(runId,L"123-456");LogExit(0xc0000005,code);assert(strcmp(logged,"FP-EXIT-C0000005 run=123-456\r\n")==0);assert(Equal(code,L"D:\\FavecusPlayer\\runtime\\logs\\launcher.log"));
+    ReadFile=FakeRead;MultiByteToWideChar=FakeWide;
+    readCount=0;assert(!ReadText(L"empty",code)&&code[0]==0);
+    readCount=1;converted=0;assert(!ReadText(L"invalid",code)&&code[0]==0);
+    converted=1;assert(ReadText(L"valid",code)&&Equal(code,L"a"));
+    GetModuleHandleW=FakeModule;FindResourceW=FakeFind;SizeofResource=FakeResourceSize;LoadResource=FakeResourceLoad;LockResource=FakeResourceLock;
+    int opensBefore=fileOpens;resourceSize=0;assert(!WritePayload(L"payload"));resourceSize=1;loadedResource=0;assert(!WritePayload(L"payload"));loadedResource=(H)1;lockedResource=0;assert(!WritePayload(L"payload"));assert(fileOpens==opensBefore);
     puts("Native launcher destination, repair location, shortcut detection, unsigned exit status and diagnostic code/log checks passed (mock Win32).");return 0;
 }

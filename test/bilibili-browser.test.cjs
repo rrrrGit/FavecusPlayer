@@ -20,7 +20,7 @@ function Harness(t) {
     close() { if (!this.closed) { this.closed = true; this.emit('closed'); } } loadURL(url) { return this.webContents.loadURL(url); }
   }
   class View { constructor(options) { this.options = options; this.webContents = new Contents(); views.push(this); } setBounds(value) { this.bounds = value; } }
-  const browser = new BilibiliBrowser({ BrowserWindow: Window, WebContentsView: View, ipcMain: { handle: (key, fn) => handlers.set(key, fn) } }, { profile: async () => ({ loggedIn }), details: id => detail(id), volume: () => .5, add: value => additions.push(value) });
+  const browser = new BilibiliBrowser({ BrowserWindow: Window, WebContentsView: View, ipcMain: { handle: (key, fn) => handlers.set(key, fn), removeHandler: key => handlers.delete(key) } }, { profile: async () => ({ loggedIn }), details: id => detail(id), volume: () => .5, add: value => additions.push(value) });
   t.after(() => browser.Destroy());
   const invoke = async (channel, ...args) => { const wc = browser.window.webContents, result = await handlers.get(channel)({ sender: wc, senderFrame: wc.mainFrame }, ...args); if (!result.ok) throw new Error(result.error); return result.value; };
   return { browser, windows, views, handlers, additions, invoke, login: value => loggedIn = value, details: fn => detail = fn };
@@ -77,4 +77,18 @@ test('navigation blocks volume and pause IPC in the search player and restores t
   wc.loading = false; wc.emit('did-finish-load');
   assert.equal(wc.sent.at(-1).value.value, .37); assert.equal(wc.muted, true);
   await h.invoke('browse:command', 'sound'); assert.equal(wc.muted, false);
+});
+
+test('destroyed windows and contents are ignored and Destroy releases every browse handler', async t => {
+  const h = Harness(t); await h.browser.Open();
+  const window = h.browser.window, wc = h.browser.view.webContents;
+  wc.closed = true;
+  wc.getURL = wc.getTitle = () => assert.fail('destroyed contents accessed');
+  assert.equal(h.browser.State().url, '');
+  h.browser.Bounds(); await h.browser.Command('reload');
+  window.closed = true;
+  window.hide = window.close = window.getContentSize = window.isMaximized = () => assert.fail('destroyed window accessed');
+  assert.equal(h.browser.State().maximized, false);
+  h.browser.Bounds(); h.browser.Hide(); h.browser.Close(); await h.browser.Command('reload');
+  h.browser.Destroy(); assert.equal(h.handlers.size, 0);
 });

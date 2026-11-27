@@ -201,6 +201,7 @@ final class AVPlayerBackend: PlayerBackend {
     }
 
     func seek(to seconds: Double) {
+        endCrossfade()
         player.seek(to: CMTime(seconds: max(0, seconds), preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
     }
 

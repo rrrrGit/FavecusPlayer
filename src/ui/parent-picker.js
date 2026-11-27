@@ -34,7 +34,7 @@
     function render() {
       choices.replaceChildren(); rows = []; names = new Map(); arrows = new Map();
       const highlighted = new Set(matches), focusId = matches[matchIndex];
-      const label = selected ? tree.Path(data, selected).map(p => p.name).join('/') : rootLabel;
+      const label = selected ? tree.Path(data, selected).map(p => p.name).join('/') : options.allowRoot === false ? 'なし（選択できるプレイリストがありません）' : rootLabel;
       selection.textContent = `選択中：${label}`; selection.title = label; top.setAttribute('aria-pressed', String(!selected));
       status.textContent = query ? (matches.length ? `${matchIndex + 1} / ${matches.length}件` : '該当するプレイリストはありません') : '矢印で子プレイリストを開けます';
       previous.disabled = next.disabled = matches.length < 2;
@@ -72,6 +72,7 @@
       event.preventDefault(); jump(event.key === 'ArrowUp' || event.shiftKey ? -1 : 1);
     };
     if (!map.has(selected) || excluded.has(selected)) selected = null;
+    if (!selected && options.allowRoot === false) selected = tree.Walk(data).find(p => !excluded.has(p.id))?.id || null;
     if (options.excludeId) reveal(options.excludeId);
     if (selected) reveal(selected);
     render(); if (selected) scrollTo(selected);

@@ -24,15 +24,16 @@ async function Harness(t) {
     }
     set className(value) { this.classes = new Set(value.split(/\s+/)); } get className() { return [...this.classes].join(' '); }
     append(...children) { for (const node of children) { if (node.parentElement) node.parentElement.children = node.parentElement.children.filter(n => n !== node); node.parentElement = this; this.children.push(node); } }
+    prepend(...children) { this.append(...children); this.children.unshift(...this.children.splice(this.children.length - children.length)); }
     replaceChildren(...children) { this.children = []; this.text = ''; this.append(...children); }
     set textContent(value) { this.text = String(value); this.children = []; } get textContent() { return (this.text || '') + this.children.map(c => c.textContent).join(''); }
     set value(value) { this.val = String(value); } get value() { return this.val ?? this.children[0]?.value ?? ''; }
-    setAttribute(k, v) { this[k] = v; } getAttribute(k) { return this[k] ?? null; } removeAttribute(k) { delete this[k]; }
+    setAttribute(k, v) { this[k] = v; } getAttribute(k) { return this[k] ?? null; } hasAttribute(k) { return this[k] !== undefined; } removeAttribute(k) { delete this[k]; }
     focus() { document.activeElement = this; }
     addEventListener(name, callback) { this.events[name] = callback; }
     querySelectorAll(selector) { const all = this.children.flatMap(c => [c, ...c.querySelectorAll('*')]); if (selector === '*') return all;
       return all.filter(n => selector === 'input:checked' ? n.tagName === 'input' && n.checked : selector.startsWith('.') ? n.classList.contains(selector.slice(1)) : n.tagName === selector); }
-    closest(selector) { return selector.startsWith('.') && this.classList.contains(selector.slice(1)) ? this : this.parentElement?.closest(selector); }
+    closest(selector) { return selector.split(',').some(part => { const s = part.trim(); return s.startsWith('#') ? this.id === s.slice(1) : s.startsWith('.') ? this.classList.contains(s.slice(1)) : this.tagName === s; }) ? this : this.parentElement?.closest(selector); }
     querySelector(selector) { return selector === 'use' ? { setAttribute() {} } : this.querySelectorAll(selector)[0]; }
     set innerHTML(html) { for (const id of this.htmlIds || []) nodes.delete(id); this.htmlIds = []; this.children = [];
       for (const match of html.matchAll(/<([a-z][a-z0-9]*)\b[^>]*\bid="([^"]+)"[^>]*>/g)) { const n = new Node(match[1]); n.id = match[2]; nodes.set(n.id, n); this.append(n); this.htmlIds.push(n.id);
@@ -59,7 +60,7 @@ async function Harness(t) {
     entryThumbnail: async () => null, preferSaved: async value => ({ preferSaved: value }), accounts: async () => ({ bilibili: { loggedIn: true } }), onEvent: cb => emit = cb, bounds: value => bounds.push(value), action: async value => store.Apply(value),
     prepareAdd: value => { calls.push(value); return review.Prepare(value); }, commitAdd: (id, selected) => review.Commit(id, selected), cancelAdd: async id => review.Cancel(id) };
   const context = { document, window: { addEventListener: (name, fn) => windowEvents[name] = fn, favecusApp: api, FavecusQueueFollow: { QueueFollower }, FavecusListArtwork: { ListArtwork }, FavecusTransport: require('../src/ui/transport-model.js') },
-    Date: class extends Date { static now() { return now; } }, requestAnimationFrame: fn => frames.push(fn), IntersectionObserver: class { constructor(callback, options) { this.callback = callback; this.options = options; this.items = new Set(); if (options.threshold === 0 && options.root === nodes.get('entries')) artworkObserver = this; if (options.threshold === 0 && options.root === nodes.get('home')) { if (homeObserver) searchObserver = this; else homeObserver = this; } } observe(item) { this.items.add(item); } disconnect() { this.items.clear(); } }, ResizeObserver: class { constructor() {} observe() {} }, setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, { fn, at: now + ms }); return id; }, clearTimeout: id => timers.delete(id), console: { error: e => errors.push(e) } };
+    Date: class extends Date { static now() { return now; } }, requestAnimationFrame: fn => frames.push(fn), IntersectionObserver: class { constructor(callback, options) { this.callback = callback; this.options = options; this.items = new Set(); if (options.threshold === 0 && options.root === nodes.get('entries')) artworkObserver = this; if (options.threshold === 0 && options.root === nodes.get('home')) { if (homeObserver) searchObserver = this; else homeObserver = this; } } observe(item) { this.items.add(item); } unobserve(item) { this.items.delete(item); } disconnect() { this.items.clear(); } }, ResizeObserver: class { constructor() {} observe() {} }, setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, { fn, at: now + ms }); return id; }, clearTimeout: id => timers.delete(id), console: { error: e => errors.push(e) } };
   vm.createContext(context);
   for (const file of ['library-tree.js', 'home-view.js', 'library-search.js', 'tree-view.js', 'parent-picker.js', 'playlist-reader.js', 'keybindings.js', 'queue-drag.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../src/ui', file), 'utf8').replace('})(globalThis)', '})(window)'), context);
   for (const script of appScripts()) vm.runInContext(script, context); await new Promise(setImmediate);
@@ -781,4 +782,134 @@ test('066 positional drop confirms before changing data, supports cancellation, 
   const drop = `DropTrackIntoPlaylist(${JSON.stringify(item)},${JSON.stringify(child)},${JSON.stringify({targetId:anchor.id,after:false})})`;
   h.run(drop); assert.match(h.node('drop-track-note').textContent, /前/); assert.deepEqual(s.Snapshot(), before); h.run('CloseModal()'); assert.deepEqual(s.Snapshot(), before);
   h.run(drop); await h.node('drop-track-actions').children[0].events.click(); assert.equal(s.Playlist(child).entries.length, 2); assert.equal(s.Playlist(child).entries[1].id, anchor.id); assert.equal(s.Playlist(h.id).entries.length, 12); assert.equal(h.node('modal').open, false);
+});
+
+
+test('076 list scrolling keys bypass shortcut capture while body shortcuts and modified list keys still work', async t => {
+  const h = await Harness(t), calls = []; h.api.shortcut = async value => calls.push(value);
+  const press = (target, code, extra = {}) => {
+    const e = { target, code, key: code === 'Space' ? ' ' : code, isTrusted: true, preventDefault() { this.prevented = true; }, stopPropagation() { this.stopped = true; }, ...extra };
+    h.document.events.keydown(e); return e;
+  };
+  h.play(0); h.flush();
+  for (const id of ['entries', 'queue-timeline']) for (const code of ['ArrowUp', 'ArrowDown', 'Space']) {
+    const e = press(h.node(id), code); assert.equal(e.prevented, undefined); assert.equal(e.stopped, undefined);
+    h.node(id).events.keydown(e);
+  }
+  const child = h.node('entries').querySelector('.entry-info'); assert.equal(press(child, 'ArrowDown').prevented, undefined);
+  assert.equal(h.run('timelineManual'), true); assert.equal(calls.length, 0);
+  assert.equal(press(h.document.body, 'Space').prevented, true);
+  h.run("state.settings.keybindings.next = 'Alt+ArrowDown'");
+  assert.equal(press(h.node('entries'), 'ArrowDown', { altKey: true }).prevented, true);
+  await new Promise(setImmediate); assert.equal(calls.length, 2);
+});
+
+test('076 seek release without change resumes progress and pointerup followed by change keeps the chosen seek value', async t => {
+  const h = await Harness(t), seeks = []; h.api.command = async (...args) => seeks.push(args);
+  h.play(0); h.emit('playback', { position: 12, duration: 180, paused: false });
+  const progress = h.node('progress');
+  for (const release of ['pointerup', 'blur', 'window-blur']) {
+    progress.value = 20; progress.oninput(); progress.value = 12; progress.oninput();
+    if (release === 'window-blur') h.windowEvent('blur'); else progress.events[release]();
+    h.tick(0); assert.equal(h.run('seeking'), false);
+    h.emit('playback', { position: 15, duration: 180, paused: false }); assert.equal(progress.value, '15');
+    h.windowEvent('focus');
+  }
+  progress.value = 65; progress.oninput(); progress.events.pointerup(); progress.onchange(); h.tick(0);
+  assert.deepEqual(seeks, [['seek', 65]]); assert.equal(h.run('seeking'), false);
+});
+
+test('076 tooltip suppression keeps new sleep, speed, playback and directly changed titles across modal and focus restoration', async t => {
+  const h = await Harness(t); h.play(0);
+  h.node('new-list').title = 'old'; h.run('AddURL()');
+  h.node('new-list').title = 'new';
+  h.emit('sleep', { mode: 'song' }); h.emit('speed', 1.5);
+  h.emit('playback', { position: 12, duration: 180, title: 'updated title' });
+  for (const id of ['transport-more', 'sleep', 'speed', 'now-title']) assert.equal(h.node(id).hasAttribute('title'), false, id);
+  h.run('CloseModal()'); assert.equal(h.node('new-list').title, 'new');
+  assert.match(h.node('transport-more').title, /この曲の終わりまで.*1.5x/); assert.equal(h.node('now-title').title, 'updated title');
+  h.windowEvent('blur'); h.emit('speed', 2); h.emit('sleep', { mode: 'off' });
+  assert.equal(h.node('transport-more').hasAttribute('title'), false); h.windowEvent('focus');
+  assert.match(h.node('transport-more').title, /2x/); assert.doesNotMatch(h.node('transport-more').title, /この曲の終わりまで/);
+  assert.equal(Object.hasOwn(h.node('speed').dataset, 'savedTitle'), false);
+});
+
+test('076 lazy rows use updated duration and restore the reorder handle after moving beyond row 80', async t => {
+  const h = await Harness(t), p = h.store.Playlist(h.id);
+  p.entries = Array.from({ length: 100 }, (_, n) => ({ ...p.entries[0], id: 'lazy-' + n, duration: 0 }));
+  h.emit('state', h.store.Snapshot()); const id = p.entries[80].id;
+  assert.equal(h.run('pendingRows.size'), 20); h.run("UpdateDuration('lazy-80', 145)");
+  h.run("EnsureRowBuilt(entryRows.get('lazy-80'))");
+  let row = h.run("entryRows.get('lazy-80')"); assert.match(row.querySelector('.entry-info').textContent, /02:25/);
+  p.entries[80].duration = 145; // 実IPCと同様に、次のactionが返す保存状態にも取得済みの長さを含める。
+  await row.querySelector('.entry-number').events.keydown({ key: 'ArrowDown', altKey: true, preventDefault() {} }); await new Promise(setImmediate);
+  row = h.run("entryRows.get('lazy-80')"); assert.equal(row.classList.contains('pending'), false);
+  assert.equal(h.document.activeElement, row.querySelector('.entry-number')); assert.match(row.querySelector('.entry-info').textContent, /02:25/);
+  assert.equal(h.store.Playlist(h.id).entries[81].id, id);
+});
+
+test('076 tree reorder restores the handle in the redrawn tree and preserves scroll position', async t => {
+  const h = await Harness(t); h.store.Apply({ type: 'create', name: 'next' }); h.emit('state', h.store.Snapshot());
+  const box = h.node('playlists'); box.scrollTop = 42;
+  const row = box.querySelectorAll('.tree-row').find(r => r.dataset.playlistId === h.id), old = row.querySelector('.tree-handle');
+  await old.events.keydown({ key: 'ArrowDown', altKey: true, preventDefault() {} });
+  const restored = box.querySelectorAll('.tree-row').find(r => r.dataset.playlistId === h.id).querySelector('.tree-handle');
+  assert.notEqual(restored, old); assert.equal(h.document.activeElement, restored); assert.equal(box.scrollTop, 42);
+});
+
+test('076 existing-add popup closes on window blur and resize', async t => {
+  const h = await Harness(t);
+  h.node('player-area').append(h.node('add-existing'));
+  for (const event of ['blur', 'resize']) { h.run('ExistingMenu()'); assert.ok(h.run('existingPopup')); h.windowEvent(event); assert.equal(h.run('existingPopup'), null); }
+});
+
+test('076 favorites page errors preserve the current page and allow retry in either direction', async t => {
+  const h = await Harness(t), requested = []; let fail = 0;
+  h.api.favoriteFolders = async () => [{ id: 'folder', title: 'folder', count: 60 }];
+  h.api.favoriteVideos = async (id, page) => { requested.push(page); if (page === fail) throw Error('network failed'); return { videos: [{ url: 'av' + page, title: 'page ' + page, artist: '' }], hasMore: page < 3 }; };
+  h.run('Favorites()'); await new Promise(setImmediate);
+  fail = 2; await h.node('favorite-next').onclick(); assert.equal(h.node('favorite-page').textContent, '1');
+  assert.equal(h.node('favorite-prev').disabled, true); assert.equal(h.node('favorite-next').disabled, false); assert.match(h.node('favorite-list').textContent, /page 1/);
+  fail = 0; await h.node('favorite-next').onclick(); assert.equal(h.node('favorite-page').textContent, '2');
+  fail = 1; await h.node('favorite-prev').onclick(); assert.equal(h.node('favorite-page').textContent, '2');
+  assert.equal(h.node('favorite-prev').disabled, false); assert.equal(h.node('favorite-next').disabled, false);
+  fail = 0; await h.node('favorite-prev').onclick(); assert.equal(h.node('favorite-page').textContent, '1');
+  assert.deepEqual(requested, [1, 2, 2, 1, 1]);
+});
+
+test('076 Favorites and PlaylistURL keep duplicate review open by returning AddSelected false', async t => {
+  const h = await Harness(t); h.run('AddSelected = async () => false');
+  h.api.favoriteFolders = async () => [{ id: 'f', title: 'f', count: 1 }];
+  h.api.favoriteVideos = async () => ({ videos: [{ url: 'av100', title: 'track' }], hasMore: false });
+  h.run('Favorites()'); await new Promise(setImmediate);
+  const box = h.node('favorite-list').querySelector('input'); box.checked = true; box.onchange();
+  await h.submit(); assert.equal(h.node('modal').open, true);
+  h.api.playlistSources = async () => [{ kind: 'parts', title: 'source' }];
+  h.api.playlistVideos = async () => ({ videos: [{ url: 'av100', title: 'track' }], hasMore: false });
+  h.run('PlaylistURL()');
+  h.node('playlist-source-url').value = 'av100'; await h.node('playlist-fetch').onclick();
+  h.node('playlist-select-all').onclick(); await h.submit(); assert.equal(h.node('modal').open, true);
+});
+
+test('076 bulk copy clears selection after duplicate approval but keeps it on cancellation', async t => {
+  const h = await Harness(t), p = h.store.Playlist(h.id), first = p.entries[0];
+  h.store.Apply({ type: 'create', name: 'destination' }); const dest = h.store.data.activePlaylistId;
+  h.store.Apply({ type: 'add', playlistId: dest, urls: first.url }); h.store.Apply({ type: 'select', playlistId: h.id }); h.emit('state', h.store.Snapshot());
+  // Bulk bar creation needs the same ID registration a real DOM provides.
+  h.node('entries').before = bar => { h.nodes.set(bar.id, bar); for (const n of bar.querySelectorAll('*')) if (n.id) h.nodes.set(n.id, n); };
+  const open = () => {
+    h.run('SetSelectionMode(true); selectedEntries.set(state.playlists[0].entries[0].id, { playlistId: state.activePlaylistId, entryId: state.playlists[0].entries[0].id }); BulkTransfer("copy")');
+    const target = h.node('modal-body').querySelectorAll('input').find(n => n.value === dest); target.checked = true; target.onchange();
+  };
+  open(); await h.submit(); assert.equal(h.node('modal-title').textContent, '重複の可能性がある曲'); assert.equal(h.run('selectedEntries.size'), 1);
+  h.run('CloseModal()'); assert.equal(h.run('selectedEntries.size'), 1);
+  open(); await h.submit(); h.node('duplicate-list').querySelector('input').checked = true; await h.submit();
+  assert.equal(h.run('selectedEntries.size'), 0); assert.match(h.node('bulk-bar').querySelector('.bulk-count').textContent, /0曲/); assert.equal(h.store.Playlist(dest).entries.length, 2);
+});
+
+test('076 non-root parent picker replaces deleted targets with a valid list and explains an empty choice', async t => {
+  const h = await Harness(t); h.run("var fallbackPicker = window.FavecusParentPicker($('modal-body'), state, { selected: 'deleted', allowRoot: false })");
+  assert.equal(h.run('fallbackPicker.get()'), h.id); assert.equal(h.node('modal-body').querySelector('.parent-selection').textContent, '選択中：' + h.store.Playlist(h.id).name);
+  h.run("window.FavecusParentPicker($('modal-body'), { playlists: [], rootPlaylistIds: [] }, { selected: 'deleted', allowRoot: false })");
+  assert.match(h.node('modal-body').querySelector('.parent-selection').textContent, /選択中：なし/); assert.doesNotMatch(h.node('modal-body').textContent, /選択中：最上位/);
 });

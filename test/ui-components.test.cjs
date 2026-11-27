@@ -193,3 +193,32 @@ test('TreeView drag handles sibling vs child drop, blocks descendant hover, and 
   assert.equal(h2.box.querySelectorAll('img').length, 0);
   assert.equal(h2.data.playlists[0].icon, 'data:image/png;base64,example');
 });
+
+
+test('local seek release resumes progress painting and an open quality menu survives mouseleave', () => {
+  const nodes = new Map(), events = {}, windows = {}, timers = [];
+  class Node {
+    constructor() { this.events = {}; this.hidden = true; this.value = '0'; this.classes = new Set(); this.classList = { add: c => this.classes.add(c), remove: c => this.classes.delete(c), toggle: (c, on) => on ? this.classes.add(c) : this.classes.delete(c) }; }
+    addEventListener(type, fn) { (this.events[type] ||= []).push(fn); }
+    fire(type, event = {}) { for (const fn of this.events[type] || []) fn(event); }
+    querySelectorAll() { return []; }
+    setAttribute(k, v) { this[k] = v; }
+    blur() { this.fire('blur'); }
+    contains(node) { return node === this; }
+  }
+  for (const id of ['local-video', 'local-error', 'local-controls', 'local-toggle', 'local-seek', 'local-time', 'local-fullscreen', 'local-quality-menu', 'local-quality-box', 'local-quality', 'local-quality-info', 'local-quality-change']) nodes.set(id, new Node());
+  const body = new Node(), video = nodes.get('local-video'), seek = nodes.get('local-seek'), menu = nodes.get('local-quality-menu');
+  video.duration = 100; video.currentTime = 10; video.paused = false;
+  const ctx = { URL, location: { href: 'https://preview.invalid/local.html?offline=' + 'a'.repeat(64) + '.mp4&kind=video&height=720' },
+    document: { body, getElementById: id => nodes.get(id), addEventListener: (type, fn) => events[type] = fn },
+    window: { favecusPlayer: {}, addEventListener: (type, fn) => windows[type] = fn }, setTimeout: fn => { timers.push(fn); return timers.length; }, clearTimeout() {} };
+  vm.createContext(ctx); vm.runInContext(fs.readFileSync(require('node:path').join(__dirname, '../src/ui/local.js'), 'utf8'), ctx);
+  for (const release of ['pointerup', 'blur', 'pointercancel']) {
+    seek.value = '300'; seek.fire('input'); seek.value = '100'; seek.fire('input'); seek.fire(release);
+    video.currentTime = 42; video.fire('timeupdate'); assert.equal(seek.value, '420');
+  }
+  seek.value = '600'; seek.fire('input'); seek.fire('pointerup'); seek.fire('change'); assert.equal(video.currentTime, 60);
+  nodes.get('local-quality').fire('click', { stopPropagation() {} }); assert.equal(menu.hidden, false);
+  events.mousemove(); events.mouseleave(); timers.at(-1)(); assert.equal(body.classes.has('is-idle'), false);
+  nodes.get('local-quality').fire('click', { stopPropagation() {} }); events.mouseleave(); assert.equal(body.classes.has('is-idle'), true);
+});

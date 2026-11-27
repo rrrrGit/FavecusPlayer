@@ -32,6 +32,29 @@ const Playlist = (d, name) => d.store.data.playlists.find(p => p.name === name);
 const Create = (d, name, parentId) => d.store.Apply({ type: 'create', name, parentId, select: false });
 const Add = (d, playlistId, n) => d.store.Apply({ type: 'add', playlistId, urls: `https://www.bilibili.com/video/BV1${String(n).padStart(9, 'a')}/`, title: `曲${n}` });
 
+test('ResetLink during Enable or Unblock finishes after the operation and never re-enables sync', async () => {
+  for (const method of ['Enable', 'Unblock']) {
+    const server = FakeServer(), d = Device(server);
+    await SignIn(d); d.service.Start();
+    if (method === 'Unblock') { await d.service.Enable(); d.service.session.blocked = 'test block'; d.service.blocked = 'test block'; }
+    const original = d.service.session[method].bind(d.service.session);
+    let enter, release;
+    const entered = new Promise(resolve => { enter = resolve; });
+    d.service.session[method] = async (...args) => { enter(); await new Promise(resolve => { release = resolve; }); return original(...args); };
+    const pending = method === 'Enable' ? d.service.Enable() : d.service.Unblock('restore');
+    await entered; d.service.ResetLink();
+    assert.equal(d.service.config.enabled, false);
+    release();
+    assert.equal((await pending).aborted, true);
+    assert.equal(d.service.config.enabled, false);
+    assert.equal(d.service.device, null);
+    assert.equal(d.service.state, 'off');
+    assert.equal(d.service.pendingReset, false);
+    assert.equal(Storage.ReadState(d.syncDir).status, 'none');
+    d.service.Dispose();
+  }
+});
+
 test('enabling sync backs up library.json first, never stores tokens in plain text, and merges two devices both ways', async () => {
   const server = FakeServer(), a = Device(server), b = Device(server);
   Create(a, 'Aのリスト'); Add(a, Playlist(a, 'Aのリスト').id, 1);

@@ -8,6 +8,7 @@ const S = require('../src/core/sync-state.cjs');
 const L = require('../src/core/sync-library.cjs');
 const E = require('../src/core/sync-engine.cjs');
 const { ValidateLibrary } = require('../src/core/library-data.cjs');
+const { SyncSession } = require('../src/core/sync-session.cjs');
 
 const DAY = 86400000, T0 = Date.UTC(2026, 10, 13);
 const id = (kind, n) => `0000000${kind}-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -20,6 +21,32 @@ const library = (playlists, rootPlaylistIds, videoAliases = []) => ({ version: 3
 // ValidateLibrary（既存の起動時検証）を通した結果。mediaIdなど既存の検証が付ける情報も含めて、正準な文字列にする。
 const Check = result => { const validated = ValidateLibrary({ ...result.library }); return JSON.stringify({ roots: result.library.rootPlaylistIds, lists: validated.map(p => [p.id, p.name, p.includeInAll, p.childIds, p.entries.map(e => [e.id, e.title, e.url || e.fileName, e.mediaId])]) }); };
 const Shape = lib => lib.playlists.map(p => ({ id: p.id, name: p.name, childIds: p.childIds, entries: p.entries.map(e => [e.id, e.title]) }));
+
+test('Converge rolls back all device fields on a changed retry and on a permanent error', async () => {
+  const original = library([list(1, '元の名前')], [pid(1)]);
+  let local = structuredClone(original), apply = () => false;
+  const session = new SyncSession({ adapter: { Library: () => ({ ...structuredClone(local), token: JSON.stringify(local) }), Context: () => ({}), Apply: (...args) => apply(...args) }, persist: () => {}, deviceId: () => 'retry', now: () => T0 });
+  await session.Enable({ url: '', userId: '' });
+  const before = structuredClone(session.device);
+  local.playlists[0].name = '保存されなかった編集';
+  let tries = 0;
+  apply = () => {
+    if (++tries === 1) { local = structuredClone(original); throw Object.assign(new Error('changed'), { code: 'changed' }); }
+    return false;
+  };
+  assert.equal(await session.Converge(), JSON.stringify(original));
+  assert.equal(tries, 2);
+  assert.deepEqual(session.device, before, '却下された編集のstate・clock・outbox・view・Setを残さない');
+  local.playlists[0].name = '失敗する編集';
+  apply = () => { throw new Error('disk failure'); };
+  await assert.rejects(session.Converge(), /disk failure/);
+  assert.deepEqual(session.device, before);
+  const read = session.adapter.Library;
+  session.adapter.Library = () => { throw new Error('read failure'); };
+  await assert.rejects(session.Converge(), /read failure/);
+  assert.deepEqual(session.device, before);
+  session.adapter.Library = read;
+});
 
 test('HLC strings compare as plain strings, always advance, and a far-ahead clock never blocks later edits elsewhere', () => {
   let a = Clock.Tick('', T0, 'devA'), b = Clock.Tick(a, T0, 'devA');

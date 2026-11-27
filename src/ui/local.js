@@ -36,9 +36,9 @@ for (const event of ['play', 'pause', 'timeupdate', 'durationchange', 'loadedmet
 video.addEventListener('loadedmetadata', () => { controls.hidden = false; Paint(); Wake(); });
 seek.addEventListener('input', () => { scrubbing = true; if (video.duration > 0) { video.currentTime = Number(seek.value) / 1000 * video.duration; Paint(); } });
 seek.addEventListener('change', () => { scrubbing = false; seek.blur(); });
-seek.addEventListener('pointercancel', () => { scrubbing = false; Paint(); });
+for (const event of ['pointerup', 'pointercancel', 'blur']) seek.addEventListener(event, () => { if (scrubbing) { scrubbing = false; Paint(); } });
 for (const event of ['mousemove', 'pointerdown', 'touchstart']) document.addEventListener(event, Wake, { passive: true });
-document.addEventListener('mouseleave', () => { if (!video.paused) { document.body.classList.remove('is-active'); document.body.classList.add('is-idle'); } });
+document.addEventListener('mouseleave', () => { if (!video.paused && $('local-quality-menu').hidden) { document.body.classList.remove('is-active'); document.body.classList.add('is-idle'); } });
 
 // ---- 画質：保存済みの動画だけ。表示は保存済みの画質で、切り替えは「別の画質で保存し直す」（既存の保存画面）から行う。
 const kind = params.get('kind'), height = params.get('height');

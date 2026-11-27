@@ -17,7 +17,7 @@ module.exports = function RegisterLibrary(ctx) {
     return S.thumbnails.GetPreview(entry, active, variant);
   });
   Handle('library:action', async action => {
-    const state = S.store.Apply(action);
+    let state = S.store.Apply(action);
     if (S.current?.playlistId && !['select', 'rename', 'title', 'settings'].includes(action.type)) SyncPlayingQueue(false);
     if (S.current?.playlistId && ((action.type === 'title' && S.current.entryId === action.entryId && S.current.playlistId === action.playlistId) || (action.type === 'settings' && Object.hasOwn(action.settings || {}, 'titleCleanupWords')))) {
       S.current.entry.title = S.store.Entry(S.current.playlistId, S.current.entryId).title;
@@ -32,6 +32,7 @@ module.exports = function RegisterLibrary(ctx) {
       if (Object.hasOwn(action.settings || {}, 'thumbnailMode')) { void LoadThumbnail(); if (!state.settings.thumbnailMode) RefreshVideo(); }
       S.backgroundMode?.Refresh();
     }
+    state = S.store.Snapshot();
     Emit('state', state);
     if (S.favorites && !['select', 'rename', 'title', 'settings'].includes(action.type)) Emit('favorites', FavoriteIds());
     return state;

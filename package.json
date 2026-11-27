@@ -15,8 +15,8 @@
     "build:linux": "electron-builder --linux AppImage --publish never",
     "build:win:legacy": "electron-builder --win nsis --x64 --publish never",
     "build:portable:legacy": "electron-builder --win zip --x64 --publish never",
-    "build:win": "python3 scripts/build-windows.py",
-    "verify:win": "python3 scripts/verify-windows.py"
+    "build:win": "python3 scripts/build-windows.py --help",
+    "verify:win": "python3 scripts/verify-windows.py --help"
   },
   "devDependencies": {
     "electron": "44.2.0",

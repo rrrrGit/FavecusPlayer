@@ -49,15 +49,15 @@ function UpdateTransport() {
   RenderResume(); RenderFavorite();
   const { internal, data, canStart, canSeek } = Transport();
   $('now-title').textContent = data?.title || (current?.entry ? EntryTitle(current.entry) : canStart ? List().name : '再生していません');
-  $('now-title').title = $('now-title').textContent;
+  SetTitle($('now-title'), $('now-title').textContent);
   const path = internal ? PlayingPath() : '';
   $('now-artist').textContent = internal ? `${path}${!data ? ' · 読み込み中' : data.paused ? ' · 一時停止' : ''}` : canStart ? '▶ で最初の動画から再生' : '動画を選んで再生';
-  $('now-artist').title = internal ? `${path}${data?.artist ? `\nアーティスト：${data.artist}` : ''}` : $('now-artist').textContent;
+  SetTitle($('now-artist'), internal ? `${path}${data?.artist ? `\nアーティスト：${data.artist}` : ''}` : $('now-artist').textContent);
   const entry = internal ? state.playlists.find(p => p.id === current.playlistId)?.entries.find(e => e.id === current.entryId) || current.entry : null;
   $('now-saved').classList.toggle('hidden', !entry);
   if (entry) {
     PaintSavedBadge($('now-saved'), entry, current.offline ? `現在は保存済みの${current.offline.kind === 'audio' ? '音声' : '動画'}から再生しています。` : entry.type === 'bilibili' ? '現在はオンラインで再生しています。' : 'ローカルファイルから再生しています。');
-  } else { $('now-saved').textContent = ''; $('now-saved').title = ''; $('now-saved').removeAttribute('aria-label'); delete $('now-saved').dataset.mediaUrl; delete $('now-saved').dataset.savedKind; }
+  } else { $('now-saved').textContent = ''; SetTitle($('now-saved'), ''); $('now-saved').removeAttribute('aria-label'); delete $('now-saved').dataset.mediaUrl; delete $('now-saved').dataset.savedKind; }
   SetIcon($('toggle'), data && !data.paused ? 'pause' : 'play');
   $('toggle').setAttribute('aria-label', data && !data.paused ? '一時停止' : '再生');
   if (!seeking) { $('position').textContent = Time(data?.position); $('progress').max = data?.duration || 1; $('progress').value = data?.position || 0; }
@@ -95,12 +95,15 @@ function BackgroundInteractive(enabled) {
   const blocked = $('modal').open;
   for (const node of document.querySelectorAll('.sidebar, main, .transport, .titlebar')) node.inert = blocked;
   enabled = enabled && foreground && !blocked;
+  const resumed = enabled && !backgroundTitlesEnabled;
+  backgroundTitlesEnabled = enabled;
   searchArtwork?.SetEnabled(enabled && allListsView && homeSearchActive);
   homeArtwork?.SetEnabled(enabled && allListsView && !homeSearchActive);
   for (const node of document.querySelectorAll(enabled ? '[data-saved-title]' : '.sidebar [title], main [title], .transport [title]')) {
-    if (enabled) { node.title = node.dataset.savedTitle; delete node.dataset.savedTitle; }
+    if (enabled) { if (!node.hasAttribute('title')) node.title = node.dataset.savedTitle; delete node.dataset.savedTitle; }
     else { node.dataset.savedTitle = node.title; node.removeAttribute('title'); }
   }
+  if (resumed) { RenderPlayer(); RenderSleep(); RenderSpeed(); }
 }
 if (typeof IntersectionObserver !== 'undefined') durationObserver = new IntersectionObserver(changes => {
   for (const { target, isIntersecting } of changes) if (target.durationEntry) { const e = target.durationEntry; if (isIntersecting && !durationFailures.has(e.id)) durationQueue.set(e.id, e); else durationQueue.delete(e.id); }
@@ -111,7 +114,8 @@ document.addEventListener('pointerdown', event => {
   if (transportMenuOpen && !$('transport-menu')?.contains(event.target) && !$('transport-more')?.contains(event.target)) CloseTransportMenu();
 });
 document.addEventListener('keydown', event => { if (event.key === 'Escape') { queueDrag?.Cancel(); CloseExistingPopup(true); CloseTransportMenu(true); } });
-window.addEventListener?.('blur', () => { CloseTransportMenu(); queueDrag?.Cancel(); queueFollower?.Release(); BackgroundInteractive(false); });
+window.addEventListener?.('blur', () => { CloseExistingPopup(); CloseTransportMenu(); EndSeeking(); queueDrag?.Cancel(); queueFollower?.Release(); BackgroundInteractive(false); });
+window.addEventListener?.('resize', () => CloseExistingPopup());
 window.addEventListener?.('focus', () => { if (!$('modal').open) BackgroundInteractive(true); });
 $('modal-form').addEventListener('submit', event => {
   event.preventDefault(); if (submitModal && !$('modal-submit').disabled) PerformModal(submitModal, true);
@@ -130,6 +134,7 @@ $('up-next-toggle').onclick = () => { timelineOpen = !timelineOpen; timelineManu
 document.addEventListener('keydown', event => {
   const keys = window.FavecusKeys;
   if (!keys || event.isComposing || !foreground || $('modal').open || dragged || playlistDrag.value || event.defaultPrevented || event.isTrusted === false || keys.Editing(event.target)) return;
+  if (event.target?.closest?.('#entries, #queue-timeline') && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && ['ArrowUp', 'ArrowDown', 'Space'].includes(event.code)) return;
   if ((event.code === 'Space' || event.code === 'Enter') && event.target?.closest?.('button, [role="button"], [role="menuitem"], a[href], summary')) return;
   const registered = keys.Action(state?.settings.keybindings, { ...event, code: event.code, ctrlKey: event.ctrlKey, altKey: event.altKey, shiftKey: event.shiftKey, metaKey: event.metaKey, repeat: false }); if (!registered) return;
   event.preventDefault(); event.stopPropagation();
@@ -180,9 +185,17 @@ for (const id of ['reload', 'back-ten', 'forward-ten']) $(id).onclick = () => Ru
 $('stop').onclick = () => { CloseTransportMenu(); return Run(() => api.command('stop')); };
 $('page-mode').onclick = () => Run(() => api.command(current?.offline ? 'online' : 'page-mode'));
 $('toggle').onclick = () => Transport().canStart ? PlaybackAction(() => api.play(ViewScope())) : Run(() => api.command('toggle'));
-$('progress').oninput = () => { seeking = true; $('position').textContent = Time(Number($('progress').value)); };
-$('progress').onchange = () => { seeking = false; Run(() => api.command('seek', Number($('progress').value))); };
-$('progress').addEventListener('pointercancel', () => { seeking = false; UpdateTransport(); });
+let seekReleaseTimer = null;
+function EndSeeking() {
+  if (!seeking) return;
+  clearTimeout(seekReleaseTimer);
+  // change は pointerup の直後にも届くため、値の再同期は次のタスクまで待つ。
+  seekReleaseTimer = setTimeout(() => { seekReleaseTimer = null; if (seeking) { seeking = false; UpdateTransport(); } }, 0);
+}
+$('progress').oninput = () => { clearTimeout(seekReleaseTimer); seeking = true; $('position').textContent = Time(Number($('progress').value)); };
+$('progress').onchange = () => { clearTimeout(seekReleaseTimer); seeking = false; Run(() => api.command('seek', Number($('progress').value))); };
+for (const event of ['pointerup', 'blur']) $('progress').addEventListener(event, EndSeeking);
+$('progress').addEventListener('pointercancel', () => { clearTimeout(seekReleaseTimer); seeking = false; UpdateTransport(); });
 $('open-official').onclick = () => Run(() => api.openOfficial());
 $('mode-song').onclick = () => Run(() => SelectDisplayMode('song'));
 $('mode-video').onclick = () => Run(() => SelectDisplayMode('video'));

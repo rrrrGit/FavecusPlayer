@@ -228,15 +228,17 @@ function mediaPreloadHarness(argv = ['--favecus-quality-360p']) {
     window: { addEventListener: (k, f) => { windowEvents[k] = f; } },
     Date: { now: () => now },
     setInterval: f => intervals.push(f),
+    clearInterval: id => { intervals[id - 1] = null; },
   };
   vm.runInNewContext(fs.readFileSync(require.resolve('../src/preloads/media.cjs'), 'utf8'), context);
   windowEvents.DOMContentLoaded();
   return {
     media, messages, events, windowEvents, item,
     clicked: () => clicked,
+    activeIntervals: () => intervals.filter(Boolean).length,
     style: () => style,
     items: v => { items = v; },
-    tick: ms => { now = ms; intervals.forEach(f => f()); },
+    tick: ms => { now = ms; intervals.forEach(f => f?.()); },
     command: v => commands['media:command']({}, v),
     keys: v => commands['media:shortcuts']({}, v),
   };
@@ -279,6 +281,16 @@ test('media preload selects 360p once without overriding user/account choices an
   sk.keys({ enabled: false });
   press();
   assert.equal(sk.messages.filter(m => m[0] === 'media:shortcut').length, 1);
+});
+
+test('preload initialization stops after 600 attempts when the official player DOM is absent', () => {
+  const h = mediaPreloadHarness(['--favecus-official-player', '--favecus-start-at-zero']);
+  h.media.readyState = 0;
+  const before = h.activeIntervals();
+  for (let i = 1; i <= 599; i++) h.tick(i * 100);
+  assert.equal(h.activeIntervals(), before);
+  h.tick(60000);
+  assert.equal(h.activeIntervals(), before - 1);
 });
 
 test('media preload fits internal official player and restores paused/playing positions after late metadata', () => {

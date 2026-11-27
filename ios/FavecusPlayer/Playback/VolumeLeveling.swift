@@ -32,17 +32,13 @@ enum VolumeLeveling {
         while let buffer = output.copyNextSampleBuffer() {
             if Task.isCancelled { reader.cancelReading(); return nil }
             guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
-            var length = 0
-            var pointer: UnsafeMutablePointer<Int8>?
-            guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &pointer) == kCMBlockBufferNoErr, let pointer else { continue }
-            let samples = length / 2
-            pointer.withMemoryRebound(to: Int16.self, capacity: samples) { values in
-                for index in 0..<samples {
-                    let value = Double(values[index]) / 32768.0
+            guard PCM16Buffer.withSamples(in: block, { values in
+                for sample in values {
+                    let value = Double(sample) / 32768.0
                     sumSquares += value * value
                 }
-            }
-            count += samples
+                count += values.count
+            }) else { reader.cancelReading(); return nil }
             if Double(count) / rate > maxSeconds { reader.cancelReading(); break }
         }
         guard count > 0 else { return nil }

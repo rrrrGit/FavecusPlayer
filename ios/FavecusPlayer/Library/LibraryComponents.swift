@@ -85,11 +85,38 @@ struct SwipeBackEnabler: UIViewControllerRepresentable {
 
     final class Holder: UIViewController {
         let popDelegate = PopDelegate()
+        private weak var originalDelegate: UIGestureRecognizerDelegate?
+        private weak var popGesture: UIGestureRecognizer?
+
         override func viewDidAppear(_ animated: Bool) {
             super.viewDidAppear(animated)
+            guard let gesture = navigationController?.interactivePopGestureRecognizer else { return }
+            if gesture.delegate !== popDelegate {
+                restorePopDelegate()
+                originalDelegate = gesture.delegate
+                popGesture = gesture
+            }
             popDelegate.navigationController = navigationController
-            navigationController?.interactivePopGestureRecognizer?.delegate = popDelegate
-            navigationController?.interactivePopGestureRecognizer?.isEnabled = true
+            gesture.delegate = popDelegate
+            gesture.isEnabled = true
+        }
+
+        override func viewWillDisappear(_ animated: Bool) {
+            restorePopDelegate()
+            super.viewWillDisappear(animated)
+        }
+
+        private func restorePopDelegate() {
+            if let popGesture, popGesture.delegate === popDelegate { popGesture.delegate = originalDelegate }
+            popGesture = nil
+            originalDelegate = nil
+        }
+
+        deinit {
+            let gesture = popGesture, original = originalDelegate, own = popDelegate
+            Task { @MainActor in
+                if let gesture, gesture.delegate === own { gesture.delegate = original }
+            }
         }
     }
 

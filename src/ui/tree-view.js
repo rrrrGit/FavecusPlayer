@@ -34,10 +34,14 @@
           const handle = button('≡', 'tree-handle', () => {}); handle.draggable = true; handle.title = 'ドラッグで並べ替え'; handle.setAttribute('aria-label', `${p.name}を並べ替え`);
           handle.addEventListener('dragstart', event => { options.drag.value = { id, parentId }; event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', id); row.classList.add('dragging'); });
           handle.addEventListener('dragend', () => { options.drag.value = null; clearMarks(); });
-          handle.addEventListener('keydown', event => {
+          handle.addEventListener('keydown', async event => {
             if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return; event.preventDefault();
             const siblings = parentId ? map.get(parentId).childIds : tree.Roots(data), at = siblings.indexOf(id), target = siblings[at + (event.key === 'ArrowUp' ? -1 : 1)];
-            if (target) options.onDrop({ id, parentId }, target, event.key === 'ArrowUp' ? 'before' : 'after', parentId);
+            if (target) {
+              await options.onDrop({ id, parentId }, target, event.key === 'ArrowUp' ? 'before' : 'after', parentId);
+              const restored = [...container.querySelectorAll('.tree-row')].find(row => row.dataset.playlistId === id && row.dataset.parentId === (parentId || ''));
+              restored?.querySelector('.tree-handle')?.focus?.({ preventScroll: true });
+            }
           }); row.append(handle);
         }
         const name = button(p.name, 'tree-name', () => options.onSelect?.(id)); name.title = p.name;

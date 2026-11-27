@@ -240,22 +240,22 @@ function PlaybackSettings() {
   $('auto-thumbnail').checked = s.autoThumbnailEnabled; $('auto-thumbnail-minutes').value = s.autoThumbnailMinutes;
 }
 function Favorites() {
-  const selected = new Map(); let page = 1, request = 0, destinations;
+  const selected = new Map(); let page = 1, hasMore = true, request = 0, destinations;
   OpenModal('Bilibiliの保存リストから追加', `<p class="form-note">ログインしたアカウントの「收藏夹」から、追加したい動画を選べます。</p><select id="favorite-folders" aria-label="保存リスト" disabled><option>読み込んでいます…</option></select><p id="favorite-message" class="status-detail"></p><div id="favorite-list" class="favorite-list"></div><div class="favorite-pages"><button id="favorite-prev" type="button" class="button secondary" disabled>前へ</button><span id="favorite-page">1</span><button id="favorite-next" type="button" class="button secondary" disabled>次へ</button></div><div class="settings-actions"><button id="favorite-login" type="button" class="button secondary">ログイン</button><button id="favorite-refresh" type="button" class="button secondary">リストを再取得</button><button id="favorite-official" type="button" class="button secondary">公式の保存リストを開く</button></div>`, async () => {
     if (!selected.size) throw new Error('追加する動画にチェックしてください。');
-    await AddSelected({ type: 'add-videos', videos: [...selected].map(([url, title]) => ({ url, title, duration: videoDetails.get(url)?.duration })) }, destinations());
+    return AddSelected({ type: 'add-videos', videos: [...selected].map(([url, title]) => ({ url, title, duration: videoDetails.get(url)?.duration })) }, destinations());
   }, '選択した動画を追加');
   destinations = AddDestinations();
   const videoDetails = new Map();
   const epoch = modalEpoch, active = key => epoch === modalEpoch && request === key && $('modal').open;
-  const loadPage = async () => {
-    const id = $('favorite-folders').value, key = ++request, requestedPage = page;
+  const loadPage = async (targetPage = page) => {
+    const id = $('favorite-folders').value, key = ++request;
     $('favorite-message').textContent = '動画を読み込んでいます…'; $('favorite-prev').disabled = true; $('favorite-next').disabled = true;
-    $('favorite-list').replaceChildren();
     try {
-      const result = await api.favoriteVideos(id, requestedPage);
+      const result = await api.favoriteVideos(id, targetPage);
       if (!active(key)) return;
-      $('favorite-list').replaceChildren(); $('favorite-page').textContent = String(requestedPage);
+      page = targetPage; hasMore = result.hasMore;
+      $('favorite-list').replaceChildren(); $('favorite-page').textContent = String(page);
       for (const video of result.videos) {
         videoDetails.set(video.url, video);
         const label = Element('label', 'favorite-row'), input = document.createElement('input'); input.type = 'checkbox'; input.checked = selected.has(video.url);
@@ -263,8 +263,8 @@ function Favorites() {
         const info = Element('span', '', video.title || video.videoId); info.append(Element('small', '', video.artist)); label.append(input, info); $('favorite-list').append(label);
       }
       $('favorite-message').textContent = result.videos.length ? `${selected.size}本を選択中` : 'このページに追加できる動画はありません。';
-      $('favorite-prev').disabled = requestedPage <= 1; $('favorite-next').disabled = !result.hasMore;
-    } catch (error) { if (active(key)) { $('favorite-message').textContent = `${error.message} リストを取得できない場合は公式画面から動画URLを追加できます。`; $('favorite-prev').disabled = requestedPage <= 1; } }
+    } catch (error) { if (active(key)) $('favorite-message').textContent = `${error.message} リストを取得できない場合は公式画面から動画URLを追加できます。`; }
+    finally { if (active(key)) { $('favorite-prev').disabled = page <= 1; $('favorite-next').disabled = !hasMore; } }
   };
   const loadFolders = async () => {
     const key = ++request;
@@ -276,11 +276,11 @@ function Favorites() {
       for (const f of folders) { const option = Element('option', '', `${f.title} (${f.count})`); option.value = f.id; $('favorite-folders').append(option); }
       $('favorite-folders').disabled = !folders.length;
       $('favorite-refresh').disabled = false;
-      if (folders.length) { page = 1; await loadPage(); } else $('favorite-message').textContent = '保存リストがありません。';
+      if (folders.length) { page = 1; hasMore = true; $('favorite-page').textContent = '1'; await loadPage(1); } else $('favorite-message').textContent = '保存リストがありません。';
     } catch (error) { if (active(key)) { $('favorite-message').textContent = error.message; $('favorite-refresh').disabled = false; } }
   };
-  $('favorite-folders').onchange = () => { page = 1; void loadPage(); };
-  $('favorite-prev').onclick = () => { page--; void loadPage(); }; $('favorite-next').onclick = () => { page++; void loadPage(); };
+  $('favorite-folders').onchange = () => { page = 1; hasMore = true; $('favorite-page').textContent = '1'; $('favorite-list').replaceChildren(); void loadPage(1); };
+  $('favorite-prev').onclick = () => loadPage(page - 1); $('favorite-next').onclick = () => loadPage(page + 1);
   $('favorite-login').onclick = () => Run(() => api.login('bilibili'));
   $('favorite-official').onclick = () => Run(() => api.login('bilibili', true));
   $('favorite-refresh').onclick = loadFolders; void loadFolders();

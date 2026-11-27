@@ -53,7 +53,7 @@ function CreateNestedPlaylist(onCreated, excludeId = null) {
   };
   dialog.showModal(); name.focus();
 }
-async function ReviewAddition(plan, epoch) {
+async function ReviewAddition(plan, epoch, onComplete) {
   if (!plan) return false;
   if (epoch !== modalEpoch || !$('modal').open) { await api.cancelAdd(plan.id); return false; }
   let reviewEpoch = epoch;
@@ -61,6 +61,7 @@ async function ReviewAddition(plan, epoch) {
     const result = await api.commitAdd(plan.id, allowedIds);
     if (reviewEpoch === modalEpoch) {
       cancelModal = null; state = result.state; Render();
+      onComplete?.(result);
       Toast(`${result.added}曲を追加しました。${result.skipped ? `重複候補${result.skipped}件は追加しませんでした。` : ''}${plan.warnings.join(' ')}`);
     }
     return result;
@@ -92,11 +93,11 @@ async function ReviewAddition(plan, epoch) {
   for (const [id, checked] of [['duplicate-all', true], ['duplicate-none', false]]) $(id).onclick = () => { for (const input of $('duplicate-list').querySelectorAll('input')) input.checked = checked; updateCount(); };
   updateCount(); return false;
 }
-async function AddSelected(action, destinationIds) {
+async function AddSelected(action, destinationIds, onComplete) {
   const epoch = modalEpoch;
   Toast('追加する曲の名前と重複を確認しています…');
   const plan = await api.prepareAdd({ ...action, destinationIds });
-  return ReviewAddition(plan, epoch);
+  return ReviewAddition(plan, epoch, onComplete);
 }
 function AddURL(prefill = {}) {
   let destinations, resolved = null, readInput = '', request = 0;
@@ -226,7 +227,7 @@ function DropPlaylist(item, targetId, mode, parentId) {
     if (!tree.CanParent(state, item.id, targetId)) { Toast('自分自身や子孫を親にはできません。'); return; }
     OpenModal('子プレイリストへ移動', '<p id="child-confirm" class="form-note"></p>', () => Action({ type: 'playlist-move', playlistId: item.id, parentId: targetId }), 'はい、子にする');
     $('child-confirm').textContent = `このプレイリストを「${state.playlists.find(p => p.id === targetId).name}」の子プレイリストにしますか？`; $('modal-cancel').textContent = 'いいえ';
-  } else void Run(() => Action({ type: 'playlist-reorder', playlistId: item.id, parentId, targetId, after: mode === 'after' }));
+  } else return Run(() => Action({ type: 'playlist-reorder', playlistId: item.id, parentId, targetId, after: mode === 'after' }));
 }
 function SortLists() {
   OpenModal('プレイリストの並べ替え', '<label class="field">順序<select id="playlist-sort"></select></label><p class="form-note">親子関係を保ち、同じ階層内で並べ替えます。全リスト一覧も同じ基準です。曲の手動順は保持します。古いリストに作成日時がない場合は登録順を使います。</p>', () => Action({ type: 'settings', settings: { playlistSort: $('playlist-sort').value } }));

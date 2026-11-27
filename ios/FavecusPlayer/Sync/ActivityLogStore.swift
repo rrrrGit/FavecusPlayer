@@ -77,7 +77,7 @@ final class ActivityLogStore {
     }
 
     /// イベントを1件記録し、7日より古い記録を整理して保存する。
-    func record(_ kind: String, detail: [String: String] = [:]) {
+    func record(_ kind: String, detail: [String: String] = [:], markDirty: Bool = true) {
         let current = now()
         let day = dayString(for: current)
         let entry = ActivityLogEntry(
@@ -87,7 +87,7 @@ final class ActivityLogStore {
             detail: detail.isEmpty ? nil : detail
         )
         document.entries.append(entry)
-        if !document.dirtyDays.contains(day) { document.dirtyDays.append(day) }
+        if markDirty, !document.dirtyDays.contains(day) { document.dirtyDays.append(day) }
         prune(for: current)
         save()
     }
@@ -96,7 +96,8 @@ final class ActivityLogStore {
     func needsDailySync(at date: Date? = nil) -> Bool {
         let current = date ?? now()
         let todayStart = calendar.startOfDay(for: current).timeIntervalSince1970
-        return document.lastSyncedAt < todayStart || !document.dirtyDays.isEmpty
+        let todayString = dayString(for: current)
+        return document.lastSyncedAt < todayStart || document.dirtyDays.contains { $0 < todayString }
     }
 
     /// 次の 0:00:00（ローカル時刻）を返す。

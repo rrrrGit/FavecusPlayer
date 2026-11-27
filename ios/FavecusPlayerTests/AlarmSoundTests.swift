@@ -51,6 +51,36 @@ final class AlarmSoundTests: XCTestCase {
         XCTAssertEqual(length, 1, accuracy: 0.2)
     }
 
+    func testReplacingAnExistingSoundAndFailedRegenerationKeepAValidOutput() async throws {
+        let source = try makeSource(seconds: 6)
+        let output = directory.appendingPathComponent("replace.caf")
+        try await AlarmSoundMaker.make(source: source, start: 0, duration: 2, output: output)
+        try await AlarmSoundMaker.make(source: source, start: 1, duration: 3, output: output)
+        let length = try await duration(output)
+        XCTAssertEqual(length, 3, accuracy: 0.2)
+        let previous = try Data(contentsOf: output)
+        do {
+            try await AlarmSoundMaker.make(source: directory.appendingPathComponent("missing.wav"), start: 0, duration: 2, output: output)
+            XCTFail("音源がないので失敗するはず")
+        } catch {}
+        XCTAssertEqual(try Data(contentsOf: output), previous)
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: directory.path).contains { $0.hasPrefix(".tmp-") })
+    }
+
+    func testCancelledSoundGenerationKeepsTheExistingOutput() async throws {
+        let source = try makeSource(seconds: 4)
+        let output = directory.appendingPathComponent("cancel.caf")
+        let previous = Data("existing sound".utf8)
+        try previous.write(to: output)
+        let worker = Task { @MainActor in
+            try await AlarmSoundMaker.make(source: source, start: 0, duration: 3, output: output)
+        }
+        worker.cancel()
+        do { try await worker.value; XCTFail("キャンセルするはず") } catch {}
+        XCTAssertEqual(try Data(contentsOf: output), previous)
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: directory.path).contains { $0.hasPrefix(".tmp-") })
+    }
+
     func testNonAudioSourceFailsWithoutLeavingAFile() async throws {
         let bogus = directory.appendingPathComponent("bogus.wav")
         try Data("not audio".utf8).write(to: bogus)

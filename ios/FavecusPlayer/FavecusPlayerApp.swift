@@ -1,8 +1,37 @@
+import Foundation
 import SwiftUI
 import UIKit
 #if canImport(BackgroundTasks)
 import BackgroundTasks
 #endif
+
+/// BGTaskの期限切れがMainActor上のworker作成より先でも、キャンセルを引き継ぐ。
+final class BackgroundRefreshCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    private var worker: Task<Bool, Never>?
+
+    func bind(_ worker: Task<Bool, Never>) {
+        let shouldCancel = lock.withLock {
+            if cancelled { return true }
+            self.worker = worker
+            return false
+        }
+        if shouldCancel { worker.cancel() }
+    }
+
+    func cancel() {
+        let pending = lock.withLock {
+            cancelled = true
+            let pending = worker
+            worker = nil
+            return pending
+        }
+        pending?.cancel()
+    }
+
+    func finish() { lock.withLock { worker = nil } }
+}
 
 /// 背面で終わった保存の通信を、再起動されたときに受け取る（BackgroundTransfers が同じ識別子のセッションを作り直して続きを受け取る）。
 final class AppDelegate: NSObject, UIApplicationDelegate {
@@ -26,12 +55,17 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 task.setTaskCompleted(success: false)
                 return
             }
+            let cancellation = BackgroundRefreshCancellation()
+            refreshTask.expirationHandler = { cancellation.cancel() }
             Task { @MainActor in
                 let worker = Task { @MainActor in
-                    await AppEnvironment.shared.handleBackgroundActivitySync()
+                    guard !Task.isCancelled else { return false }
+                    return await AppEnvironment.shared.handleBackgroundActivitySync()
                 }
-                refreshTask.expirationHandler = { worker.cancel() }
+                cancellation.bind(worker)
                 let ok = await worker.value
+                cancellation.finish()
+                refreshTask.expirationHandler = nil
                 refreshTask.setTaskCompleted(success: ok)
             }
         }

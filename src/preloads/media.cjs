@@ -106,13 +106,14 @@ function NeedsInitTick() {
 }
 function EnsureInitTimer() {
   if (initTimer || !NeedsInitTick()) return;
+  let ticks = 0;
   initTimer = setInterval(() => {
     const media = FindMedia();
     if (startPending) StartAtZero(media);
     RestorePlayback(media);
     DefaultQuality();
     FitOfficialPlayer();
-    if (!NeedsInitTick()) { if (typeof clearInterval === 'function') clearInterval(initTimer); initTimer = null; }
+    if (!NeedsInitTick() || ++ticks >= 600) { if (typeof clearInterval === 'function') clearInterval(initTimer); initTimer = null; }
   }, 100);
 }
 window.addEventListener('DOMContentLoaded', () => {

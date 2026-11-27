@@ -17,7 +17,7 @@ final class BiliCore: @unchecked Sendable {
         context = created
         context.exceptionHandler = { [weak self] _, exception in self?.errors.append(exception?.toString() ?? "unknown") }
         let object = JSValue(newObjectIn: context)
-        let request: @convention(block) (String, String, String) -> JSValue = { [weak self] method, url, json in
+        let request: @convention(block) (String, String, String) -> JSValue = { [weak self, weak created] method, url, json in
             guard let self else { return JSValue(undefinedIn: created) }
             return JSValue(newPromiseIn: self.context) { [queue = self.queue] resolve, reject in
                 Task {

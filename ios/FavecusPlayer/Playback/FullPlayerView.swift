@@ -92,7 +92,7 @@ struct FullPlayerView: View {
         }
         .onChange(of: player.current?.entryId) { _ in hint = nil; scrubbing = nil } // 曲が変わったら、前の曲の表示・操作状態を消す
         .task(id: (player.current?.entryId ?? "") + "/" + (player.current?.playlistId ?? "")) { location = await player.location() }
-        .alert("お知らせ", isPresented: Binding(get: { player.message != nil }, set: { if !$0 { player.message = nil } })) {
+        .alert("お知らせ", isPresented: Binding(get: { isPresented && player.message != nil }, set: { if !$0 && isPresented { player.message = nil } })) {
             Button("コピー") { Clipboard.copy(player.message ?? ""); player.message = nil }
             Button("閉じる", role: .cancel) { player.message = nil }
         } message: {

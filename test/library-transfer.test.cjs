@@ -158,4 +158,11 @@ test('IdenticalIds and Import skipIdentical detect matching structures and skip 
   const duplicated = T.Import({ library: local, plan: planOf(makeLib()), ids: [id(1, 1)], available: [], createId });
   assert.equal(duplicated.library.playlists.length, local.playlists.length + 2);
   assert.ok(duplicated.library.playlists.some(p => /取り込み1/.test(p.name)));
+  const conflictingPlan = planOf(makeLib());
+  local.videoAliases = [{ aid: '123', bvid: 'BV1aaaaaaaaa' }];
+  conflictingPlan.input.videoAliases = [{ aid: '123', bvid: 'BV1bbbbbbbbb' }];
+  assert.throws(() => T.IdenticalIds(local, conflictingPlan), /矛盾/);
+  const imported = T.Import({ library: local, plan: conflictingPlan, ids: [id(1, 3)], available: [], createId, skipIdentical: true });
+  assert.equal(imported.imported, 1); assert.equal(imported.skippedIdentical, 0);
+  assert.deepEqual(imported.library.videoAliases, local.videoAliases);
 });
