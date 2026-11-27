@@ -237,10 +237,10 @@ final class SyncCoordinator: ObservableObject {
                 return false
             }
         }
-        chain = task
+        chain = Task { _ = await task.value }
         let ok = await task.value
         if let enableError { throw enableError }
-        if ok { _ = await syncNow() }
+        if ok { _ = await syncNow(); scheduleMidnightSync() }
     }
 
     func disable() {
@@ -274,10 +274,10 @@ final class SyncCoordinator: ObservableObject {
                 return false
             }
         }
-        chain = task
+        chain = Task { _ = await task.value }
         let ok = await task.value
         if let unblockError { throw unblockError }
-        if ok { _ = await syncNow() }
+        if ok { _ = await syncNow(); scheduleMidnightSync() }
     }
 
     func resetLink() {
