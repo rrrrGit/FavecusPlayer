@@ -41,9 +41,14 @@ final class CrossfadeTests: XCTestCase {
 
     @MainActor
     func testSeekingDuringCrossfadeRestoresTheCurrentPlayersVolume() async throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("favecus-seek-\(UUID().uuidString).wav")
-        defer { try? FileManager.default.removeItem(at: url) }
-        do {
+        let dir = FileManager.default.temporaryDirectory
+        let url1 = dir.appendingPathComponent("favecus-seek-1-\(UUID().uuidString).wav")
+        let url2 = dir.appendingPathComponent("favecus-seek-2-\(UUID().uuidString).wav")
+        defer {
+            try? FileManager.default.removeItem(at: url1)
+            try? FileManager.default.removeItem(at: url2)
+        }
+        for url in [url1, url2] {
             let file = try AVAudioFile(forWriting: url, settings: [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 44100, AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false])
             let frames = AVAudioFrameCount(441000)
             let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: frames))
@@ -54,7 +59,7 @@ final class CrossfadeTests: XCTestCase {
         }
         let backend = AVPlayerBackend()
         defer { backend.stop() }
-        backend.load(url: url)
+        backend.load(url: url1)
         let player = try XCTUnwrap(backend.videoPlayer)
         for _ in 0..<250 {
             if player.currentItem?.status == .readyToPlay { break }
@@ -67,8 +72,10 @@ final class CrossfadeTests: XCTestCase {
         player.playImmediately(atRate: 1)
         XCTAssertGreaterThan(player.rate, 0)
         backend.crossfade = 4
-        backend.load(url: url)
+        backend.load(url: url2)
         XCTAssertEqual(player.volume, 0, accuracy: 0.001)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertLessThan(player.volume, 0.35, "クロスフェード進行中")
         backend.seek(to: 1)
         XCTAssertEqual(player.volume, 0.4, accuracy: 0.001)
         try await Task.sleep(nanoseconds: 100_000_000)

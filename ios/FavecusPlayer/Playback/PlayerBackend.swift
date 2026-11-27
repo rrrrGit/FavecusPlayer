@@ -128,6 +128,7 @@ final class AVPlayerBackend: PlayerBackend {
         fadeTask?.cancel()
         fadeTask = nil
         ghost?.pause()
+        ghost?.replaceCurrentItem(with: nil)
         ghost = nil
         mix = 1
         applyVolume()
