@@ -150,7 +150,13 @@ final class AlarmService: ObservableObject {
 
     private func performResync() async {
         let snapshots = await scheduler.scheduledSnapshots()
-        guard let live = snapshots.map({ Set($0.map(\.id)) }) ?? (await scheduler.scheduledIDs()) else { return }
+        let liveIDs: Set<UUID>?
+        if let snapshots {
+            liveIDs = Set(snapshots.map(\.id))
+        } else {
+            liveIDs = await scheduler.scheduledIDs()
+        }
+        guard let live = liveIDs else { return }
         let ready = isLibraryReady()
         let pending = pendingPlayAlarmId?() ?? AlarmPlayRequest.peek()
         var retiredCount = 0
